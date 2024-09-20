@@ -169,12 +169,14 @@ export default function EditCourse({ params }) {
             ? { 
                 ...chapter, 
                 lessons: chapter.lessons.map(lesson => 
-                  lesson.id === updatedLesson.id ? updatedLesson : lesson
+                  lesson.id === updatedLesson.id ? { ...lesson, ...updatedLesson } : lesson
                 )
               }
             : chapter
         )
       }));
+      // Cập nhật lại selectedLesson
+      setSelectedLesson(updatedLesson);
       toast.success("Bài học đã được cập nhật");
     } catch (error) {
       console.error("Lỗi khi cập nhật bài học:", error);
@@ -210,7 +212,7 @@ export default function EditCourse({ params }) {
             />
           </div>
           <div className="w-2/3 overflow-y-auto p-6">
-            <LessonContent lesson={selectedLesson} onUpdateLesson={handleUpdateLesson} />
+            <LessonContent lesson={selectedLesson} onUpdateLesson={handleUpdateLesson} courseId={id} chapterId={selectedChapterId} />
           </div>
         </main>
         {isAddChapterModalOpen && (

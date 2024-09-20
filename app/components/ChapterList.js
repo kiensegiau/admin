@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { updateDoc, doc, deleteDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { toast } from "sonner";
@@ -7,6 +7,15 @@ import { Spin } from 'antd';
 export default function ChapterList({ courseId, chapters, onSelectLesson, onAddLesson, onUpdateChapters }) {
   const [expandedChapter, setExpandedChapter] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (expandedChapter) {
+      const chapterStillExists = chapters.some(chapter => chapter.id === expandedChapter);
+      if (!chapterStillExists) {
+        setExpandedChapter(null);
+      }
+    }
+  }, [chapters, expandedChapter]);
 
   const toggleChapter = (chapterId) => {
     setExpandedChapter(expandedChapter === chapterId ? null : chapterId);

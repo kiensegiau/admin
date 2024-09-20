@@ -1,66 +1,141 @@
 import { useState } from "react";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { storage } from "../firebase";
-import { toast } from "sonner";
+import { storage, db } from '.././firebase';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { doc, updateDoc, arrayUnion, setDoc, getDoc } from 'firebase/firestore';
+import LoadingSpinner from './LoadingSpinner';
+import { google } from 'googleapis';
+import { getSession } from 'next-auth/react';
 
-export default function AddFileModal({ onClose, onAddFile, lessonId }) {
+export default function AddFileModal({ onClose, lessonId, onFileAdded }) {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+    if (e.target.files[0]) {
+      setFile(e.target.files[0]);
+    }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!file) {
-      toast.error("Vui lòng chọn một file");
-      return;
-    }
-
+  const handleUpload = async () => {
+    if (!file) return;
     setUploading(true);
     try {
-      const fileRef = ref(storage, `lessons/${lessonId}/${file.name}`);
-      await uploadBytes(fileRef, file);
-      const url = await getDownloadURL(fileRef);
-      onAddFile({ name: file.name, url, type: file.type });
-      toast.success("File đã được tải lên");
-      onClose();
+      // Upload to Firebase Storage
+      const storageRef = ref(storage, `lessons/${lessonId}/${file.name}`);
+      const uploadTask = uploadBytesResumable(storageRef, file);
+      
+      uploadTask.on('state_changed', 
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(progress);
+        },
+        (error) => {
+          console.error('Lỗi khi tải file lên Firebase:', error);
+          setUploading(false);
+        },
+        async () => {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          
+          // Upload to Google Drive
+          const session = await getSession();
+          let tokens = session.googleTokens;
+
+          if (isTokenExpired(tokens)) {
+            const response = await fetch('/api/auth/refresh-token');
+            if (response.ok) {
+              const newSession = await getSession();
+              tokens = newSession.googleTokens;
+            } else {
+              throw new Error('Failed to refresh token');
+            }
+          }
+
+          // Import dynamically
+          const { google } = await import('googleapis');
+
+          // Sử dụng Google Drive API
+          const oauth2Client = new google.auth.OAuth2();
+          oauth2Client.setCredentials(tokens);
+          const drive = google.drive({ version: 'v3', auth: oauth2Client });
+
+          const fileMetadata = {
+            name: file.name,
+          };
+
+          const media = {
+            mimeType: file.type,
+            body: file,
+          };
+
+          const driveResponse = await drive.files.create({
+            requestBody: fileMetadata,
+            media: media,
+            fields: 'id, webViewLink',
+          });
+
+          const fileData = {
+            name: file.name,
+            firebaseUrl: downloadURL,
+            driveUrl: driveResponse.data.webViewLink,
+            type: file.type,
+            uploadTime: new Date().toISOString()
+          };
+
+          const lessonRef = doc(db, 'lessons', lessonId);
+          const lessonSnap = await getDoc(lessonRef);
+
+          if (!lessonSnap.exists()) {
+            // Tạo document mới nếu chưa tồn tại
+            await setDoc(lessonRef, { files: [fileData] });
+          } else {
+            // Cập nhật document nếu đã tồn tại
+            await updateDoc(lessonRef, {
+              files: arrayUnion(fileData)
+            });
+          }
+
+          onFileAdded();
+          onClose();
+          setUploading(false);
+        }
+      );
     } catch (error) {
-      console.error("Lỗi khi upload file:", error);
-      toast.error("Không thể upload file");
-    } finally {
+      console.error('Lỗi chi tiết:', error.code, error.message);
+      // Hiển thị thông báo lỗi cho người dùng
       setUploading(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-      <div className="bg-white p-6 rounded-lg w-1/2">
-        <h2 className="text-2xl font-semibold mb-4">Thêm tài liệu mới</h2>
-        <form onSubmit={handleSubmit}>
-          <input
-            type="file"
-            onChange={handleFileChange}
-            className="w-full border p-2 rounded mb-4"
-          />
+    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center" onClick={onClose}>
+      <div className="bg-white p-5 rounded-lg shadow-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-xl font-bold mb-4">Thêm tài liệu</h2>
+        <input type="file" onChange={handleFileChange} className="mb-4 w-full" />
+        {uploading ? (
+          <div className="mb-4">
+            <LoadingSpinner />
+            <p className="text-center mt-2">Đang tải lên: {uploadProgress.toFixed(0)}%</p>
+          </div>
+        ) : (
           <div className="flex justify-end">
             <button
-              type="button"
               onClick={onClose}
-              className="bg-gray-300 text-black px-4 py-2 rounded mr-2"
+              className="mr-2 px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition duration-300"
             >
               Hủy
             </button>
             <button
-              type="submit"
-              className="bg-blue-500 text-white px-4 py-2 rounded"
-              disabled={uploading}
+              onClick={handleUpload}
+              disabled={!file || uploading}
+              className={`px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition duration-300 ${
+                (!file || uploading) && 'opacity-50 cursor-not-allowed'
+              }`}
             >
-              {uploading ? "Đang tải lên..." : "Thêm"}
+              Tải lên
             </button>
           </div>
-        </form>
+        )}
       </div>
     </div>
   );

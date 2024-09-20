@@ -1,8 +1,106 @@
-import { useState } from 'react';
-import AddFileModal from './AddFileModal'
+import { useState, useEffect } from 'react';
+import { db } from '.././firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import AddFileModal from './AddFileModal';
+import FileViewModal from './FileViewModal';
+import LoadingSpinner from './LoadingSpinner';
+import { toast } from 'sonner';
+import { ref, deleteObject } from 'firebase/storage';
+import { storage } from '.././firebase';
 
-export default function LessonContent({ lesson, onUpdateLesson }) {
+export default function LessonContent({ lesson, onUpdateLesson, courseId, chapterId }) {
   const [isAddFileModalOpen, setIsAddFileModalOpen] = useState(false);
+  const [isFileViewModalOpen, setIsFileViewModalOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [lessonData, setLessonData] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState(lessonData?.title || lesson?.title || '');
+
+  useEffect(() => {
+    setIsLoading(true);
+    setLessonData(null);
+    
+    const fetchLessonData = async () => {
+      if (lesson && lesson.id) {
+        console.log('Đang tải dữ liệu cho bài học:', lesson.id);
+        try {
+          const lessonRef = doc(db, 'lessons', lesson.id);
+          const lessonSnap = await getDoc(lessonRef);
+          if (lessonSnap.exists()) {
+            console.log('Dữ liệu bài học:', lessonSnap.data());
+            setLessonData(lessonSnap.data());
+            setEditedTitle(lessonSnap.data().title || '');
+          } else {
+            console.log('Không tìm thấy dữ liệu cho bài học:', lesson.id);
+            setLessonData({ title: lesson.title || '', files: [] });
+            setEditedTitle(lesson.title || '');
+          }
+        } catch (error) {
+          console.error('Lỗi khi tải dữ liệu bài học:', error);
+          setLessonData({ title: lesson.title || '', files: [] });
+          setEditedTitle(lesson.title || '');
+        } finally {
+          setIsLoading(false);
+        }
+      } else {
+        console.log('Không có bài học được chọn');
+        setLessonData(null);
+        setEditedTitle('');
+        setIsLoading(false);
+      }
+    };
+
+    fetchLessonData();
+  }, [lesson]);
+
+  const handleFileClick = (file) => {
+    setSelectedFile(file);
+    setIsFileViewModalOpen(true);
+  };
+
+  const handleEditTitle = async () => {
+    if (editedTitle.trim() === '') return;
+    if (!courseId || !chapterId || !lesson.id) {
+      console.error('Thiếu thông tin cần thiết để cập nhật bài học');
+      toast.error('Không thể cập nhật tên bài học');
+      return;
+    }
+    try {
+      await updateDoc(doc(db, 'courses', courseId, 'chapters', chapterId, 'lessons', lesson.id), { title: editedTitle });
+      onUpdateLesson({ ...lesson, title: editedTitle });
+      setIsEditingTitle(false);
+      toast.success('Đã cập nhật tên bài học');
+    } catch (error) {
+      console.error('Lỗi khi cập nhật tên bài học:', error);
+      toast.error('Không thể cập nhật tên bài học');
+    }
+  };
+
+  const handleDeleteFile = async (fileToDelete) => {
+    if (window.confirm('Bạn có chắc chắn muốn xóa file này?')) {
+      try {
+        // Xóa file từ Firebase Storage
+        const storageRef = ref(storage, `lessons/${lesson.id}/${fileToDelete.name}`);
+        await deleteObject(storageRef);
+
+        // Xóa thông tin file từ Firestore
+        const updatedFiles = lessonData.files.filter(file => file.name !== fileToDelete.name);
+        await updateDoc(doc(db, 'lessons', lesson.id), { files: updatedFiles });
+
+        // Cập nhật state
+        setLessonData({ ...lessonData, files: updatedFiles });
+        toast.success('Đã xóa file');
+      } catch (error) {
+        console.error('Lỗi khi xóa file:', error);
+        toast.error('Không thể xóa file');
+      }
+    }
+  };
+
+  if (isLoading) {
+    return <LoadingSpinner />;
+  }
 
   if (!lesson) {
     return (
@@ -14,50 +112,97 @@ export default function LessonContent({ lesson, onUpdateLesson }) {
 
   return (
     <div className="p-6 bg-white rounded-lg shadow-md">
-      <h2 className="text-3xl font-semibold mb-6">{lesson.title}</h2>
+      {isEditingTitle ? (
+        <div className="flex items-center mb-6">
+          <input
+            type="text"
+            value={editedTitle}
+            onChange={(e) => setEditedTitle(e.target.value)}
+            className="text-3xl font-semibold mr-2 p-1 border rounded"
+          />
+          <button
+            onClick={handleEditTitle}
+            className="bg-green-500 text-white px-2 py-1 rounded hover:bg-green-600 transition duration-300"
+          >
+            Lưu
+          </button>
+          <button
+            onClick={() => setIsEditingTitle(false)}
+            className="bg-gray-500 text-white px-2 py-1 rounded hover:bg-gray-600 transition duration-300 ml-2"
+          >
+            Hủy
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center mb-6">
+          <h2 className="text-3xl font-semibold mr-2">{lesson.title}</h2>
+          <button
+            onClick={() => setIsEditingTitle(true)}
+            className="bg-yellow-500 text-white px-2 py-1 rounded hover:bg-yellow-600 transition duration-300"
+          >
+            Sửa tên
+          </button>
+        </div>
+      )}
       <button 
         onClick={() => setIsAddFileModalOpen(true)}
-        className="mb-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+        className="mb-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition duration-300"
       >
         Thêm tài liệu
       </button>
-      {lesson.files && lesson.files.length > 0 && (
+      {lessonData?.files && lessonData.files.length > 0 ? (
         <div className="mb-8">
           <h3 className="text-xl font-semibold mb-4">Tài liệu bài học</h3>
           <ul className="space-y-2">
-            {lesson.files.map((file, index) => (
-              <li key={index}>
-                <a href={file.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
-                  {file.name}
-                </a>
-                {file.type.startsWith('video/') && (
-                  <video src={file.url} controls className="mt-2 w-full max-w-lg" />
-                )}
+            {lessonData.files.map((file, index) => (
+              <li key={index} className="flex items-center justify-between bg-gray-100 p-2 rounded hover:bg-gray-200 transition duration-300">
+                <span className="flex-1">{file.name}</span>
+                <span className="text-sm text-gray-500 mr-4">
+                  {new Date(file.uploadTime).toLocaleString()}
+                </span>
+                <button
+                  onClick={() => handleFileClick(file)}
+                  className="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 transition duration-300 mr-2"
+                >
+                  Xem
+                </button>
+                <button
+                  onClick={() => handleDeleteFile(file)}
+                  className="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 transition duration-300"
+                >
+                  Xóa
+                </button>
               </li>
             ))}
           </ul>
         </div>
-      )}
-      {lesson.content && (
-        <div className="mt-8">
-          <h3 className="text-xl font-semibold mb-4">Nội dung bài học</h3>
-          <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: lesson.content }} />
-        </div>
-      )}
-      {!lesson.files && !lesson.content && (
-        <p className="text-gray-500 italic">Chưa có nội dung cho bài học này.</p>
+      ) : (
+        <p className="text-gray-500 italic">Chưa có tài liệu nào cho bài học này.</p>
       )}
       {isAddFileModalOpen && (
         <AddFileModal
           onClose={() => setIsAddFileModalOpen(false)}
-          onAddFile={(newFile) => {
-            onUpdateLesson({
-              ...lesson,
-              files: [...(lesson.files || []), newFile]
-            });
-            setIsAddFileModalOpen(false);
-          }}
           lessonId={lesson.id}
+          onFileAdded={() => {
+            const fetchLessonData = async () => {
+              setIsLoading(true);
+              if (lesson && lesson.id) {
+                const lessonRef = doc(db, 'lessons', lesson.id);
+                const lessonSnap = await getDoc(lessonRef);
+                if (lessonSnap.exists()) {
+                  setLessonData(lessonSnap.data());
+                }
+              }
+              setIsLoading(false);
+            };
+            fetchLessonData();
+          }}
+        />
+      )}
+      {isFileViewModalOpen && (
+        <FileViewModal
+          file={selectedFile}
+          onClose={() => setIsFileViewModalOpen(false)}
         />
       )}
     </div>

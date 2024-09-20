@@ -37,8 +37,8 @@ export default function AddLessonModal({ onClose, onAddLesson, chapterId }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-      <div className="bg-white p-6 rounded-lg w-1/2">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" onClick={onClose}>
+      <div className="bg-white p-6 rounded-lg w-1/2" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-2xl font-semibold mb-4">Thêm bài học mới</h2>
         <form onSubmit={handleSubmit}>
           <input

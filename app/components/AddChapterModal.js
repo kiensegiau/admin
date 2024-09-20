@@ -9,8 +9,8 @@ export default function AddChapterModal({ onClose, onAddChapter, chapterCount })
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-      <div className="bg-white p-6 rounded-lg">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" onClick={onClose}>
+      <div className="bg-white p-6 rounded-lg" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-2xl font-semibold mb-4">Thêm chương mới</h2>
         <form onSubmit={handleSubmit}>
           <input
