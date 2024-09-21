@@ -1,33 +1,42 @@
 import { useState, useEffect } from "react";
-import { updateDoc, doc, deleteDoc } from "firebase/firestore";
+import { updateDoc, doc, deleteDoc, getDocs, collection } from "firebase/firestore";
 import { db } from "../firebase";
 import { toast } from "sonner";
 import { Spin } from 'antd';
 
-export default function ChapterList({ courseId, chapters, onSelectLesson, onAddLesson, onUpdateChapters }) {
-  const [expandedChapter, setExpandedChapter] = useState(null);
+export default function ChapterList({ courseId, chapters, onSelectLesson, onAddLesson, onUpdateChapters, onSelectChapter, expandedChapter, setExpandedChapter }) {
+
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (expandedChapter) {
       const chapterStillExists = chapters.some(chapter => chapter.id === expandedChapter);
       if (!chapterStillExists) {
-        setExpandedChapter(null);
+        onSelectChapter(null);
       }
     }
-  }, [chapters, expandedChapter]);
+  }, [chapters, expandedChapter, onSelectChapter]);
 
   const toggleChapter = (chapterId) => {
-    setExpandedChapter(expandedChapter === chapterId ? null : chapterId);
+    onSelectChapter(chapterId);
   };
 
   const deleteChapter = async (chapterId) => {
     if (window.confirm("Bạn có chắc chắn muốn xóa chương này?")) {
       setLoading(true);
       try {
+        // Xóa tất cả các bài học trong chương
+        const lessonsSnapshot = await getDocs(collection(db, "courses", courseId, "chapters", chapterId, "lessons"));
+        const deleteLessonPromises = lessonsSnapshot.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deleteLessonPromises);
+
+        // Xóa chương
         await deleteDoc(doc(db, "courses", courseId, "chapters", chapterId));
+
+        // Cập nhật state local
         const updatedChapters = chapters.filter(chapter => chapter.id !== chapterId);
         onUpdateChapters(updatedChapters);
+
         toast.success("Chương đã được xóa");
       } catch (error) {
         console.error("Lỗi khi xóa chương:", error);

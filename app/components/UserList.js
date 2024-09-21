@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { toast } from 'sonner';
@@ -7,7 +7,7 @@ import Modal from './Modal';
 import { getAuth, deleteUser as deleteAuthUser } from 'firebase/auth';
 import AddUserModal from './AddUserModal';
 
-export default function UserList() {
+const UserList = React.memo(() => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -16,23 +16,11 @@ export default function UserList() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-
-  useEffect(() => {
-    console.log('Users after fetch:', users);
-  }, [users]);
-
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       const usersRef = collection(db, 'users');
       const querySnapshot = await getDocs(usersRef);
-      const userList = querySnapshot.docs.map(doc => {
-        const userData = { id: doc.id, ...doc.data() };
-        console.log('User data:', userData);
-        return userData;
-      });
+      const userList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setUsers(userList);
     } catch (error) {
       console.error("Lỗi khi lấy danh sách người dùng:", error);
@@ -40,78 +28,73 @@ export default function UserList() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const toggleUserStatus = async (userId, currentStatus) => {
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  const toggleUserStatus = useCallback(async (userId, currentStatus) => {
     try {
       const userRef = doc(db, 'users', userId);
       await updateDoc(userRef, { isActive: !currentStatus });
-      setUsers(users.map(user => 
+      setUsers(prevUsers => prevUsers.map(user => 
         user.id === userId ? {...user, isActive: !currentStatus} : user
       ));
       toast.success(`Người dùng đã được ${currentStatus ? 'khóa' : 'mở khóa'}`);
       if (selectedUser && selectedUser.id === userId) {
-        setSelectedUser({...selectedUser, isActive: !currentStatus});
+        setSelectedUser(prevUser => ({...prevUser, isActive: !currentStatus}));
       }
     } catch (error) {
       console.error("Lỗi khi cập nhật trạng thái người dùng:", error);
       toast.error("Không thể cập nhật trạng thái người dùng");
     }
-  };
+  }, [selectedUser]);
 
-  const deleteUser = async (userId) => {
+  const deleteUser = useCallback(async (userId) => {
     if (window.confirm("Bạn có chắc chắn muốn xóa người dùng này?")) {
       try {
-        console.log('Đang gửi yêu cầu xóa người dùng:', userId);
         const response = await fetch('/api/deleteUser', {
           method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId }),
         });
-
-        console.log('Nhận được phản hồi:', response);
 
         if (!response.ok) {
           const errorData = await response.json();
           throw new Error(errorData.error || 'Lỗi khi xóa người dùng');
         }
 
-        setUsers(users.filter(user => user.id !== userId));
+        setUsers(prevUsers => prevUsers.filter(user => user.id !== userId));
         toast.success("Người dùng đã được xóa");
       } catch (error) {
         console.error("Lỗi chi tiết khi xóa người dùng:", error);
         toast.error("Không thể xóa người dùng: " + error.message);
       }
     }
-  };
+  }, []);
 
-  const openEditModal = (user) => {
-    setSelectedUser(user);
+  const openUserModal = useCallback((user) => {
+    setSelectedUser({...user, phoneNumber: user.phoneNumber || ''});
     setIsModalOpen(true);
-  };
+  }, []);
 
-  const openUserModal = (user) => {
-    const fullUserData = {...user, phoneNumber: user.phoneNumber || ''};
-    setSelectedUser(fullUserData);
-    setIsModalOpen(true);
-  };
+  const filteredUsers = useMemo(() => {
+    return users.filter(user => {
+      const matchesSearch = (
+        (user.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
+        (user.email?.toLowerCase().includes(searchTerm.toLowerCase()) || false)
+      );
+      if (filter === 'all') return matchesSearch;
+      if (filter === 'active') return matchesSearch && user.isActive === true;
+      if (filter === 'inactive') return matchesSearch && user.isActive === false;
+      return matchesSearch;
+    });
+  }, [users, searchTerm, filter]);
 
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = (
-      (user.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
-      (user.email?.toLowerCase().includes(searchTerm.toLowerCase()) || false)
-    );
-    if (filter === 'all') return matchesSearch;
-    if (filter === 'active') return matchesSearch && user.isActive === true;
-    if (filter === 'inactive') return matchesSearch && user.isActive === false;
-    return matchesSearch;
-  });
-
-  const handleAddUser = (newUser) => {
-    setUsers([...users, newUser]);
-  };
+  const handleAddUser = useCallback((newUser) => {
+    setUsers(prevUsers => [...prevUsers, newUser]);
+  }, []);
 
   return (
     <div>
@@ -198,4 +181,6 @@ export default function UserList() {
       />
     </div>
   );
-}
+});
+
+export default UserList;

@@ -32,7 +32,7 @@ export default function EditCourse({ params }) {
   const updateChapters = (updatedChapters) => {
     setCourse(prevCourse => ({
       ...prevCourse,
-      chapters: updatedChapters
+      chapters: sortChaptersAndLessons(updatedChapters)
     }));
   };
 
@@ -135,9 +135,9 @@ export default function EditCourse({ params }) {
     try {
       const lessonRef = await addDoc(collection(db, "courses", id, "chapters", selectedChapterId, "lessons"), {
         title: lessonData.title,
-        files: lessonData.files
+        files: []
       });
-      const newLesson = { id: lessonRef.id, ...lessonData };
+      const newLesson = { id: lessonRef.id, ...lessonData, files: [] };
       
       setCourse(prevCourse => ({
         ...prevCourse,
@@ -184,6 +184,8 @@ export default function EditCourse({ params }) {
     }
   };
 
+
+
   if (!course) return <div>Đang tải...</div>;
 
   return (
@@ -209,10 +211,21 @@ export default function EditCourse({ params }) {
                 setIsAddLessonModalOpen(true);
               }}
               onUpdateChapters={updateChapters}
+              onSelectChapter={setSelectedChapterId}
+              expandedChapter={selectedChapterId}
+              setExpandedChapter={setSelectedChapterId}
             />
           </div>
+
           <div className="w-2/3 overflow-y-auto p-6">
-            <LessonContent lesson={selectedLesson} onUpdateLesson={handleUpdateLesson} courseId={id} chapterId={selectedChapterId} />
+            <LessonContent 
+              lesson={selectedLesson} 
+              onUpdateLesson={handleUpdateLesson} 
+              courseId={id} 
+              chapterId={selectedChapterId}
+              courseName={course.title}
+              chapterName={course.chapters.find(chapter => chapter.id === selectedChapterId)?.title}
+            />
           </div>
         </main>
         {isAddChapterModalOpen && (
@@ -225,6 +238,7 @@ export default function EditCourse({ params }) {
           <AddLessonModal
             onClose={() => setIsAddLessonModalOpen(false)}
             onAddLesson={handleAddLesson}
+            courseId={id}
             chapterId={selectedChapterId}
           />
         )}

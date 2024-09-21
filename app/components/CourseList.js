@@ -1,18 +1,30 @@
 'use client';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { collection, getDocs, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import Link from 'next/link';
 import { toast } from 'sonner';
 
+const CourseItem = React.memo(({ course, onDelete }) => (
+  <div className="border p-4 rounded">
+    <h2 className="text-xl font-bold">{course.title}</h2>
+    <p>{course.description}</p>
+    <p className="font-bold">Giá: {course.price} VND</p>
+    <div className="mt-4">
+      <Link href={`/edit-course/${course.id}`} className="text-blue-500 mr-2">
+        Xem chi tiết
+      </Link>
+      <button onClick={() => onDelete(course.id)} className="text-red-500">
+        Xóa
+      </button>
+    </div>
+  </div>
+));
+
 export default function CourseList() {
   const [courses, setCourses] = useState([]);
 
-  useEffect(() => {
-    fetchCourses();
-  }, []);
-
-  const fetchCourses = async () => {
+  const fetchCourses = useCallback(async () => {
     try {
       const querySnapshot = await getDocs(collection(db, 'courses'));
       const courseList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -21,20 +33,24 @@ export default function CourseList() {
       console.error("Lỗi khi lấy danh sách khóa học:", error);
       toast.error("Không thể tải danh sách khóa học");
     }
-  };
+  }, []);
 
-  const deleteCourse = async (courseId) => {
+  useEffect(() => {
+    fetchCourses();
+  }, [fetchCourses]);
+
+  const deleteCourse = useCallback(async (courseId) => {
     if (window.confirm("Bạn có chắc chắn muốn xóa khóa học này?")) {
       try {
         await deleteDoc(doc(db, 'courses', courseId));
-        setCourses(courses.filter(course => course.id !== courseId));
+        setCourses(prevCourses => prevCourses.filter(course => course.id !== courseId));
         toast.success("Khóa học đã được xóa");
       } catch (error) {
         console.error("Lỗi khi xóa khóa học:", error);
         toast.error("Không thể xóa khóa học");
       }
     }
-  };
+  }, []);
 
   return (
     <div>
@@ -45,19 +61,7 @@ export default function CourseList() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {courses.map(course => (
-          <div key={course.id} className="border p-4 rounded">
-            <h2 className="text-xl font-bold">{course.title}</h2>
-            <p>{course.description}</p>
-            <p className="font-bold">Giá: {course.price} VND</p>
-            <div className="mt-4">
-              <Link href={`/edit-course/${course.id}`} className="text-blue-500 mr-2">
-                Xem chi tiết
-              </Link>
-              <button onClick={() => deleteCourse(course.id)} className="text-red-500">
-                Xóa
-              </button>
-            </div>
-          </div>
+          <CourseItem key={course.id} course={course} onDelete={deleteCourse} />
         ))}
       </div>
     </div>

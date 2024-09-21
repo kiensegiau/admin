@@ -3,13 +3,21 @@ import { storage, db } from '.././firebase';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc, arrayUnion, setDoc, getDoc } from 'firebase/firestore';
 import LoadingSpinner from './LoadingSpinner';
-import { google } from 'googleapis';
-import { getSession } from 'next-auth/react';
 
-export default function AddFileModal({ onClose, lessonId, onFileAdded }) {
+const normalizeFileName = (fileName) => {
+  return encodeURIComponent(fileName.trim());
+};
+
+export default function AddFileModal({ onClose, courseId, chapterId, lessonId, courseName, chapterName, lessonName, onFileAdded }) {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  if (!courseId || !chapterId || !lessonId) {
+    console.error('Thiếu thông tin cần thiết để thêm file');
+    return null; // Hoặc hiển thị thông báo lỗi
+  }
 
   const handleFileChange = (e) => {
     if (e.target.files[0]) {
@@ -21,10 +29,10 @@ export default function AddFileModal({ onClose, lessonId, onFileAdded }) {
     if (!file) return;
     setUploading(true);
     try {
-      // Upload to Firebase Storage
-      const storageRef = ref(storage, `lessons/${lessonId}/${file.name}`);
+     
+      const storageRef = ref(storage, `/courses/${courseName}/${chapterName}/${lessonName}/${file.name}`);
       const uploadTask = uploadBytesResumable(storageRef, file);
-      
+
       uploadTask.on('state_changed', 
         (snapshot) => {
           const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
@@ -32,64 +40,25 @@ export default function AddFileModal({ onClose, lessonId, onFileAdded }) {
         },
         (error) => {
           console.error('Lỗi khi tải file lên Firebase:', error);
+          setErrorMessage(`Lỗi khi tải file lên: ${error.message}`);
           setUploading(false);
         },
         async () => {
           const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
           
-          // Upload to Google Drive
-          const session = await getSession();
-          let tokens = session.googleTokens;
-
-          if (isTokenExpired(tokens)) {
-            const response = await fetch('/api/auth/refresh-token');
-            if (response.ok) {
-              const newSession = await getSession();
-              tokens = newSession.googleTokens;
-            } else {
-              throw new Error('Failed to refresh token');
-            }
-          }
-
-          // Import dynamically
-          const { google } = await import('googleapis');
-
-          // Sử dụng Google Drive API
-          const oauth2Client = new google.auth.OAuth2();
-          oauth2Client.setCredentials(tokens);
-          const drive = google.drive({ version: 'v3', auth: oauth2Client });
-
-          const fileMetadata = {
-            name: file.name,
-          };
-
-          const media = {
-            mimeType: file.type,
-            body: file,
-          };
-
-          const driveResponse = await drive.files.create({
-            requestBody: fileMetadata,
-            media: media,
-            fields: 'id, webViewLink',
-          });
-
           const fileData = {
             name: file.name,
-            firebaseUrl: downloadURL,
-            driveUrl: driveResponse.data.webViewLink,
+            url: downloadURL,
             type: file.type,
             uploadTime: new Date().toISOString()
           };
 
-          const lessonRef = doc(db, 'lessons', lessonId);
+          const lessonRef = doc(db, 'courses', courseId, 'chapters', chapterId, 'lessons', lessonId);
           const lessonSnap = await getDoc(lessonRef);
 
           if (!lessonSnap.exists()) {
-            // Tạo document mới nếu chưa tồn tại
             await setDoc(lessonRef, { files: [fileData] });
           } else {
-            // Cập nhật document nếu đã tồn tại
             await updateDoc(lessonRef, {
               files: arrayUnion(fileData)
             });
@@ -101,8 +70,8 @@ export default function AddFileModal({ onClose, lessonId, onFileAdded }) {
         }
       );
     } catch (error) {
-      console.error('Lỗi chi tiết:', error.code, error.message);
-      // Hiển thị thông báo lỗi cho người dùng
+      console.error('Lỗi chi tiết:', error);
+      setErrorMessage(`Lỗi khi tải file: ${error.message}`);
       setUploading(false);
     }
   };
@@ -112,6 +81,7 @@ export default function AddFileModal({ onClose, lessonId, onFileAdded }) {
       <div className="bg-white p-5 rounded-lg shadow-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-xl font-bold mb-4">Thêm tài liệu</h2>
         <input type="file" onChange={handleFileChange} className="mb-4 w-full" />
+        {errorMessage && <p className="text-red-500 mb-4">{errorMessage}</p>}
         {uploading ? (
           <div className="mb-4">
             <LoadingSpinner />

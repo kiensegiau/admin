@@ -1,10 +1,12 @@
 'use client';
 
+import React, { Suspense, lazy } from 'react';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import UserStats from '../components/UserStats';
-import RevenueChart from '../components/RevenueChart';
-import CourseList from '../components/CourseList';
+
+const RevenueChart = lazy(() => import('../components/RevenueChart'));
+const CourseList = lazy(() => import('../components/CourseList'));
 
 export default function Dashboard() {
   return (
@@ -19,13 +21,17 @@ export default function Dashboard() {
             <UserStats title="Tổng khóa học" value="50" />
             <UserStats title="Doanh thu tháng" value="$12,345" />
           </div>
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <RevenueChart />
-          </div>
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">Khóa học mới nhất</h2>
-            <CourseList />
-          </div>
+          <Suspense fallback={<div>Đang tải biểu đồ doanh thu...</div>}>
+            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+              <RevenueChart />
+            </div>
+          </Suspense>
+          <Suspense fallback={<div>Đang tải danh sách khóa học...</div>}>
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">Khóa học mới nhất</h2>
+              <CourseList />
+            </div>
+          </Suspense>
         </main>
       </div>
     </div>

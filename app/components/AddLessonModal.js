@@ -1,74 +1,40 @@
 import { useState } from "react";
-import { storage } from "../firebase";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { toast } from "sonner";
 
 export default function AddLessonModal({ onClose, onAddLesson, chapterId }) {
-  const [title, setTitle] = useState("");
-  const [files, setFiles] = useState([]);
-  const [uploading, setUploading] = useState(false);
+  const [title, setTitle] = useState('');
 
-  const handleFileChange = (e) => {
-    setFiles([...e.target.files]);
-  };
-
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    setUploading(true);
-    const uploadedFiles = [];
-
-    try {
-      for (const file of files) {
-        const fileRef = ref(storage, `courses/${chapterId}/${file.name}`);
-        await uploadBytes(fileRef, file);
-        const url = await getDownloadURL(fileRef);
-        uploadedFiles.push({ name: file.name, url, type: file.type });
-      }
-
-      await onAddLesson({ title, files: uploadedFiles });
-      toast.success("Bài học đã được thêm");
-      onClose();
-    } catch (error) {
-      console.error("Lỗi khi upload file:", error);
-      toast.error("Không thể upload file");
-    } finally {
-      setUploading(false);
-    }
+    onAddLesson({ title, chapterId });
+    onClose();
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" onClick={onClose}>
-      <div className="bg-white p-6 rounded-lg w-1/2" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-2xl font-semibold mb-4">Thêm bài học mới</h2>
+    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center" onClick={onClose}>
+      <div className="bg-white p-5 rounded-lg shadow-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-xl font-bold mb-4">Thêm bài học mới</h2>
         <form onSubmit={handleSubmit}>
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Tiêu đề bài học"
-            className="w-full border p-2 rounded mb-4"
+            placeholder="Nhập tên bài học"
+            className="w-full p-2 border rounded mb-4"
             required
-          />
-          <input
-            type="file"
-            onChange={handleFileChange}
-            className="w-full border p-2 rounded mb-4"
-            multiple
           />
           <div className="flex justify-end">
             <button
               type="button"
               onClick={onClose}
-              className="bg-gray-300 text-black px-4 py-2 rounded mr-2"
+              className="mr-2 px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition duration-300"
             >
               Hủy
             </button>
             <button
               type="submit"
-              className="bg-blue-500 text-white px-4 py-2 rounded"
-              disabled={uploading}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition duration-300"
             >
-              {uploading ? "Đang tải lên..." : "Thêm"}
+              Thêm
             </button>
           </div>
         </form>
