@@ -10,10 +10,12 @@ import ChapterList from "../../components/ChapterList";
 import AddChapterModal from "../../components/AddChapterModal";
 import AddLessonModal from "../../components/AddLessonModal";
 import LessonContent from "../../components/LessonContent";
+import { Spin } from 'antd';
 
 export default function EditCourse({ params }) {
   const [course, setCourse] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
   const { id } = params;
 
@@ -38,6 +40,7 @@ export default function EditCourse({ params }) {
 
   useEffect(() => {
     const fetchCourse = async () => {
+      setLoading(true);
       try {
         const docRef = doc(db, "courses", id);
         const docSnap = await getDoc(docRef);
@@ -65,6 +68,8 @@ export default function EditCourse({ params }) {
       } catch (error) {
         console.error("Lỗi khi lấy thông tin khóa học:", error);
         toast.error("Không thể tải thông tin khóa học");
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -184,9 +189,15 @@ export default function EditCourse({ params }) {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Spin size="large" tip="Đang tải..." />
+      </div>
+    );
+  }
 
-
-  if (!course) return <div>Đang tải...</div>;
+  if (!course) return null;
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -195,7 +206,7 @@ export default function EditCourse({ params }) {
         <Header />
         <main className="flex-1 flex overflow-hidden bg-gray-200">
           <div className="w-1/3 overflow-y-auto p-6 bg-white border-r">
-            <h1 className="text-3xl font-semibold text-gray-800 mb-6">Nội dung khóa học</h1>
+            <h1 className="text-3xl font-semibold text-gray-800 mb-6">{course.title}</h1>
             <button 
               onClick={() => setIsAddChapterModalOpen(true)}
               className="mb-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"

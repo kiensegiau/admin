@@ -1,37 +1,27 @@
 'use client';
 
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import UserStats from '../components/UserStats';
+import AdminDashboard from '../components/AdminDashboard';
 
 const RevenueChart = lazy(() => import('../components/RevenueChart'));
 const CourseList = lazy(() => import('../components/CourseList'));
 
 export default function Dashboard() {
+  useEffect(() => {
+    console.log('Dashboard đang render');
+  }, []);
+
   return (
     <div className="flex h-screen bg-gray-100">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-200 p-6">
-          <h1 className="text-3xl font-semibold text-gray-800 mb-6">Dashboard</h1>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
-            <UserStats />
-            <UserStats title="Tổng khóa học" value="50" />
-            <UserStats title="Doanh thu tháng" value="$12,345" />
-          </div>
-          <Suspense fallback={<div>Đang tải biểu đồ doanh thu...</div>}>
-            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-              <RevenueChart />
-            </div>
-          </Suspense>
-          <Suspense fallback={<div>Đang tải danh sách khóa học...</div>}>
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4">Khóa học mới nhất</h2>
-              <CourseList />
-            </div>
-          </Suspense>
+          <AdminDashboard />
+          {/* Các phần còn lại của Dashboard */}
         </main>
       </div>
     </div>

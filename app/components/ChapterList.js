@@ -81,7 +81,7 @@ export default function ChapterList({ courseId, chapters, onSelectLesson, onAddL
               className="flex justify-between items-center cursor-pointer bg-gray-100 p-4"
               onClick={() => toggleChapter(chapter.id)}
             >
-              <h3 className="text-lg font-semibold">Chương {index + 1}: {chapter.title}</h3>
+              <h3 className="text-lg font-semibold">Chương: {chapter.title}</h3>
               <div className="flex items-center">
                 <button
                   onClick={(e) => {

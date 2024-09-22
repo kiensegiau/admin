@@ -4,7 +4,8 @@ import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firesto
 import { db } from '../firebase';
 import { toast } from 'sonner';
 import Modal from './Modal';
-import { getAuth, deleteUser as deleteAuthUser } from 'firebase/auth';
+import { Spin } from 'antd';
+
 import AddUserModal from './AddUserModal';
 
 const UserList = React.memo(() => {
@@ -33,23 +34,6 @@ const UserList = React.memo(() => {
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
-
-  const toggleUserStatus = useCallback(async (userId, currentStatus) => {
-    try {
-      const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, { isActive: !currentStatus });
-      setUsers(prevUsers => prevUsers.map(user => 
-        user.id === userId ? {...user, isActive: !currentStatus} : user
-      ));
-      toast.success(`Người dùng đã được ${currentStatus ? 'khóa' : 'mở khóa'}`);
-      if (selectedUser && selectedUser.id === userId) {
-        setSelectedUser(prevUser => ({...prevUser, isActive: !currentStatus}));
-      }
-    } catch (error) {
-      console.error("Lỗi khi cập nhật trạng thái người dùng:", error);
-      toast.error("Không thể cập nhật trạng thái người dùng");
-    }
-  }, [selectedUser]);
 
   const deleteUser = useCallback(async (userId) => {
     if (window.confirm("Bạn có chắc chắn muốn xóa người dùng này?")) {
@@ -125,7 +109,9 @@ const UserList = React.memo(() => {
         </button>
       </div>
       {loading ? (
-        <p>Đang tải...</p>
+        <div className="flex justify-center items-center h-64">
+          <Spin size="large" tip="Đang tải..." />
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full bg-white">

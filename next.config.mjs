@@ -25,6 +25,10 @@ const nextConfig = {
     }
     return config;
   },
+  reactStrictMode: true,
+  experimental: {
+    scrollRestoration: true,
+  },
 };
 
 export default nextConfig;
