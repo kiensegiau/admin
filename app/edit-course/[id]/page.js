@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { doc, getDoc, updateDoc, collection, addDoc, deleteDoc, arrayUnion, getDocs } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, addDoc, deleteDoc, arrayUnion, getDocs, arrayRemove } from "firebase/firestore";
 import { db } from "../../firebase";
 import { toast } from "sonner";
 import Sidebar from "../../components/Sidebar";
@@ -46,20 +46,6 @@ export default function EditCourse({ params }) {
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           const courseData = { id: docSnap.id, ...docSnap.data() };
-          
-          // Lấy thông tin về các chương
-          const chaptersSnapshot = await getDocs(collection(db, "courses", id, "chapters"));
-          const chaptersData = await Promise.all(chaptersSnapshot.docs.map(async (chapterDoc) => {
-            const chapterData = { id: chapterDoc.id, ...chapterDoc.data() };
-            
-            // Lấy thông tin về các bài học trong chương
-            const lessonsSnapshot = await getDocs(collection(db, "courses", id, "chapters", chapterDoc.id, "lessons"));
-            chapterData.lessons = lessonsSnapshot.docs.map(lessonDoc => ({ id: lessonDoc.id, ...lessonDoc.data() }));
-            
-            return chapterData;
-          }));
-          
-          courseData.chapters = sortChaptersAndLessons(chaptersData);
           setCourse(courseData);
         } else {
           toast.error("Không tìm thấy khóa học");
@@ -111,23 +97,26 @@ export default function EditCourse({ params }) {
 
   const handleAddChapter = async (chapterData) => {
     try {
-      const chapterRef = await addDoc(collection(db, "courses", id, "chapters"), {
+      const courseRef = doc(db, "courses", id);
+      const courseDoc = await getDoc(courseRef);
+      const courseData = courseDoc.data();
+
+      const newChapter = {
+        id: Date.now().toString(),
         ...chapterData,
-        order: course.chapters ? course.chapters.length + 1 : 1,
-      });
-      const newChapter = { id: chapterRef.id, ...chapterData };
-      
-      // Cập nhật danh sách chương trong tài liệu khóa học
-      await updateDoc(doc(db, "courses", id), {
+        order: courseData.chapters ? courseData.chapters.length + 1 : 1,
+        lessons: []
+      };
+
+      await updateDoc(courseRef, {
         chapters: arrayUnion(newChapter)
       });
 
-      // Cập nhật state local
-      setCourse({
-        ...course,
-        chapters: [...(course.chapters || []), newChapter],
-      });
-      
+      setCourse(prevCourse => ({
+        ...prevCourse,
+        chapters: [...(prevCourse.chapters || []), newChapter]
+      }));
+
       toast.success("Đã thêm chương mới");
       setIsAddChapterModalOpen(false);
     } catch (error) {
@@ -138,24 +127,32 @@ export default function EditCourse({ params }) {
 
   const handleAddLesson = async (lessonData) => {
     try {
-      const lessonRef = await addDoc(collection(db, "courses", id, "chapters", selectedChapterId, "lessons"), {
-        title: lessonData.title,
-        files: []
+      const courseRef = doc(db, "courses", id);
+      const courseDoc = await getDoc(courseRef);
+      const courseData = courseDoc.data();
+
+      const updatedChapters = courseData.chapters.map(chapter => {
+        if (chapter.id === selectedChapterId) {
+          const newLesson = {
+            id: Date.now().toString(),
+            title: lessonData.title,
+            files: []
+          };
+          return {
+            ...chapter,
+            lessons: [...(chapter.lessons || []), newLesson]
+          };
+        }
+        return chapter;
       });
-      const newLesson = { id: lessonRef.id, ...lessonData, files: [] };
-      
+
+      await updateDoc(courseRef, { chapters: updatedChapters });
+
       setCourse(prevCourse => ({
         ...prevCourse,
-        chapters: prevCourse.chapters.map(chapter => 
-          chapter.id === selectedChapterId
-            ? { 
-                ...chapter, 
-                lessons: [...(chapter.lessons || []), newLesson] 
-              }
-            : chapter
-        )
+        chapters: updatedChapters
       }));
-      
+
       toast.success("Đã thêm bài học mới");
       setIsAddLessonModalOpen(false);
     } catch (error) {
@@ -166,21 +163,30 @@ export default function EditCourse({ params }) {
 
   const handleUpdateLesson = async (updatedLesson) => {
     try {
-      await updateDoc(doc(db, "courses", id, "chapters", selectedChapterId, "lessons", updatedLesson.id), updatedLesson);
+      const courseRef = doc(db, "courses", id);
+      const courseDoc = await getDoc(courseRef);
+      const courseData = courseDoc.data();
+
+      const updatedChapters = courseData.chapters.map(chapter => {
+        if (chapter.id === selectedChapterId) {
+          const updatedLessons = chapter.lessons.map(l => {
+            if (l.id === updatedLesson.id) {
+              return { ...l, ...updatedLesson };
+            }
+            return l;
+          });
+          return { ...chapter, lessons: updatedLessons };
+        }
+        return chapter;
+      });
+
+      await updateDoc(courseRef, { chapters: updatedChapters });
+
       setCourse(prevCourse => ({
         ...prevCourse,
-        chapters: prevCourse.chapters.map(chapter => 
-          chapter.id === selectedChapterId
-            ? { 
-                ...chapter, 
-                lessons: chapter.lessons.map(lesson => 
-                  lesson.id === updatedLesson.id ? { ...lesson, ...updatedLesson } : lesson
-                )
-              }
-            : chapter
-        )
+        chapters: updatedChapters
       }));
-      // Cập nhật lại selectedLesson
+
       setSelectedLesson(updatedLesson);
       toast.success("Bài học đã được cập nhật");
     } catch (error) {

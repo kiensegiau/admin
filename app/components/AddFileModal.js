@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { db } from '../firebase';
-import { doc, updateDoc, arrayUnion, setDoc, getDoc } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion, setDoc, getDoc, arrayRemove } from 'firebase/firestore';
 import { Spin, Progress } from 'antd';
 import { uploadToFirebase } from '../utils/firebaseUpload';
 import { uploadToDrive } from '../utils/driveUpload';
@@ -71,24 +71,36 @@ export default function AddFileModal({ onClose, courseId, chapterId, lessonId, c
         name: file.name,
         firebaseUrl: firebaseURL,
         driveUrl: driveResult.webViewLink,
-        driveId: driveResult.id,
+        
         type: file.type,
         uploadTime: new Date().toISOString()
       };
 
-      // Loại bỏ các trường có giá trị undefined
-      Object.keys(fileData).forEach(key => fileData[key] === undefined && delete fileData[key]);
+      const courseRef = doc(db, 'courses', courseId);
+      const courseDoc = await getDoc(courseRef);
+      const courseData = courseDoc.data();
 
-      const lessonRef = doc(db, 'courses', courseId, 'chapters', chapterId, 'lessons', lessonId);
-      const lessonSnap = await getDoc(lessonRef);
-
-      if (!lessonSnap.exists()) {
-        await setDoc(lessonRef, { files: [fileData] });
-      } else {
-        await updateDoc(lessonRef, {
-          files: arrayUnion(fileData)
-        });
+      if (!courseData) {
+        throw new Error('Không tìm thấy dữ liệu khóa học');
       }
+
+      const updatedChapters = courseData.chapters.map(chapter => {
+        if (chapter.id === chapterId) {
+          const updatedLessons = chapter.lessons.map(lesson => {
+            if (lesson.id === lessonId) {
+              return {
+                ...lesson,
+                files: [...(lesson.files || []), fileData]
+              };
+            }
+            return lesson;
+          });
+          return { ...chapter, lessons: updatedLessons };
+        }
+        return chapter;
+      });
+
+      await updateDoc(courseRef, { chapters: updatedChapters });
 
       onFileAdded();
       onClose();

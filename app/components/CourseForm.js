@@ -21,7 +21,12 @@ export default function CourseForm() {
 
   const onSubmit = async (data) => {
     try {
-      await addDoc(collection(db, 'courses'), data);
+      const courseData = {
+        ...data,
+        chapters: [],
+        createdAt: new Date().toISOString()
+      };
+      await addDoc(collection(db, 'courses'), courseData);
       toast.success('Khóa học đã được thêm thành công');
       router.push('/');
     } catch (error) {

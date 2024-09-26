@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { db } from '.././firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import AddFileModal from './AddFileModal';
 import FileViewModal from './FileViewModal';
 import LoadingSpinner from './LoadingSpinner';
@@ -25,13 +25,26 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
 
     console.log('Đang tải dữ liệu cho bài học:', lesson.id);
     try {
-      const lessonRef = doc(db, 'courses', courseId, 'chapters', chapterId, 'lessons', lesson.id);
-      const lessonSnap = await getDoc(lessonRef);
-      if (lessonSnap.exists()) {
-        console.log('Dữ liệu bài học:', lessonSnap.data());
-        setLessonData(lessonSnap.data());
+      const courseRef = doc(db, 'courses', courseId);
+      const courseDoc = await getDoc(courseRef);
+      if (courseDoc.exists()) {
+        const courseData = courseDoc.data();
+        const chapter = courseData.chapters.find(ch => ch.id === chapterId);
+        if (chapter) {
+          const lessonData = chapter.lessons.find(l => l.id === lesson.id);
+          if (lessonData) {
+            console.log('Dữ liệu bài học:', lessonData);
+            setLessonData(lessonData);
+          } else {
+            console.log('Không tìm thấy dữ liệu cho bài học:', lesson.id);
+            setLessonData({ title: lesson.title || '', files: [] });
+          }
+        } else {
+          console.log('Không tìm thấy chương:', chapterId);
+          setLessonData({ title: lesson.title || '', files: [] });
+        }
       } else {
-        console.log('Không tìm thấy dữ liệu cho bài học:', lesson.id);
+        console.log('Không tìm thấy khóa học:', courseId);
         setLessonData({ title: lesson.title || '', files: [] });
       }
     } catch (error) {
@@ -62,20 +75,39 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
 
     if (window.confirm('Bạn có chắc chắn muốn xóa file này?')) {
       try {
-        const storageRef = ref(storage, `courses/${courseName}/${chapterName}/${lesson.title}/${fileToDelete.name}`);
-        await deleteObject(storageRef);
+        const courseRef = doc(db, 'courses', courseId);
+        const courseDoc = await getDoc(courseRef);
+        const courseData = courseDoc.data();
 
-        const updatedFiles = lessonData.files.filter(file => file.name !== fileToDelete.name);
-        await updateDoc(doc(db, 'courses', courseId, 'chapters', chapterId, 'lessons', lesson.id), { files: updatedFiles });
+        const updatedChapters = courseData.chapters.map(chapter => {
+          if (chapter.id === chapterId) {
+            const updatedLessons = chapter.lessons.map(l => {
+              if (l.id === lesson.id) {
+                return {
+                  ...l,
+                  files: l.files.filter(file => file.name !== fileToDelete.name)
+                };
+              }
+              return l;
+            });
+            return { ...chapter, lessons: updatedLessons };
+          }
+          return chapter;
+        });
 
-        setLessonData(prevData => ({ ...prevData, files: updatedFiles }));
+        await updateDoc(courseRef, { chapters: updatedChapters });
+
+        setLessonData(prevData => ({
+          ...prevData,
+          files: prevData.files.filter(file => file.name !== fileToDelete.name)
+        }));
         toast.success('Đã xóa file');
       } catch (error) {
         console.error('Lỗi khi xóa file:', error);
         toast.error('Không thể xóa file');
       }
     }
-  }, [lesson, lessonData, courseId, chapterId, courseName, chapterName]);
+  }, [lesson, courseId, chapterId]);
 
   if (isLoading) {
     return <LoadingSpinner />;

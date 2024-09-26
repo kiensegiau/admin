@@ -32,7 +32,8 @@ export const uploadToDrive = async (file, accessToken, progressCallback, path) =
   const metadata = {
     name: file.name,
     mimeType: file.type,
-    parents: [parentId]
+    parents: [parentId],
+    videoQuality: 'high'
   };
 
   const form = new FormData();

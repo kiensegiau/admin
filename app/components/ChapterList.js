@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { updateDoc, doc, deleteDoc, getDocs, collection } from "firebase/firestore";
+import { updateDoc, doc, deleteDoc, getDoc, collection } from "firebase/firestore";
 import { db } from "../firebase";
 import { toast } from "sonner";
 import { Spin } from 'antd';
@@ -25,17 +25,21 @@ export default function ChapterList({ courseId, chapters, onSelectLesson, onAddL
     if (window.confirm("Bạn có chắc chắn muốn xóa chương này?")) {
       setLoading(true);
       try {
-        // Xóa tất cả các bài học trong chương
-        const lessonsSnapshot = await getDocs(collection(db, "courses", courseId, "chapters", chapterId, "lessons"));
-        const deleteLessonPromises = lessonsSnapshot.docs.map(doc => deleteDoc(doc.ref));
-        await Promise.all(deleteLessonPromises);
+        const courseRef = doc(db, "courses", courseId);
+        const courseDoc = await getDoc(courseRef);
+        const courseData = courseDoc.data();
 
-        // Xóa chương
-        await deleteDoc(doc(db, "courses", courseId, "chapters", chapterId));
+        const updatedChapters = courseData.chapters.filter(chapter => chapter.id !== chapterId);
 
-        // Cập nhật state local
-        const updatedChapters = chapters.filter(chapter => chapter.id !== chapterId);
+        await updateDoc(courseRef, {
+          chapters: updatedChapters
+        });
+
         onUpdateChapters(updatedChapters);
+        
+        if (expandedChapter === chapterId) {
+          setExpandedChapter(null);
+        }
 
         toast.success("Chương đã được xóa");
       } catch (error) {
@@ -51,8 +55,10 @@ export default function ChapterList({ courseId, chapters, onSelectLesson, onAddL
     if (window.confirm("Bạn có chắc chắn muốn xóa bài học này?")) {
       setLoading(true);
       try {
-        await deleteDoc(doc(db, "courses", courseId, "chapters", chapterId, "lessons", lessonId));
-        const updatedChapters = chapters.map(chapter => {
+        const courseRef = doc(db, "courses", courseId);
+        const courseDoc = await getDoc(courseRef);
+        const courseData = courseDoc.data();
+        const updatedChapters = courseData.chapters.map(chapter => {
           if (chapter.id === chapterId) {
             return {
               ...chapter,
@@ -61,6 +67,7 @@ export default function ChapterList({ courseId, chapters, onSelectLesson, onAddL
           }
           return chapter;
         });
+        await updateDoc(courseRef, { chapters: updatedChapters });
         onUpdateChapters(updatedChapters);
         toast.success("Bài học đã được xóa");
       } catch (error) {
