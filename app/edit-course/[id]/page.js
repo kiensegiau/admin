@@ -11,6 +11,7 @@ import AddChapterModal from "../../components/AddChapterModal";
 import AddLessonModal from "../../components/AddLessonModal";
 import LessonContent from "../../components/LessonContent";
 import { Spin } from 'antd';
+import { moonCourseData } from '../../courses/fakedata';
 
 export default function EditCourse({ params }) {
   const [course, setCourse] = useState(null);
@@ -62,63 +63,30 @@ export default function EditCourse({ params }) {
     fetchCourse();
   }, [id, router]);
 
-  const handleChange = (e) => {
-    setCourse({ ...course, [e.target.name]: e.target.value });
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await updateDoc(doc(db, "courses", id), course);
-      toast.success("Khóa học đã được cập nhật");
-      setIsEditing(false);
-    } catch (error) {
-      console.error("Lỗi khi cập nhật khóa học:", error);
-      toast.error("Không thể cập nhật khóa học");
-    }
-  };
-
-  const addChapter = async () => {
-    try {
-      const chapterRef = await addDoc(collection(db, "courses", id, "chapters"), {
-        title: "Chương mới",
-        order: course.chapters ? course.chapters.length + 1 : 1,
-      });
-      setCourse({
-        ...course,
-        chapters: [...(course.chapters || []), { id: chapterRef.id, title: "Chương mới" }],
-      });
-      toast.success("Đã thêm chương mới");
-    } catch (error) {
-      console.error("Lỗi khi thêm chương:", error);
-      toast.error("Không thể thêm chương mới");
-    }
-  };
-
-  const handleAddChapter = async (chapterData) => {
+  
+  const handleAddChapters = async (chaptersData) => {
     try {
       const courseRef = doc(db, "courses", id);
       const courseDoc = await getDoc(courseRef);
       const courseData = courseDoc.data();
 
-      const newChapter = {
-        id: Date.now().toString(),
-        ...chapterData,
-        order: courseData.chapters ? courseData.chapters.length + 1 : 1,
+      const newChapters = chaptersData.map((chapterTitle, index) => ({
+        id: Date.now().toString() + index,
+        title: chapterTitle,
+        order: (courseData.chapters ? courseData.chapters.length : 0) + index + 1,
         lessons: []
-      };
+      }));
 
       await updateDoc(courseRef, {
-        chapters: arrayUnion(newChapter)
+        chapters: arrayUnion(...newChapters)
       });
 
       setCourse(prevCourse => ({
         ...prevCourse,
-        chapters: [...(prevCourse.chapters || []), newChapter]
+        chapters: [...(prevCourse.chapters || []), ...newChapters]
       }));
 
-      toast.success("Đã thêm chương mới");
-      setIsAddChapterModalOpen(false);
+      toast.success("Đã thêm các chương mới");
     } catch (error) {
       console.error("Lỗi khi thêm chương:", error);
       toast.error("Không thể thêm chương mới");
@@ -195,6 +163,19 @@ export default function EditCourse({ params }) {
     }
   };
 
+
+
+  const addFakeDataToCourse = async (courseId) => {
+    try {
+      const courseRef = doc(db, "courses", courseId);
+      await updateDoc(courseRef, moonCourseData);
+      toast.success("Đã thêm dữ liệu giả vào khóa học");
+    } catch (error) {
+      console.error("Lỗi khi thêm dữ liệu giả:", error);
+      toast.error("Không thể thêm dữ liệu giả");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -218,6 +199,12 @@ export default function EditCourse({ params }) {
               className="mb-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
             >
               Thêm chương mới
+            </button>
+            <button 
+              onClick={() => addFakeDataToCourse(id)}
+              className="mb-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+            >
+              Thêm dữ liệu giả
             </button>
             <ChapterList
               courseId={id}
@@ -248,7 +235,7 @@ export default function EditCourse({ params }) {
         {isAddChapterModalOpen && (
           <AddChapterModal
             onClose={() => setIsAddChapterModalOpen(false)}
-            onAddChapter={handleAddChapter}
+            onAddChapter={handleAddChapters}
           />
         )}
         {isAddLessonModalOpen && (
