@@ -12,6 +12,7 @@ import AddLessonModal from "../../components/AddLessonModal";
 import LessonContent from "../../components/LessonContent";
 import { Spin } from 'antd';
 import { moonCourseData } from '../../courses/fakedata';
+import B2UploadModal from '../../components/B2UploadModal';
 
 export default function EditCourse({ params }) {
   const [course, setCourse] = useState(null);
@@ -24,6 +25,7 @@ export default function EditCourse({ params }) {
   const [isAddLessonModalOpen, setIsAddLessonModalOpen] = useState(false);
   const [selectedChapterId, setSelectedChapterId] = useState(null);
   const [selectedLesson, setSelectedLesson] = useState(null);
+  const [isB2UploadModalOpen, setIsB2UploadModalOpen] = useState(false);
 
   const sortChaptersAndLessons = (chapters) => {
     return chapters.sort((a, b) => a.title.localeCompare(b.title)).map(chapter => ({
@@ -129,6 +131,7 @@ export default function EditCourse({ params }) {
     }
   };
 
+
   const handleUpdateLesson = async (updatedLesson) => {
     try {
       const courseRef = doc(db, "courses", id);
@@ -176,6 +179,47 @@ export default function EditCourse({ params }) {
     }
   };
 
+  const handleOpenB2UploadModal = (lesson) => {
+    setSelectedLesson(lesson);
+    setIsB2UploadModalOpen(true);
+  };
+
+  const handleB2FileAdded = async (fileData) => {
+    try {
+      const courseRef = doc(db, "courses", id);
+      const courseDoc = await getDoc(courseRef);
+      const courseData = courseDoc.data();
+
+      const updatedChapters = courseData.chapters.map(chapter => {
+        if (chapter.id === selectedLesson.chapterId) {
+          const updatedLessons = chapter.lessons.map(lesson => {
+            if (lesson.id === selectedLesson.id) {
+              return {
+                ...lesson,
+                files: [...(lesson.files || []), fileData]
+              };
+            }
+            return lesson;
+          });
+          return { ...chapter, lessons: updatedLessons };
+        }
+        return chapter;
+      });
+
+      await updateDoc(courseRef, { chapters: updatedChapters });
+
+      setCourse(prevCourse => ({
+        ...prevCourse,
+        chapters: updatedChapters
+      }));
+
+      toast.success("Đã thêm file mới");
+    } catch (error) {
+      console.error("Lỗi khi thêm file:", error);
+      toast.error("Không thể thêm file mới");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -186,6 +230,7 @@ export default function EditCourse({ params }) {
 
   if (!course) return null;
 
+
   return (
     <div className="flex h-screen bg-gray-100">
       <Sidebar />
@@ -193,14 +238,16 @@ export default function EditCourse({ params }) {
         <Header />
         <main className="flex-1 flex overflow-hidden bg-gray-200">
           <div className="w-1/3 overflow-y-auto p-6 bg-white border-r">
-            <h1 className="text-3xl font-semibold text-gray-800 mb-6">{course.title}</h1>
-            <button 
+            <h1 className="text-3xl font-semibold text-gray-800 mb-6">
+              {course.title}
+            </h1>
+            <button
               onClick={() => setIsAddChapterModalOpen(true)}
               className="mb-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
             >
               Thêm chương mới
             </button>
-            <button 
+            <button
               onClick={() => addFakeDataToCourse(id)}
               className="mb-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
             >
@@ -222,13 +269,18 @@ export default function EditCourse({ params }) {
           </div>
 
           <div className="w-2/3 overflow-y-auto p-6">
-            <LessonContent 
-              lesson={selectedLesson} 
-              onUpdateLesson={handleUpdateLesson} 
-              courseId={id} 
+            <LessonContent
+              lesson={selectedLesson}
+              onUpdateLesson={handleUpdateLesson}
+              courseId={id}
               chapterId={selectedChapterId}
               courseName={course.title}
-              chapterName={course.chapters.find(chapter => chapter.id === selectedChapterId)?.title}
+              chapterName={
+                course.chapters.find(
+                  (chapter) => chapter.id === selectedChapterId
+                )?.title
+              }
+              onOpenB2UploadModal={handleOpenB2UploadModal}
             />
           </div>
         </main>
@@ -244,6 +296,21 @@ export default function EditCourse({ params }) {
             onAddLesson={handleAddLesson}
             courseId={id}
             chapterId={selectedChapterId}
+          />
+        )}
+        {isB2UploadModalOpen && (
+          <B2UploadModal
+            onClose={() => setIsB2UploadModalOpen(false)}
+            onFileAdded={handleB2FileAdded}
+            courseId={id}
+            chapterId={selectedChapterId}
+            lessonId={selectedLesson?.id}
+            courseName={course.title}
+            chapterName={
+              course.chapters.find((c) => c.id === selectedLesson?.chapterId)
+                ?.title
+            }
+            lessonName={selectedLesson?.title}
           />
         )}
       </div>

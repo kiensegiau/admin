@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { ref, deleteObject } from 'firebase/storage';
 import { storage } from '.././firebase';
 
-export default function LessonContent({ lesson, courseId, chapterId, courseName, chapterName }) {
+export default function LessonContent({ lesson, courseId, chapterId, courseName, chapterName, onOpenB2UploadModal }) {
   const [isAddFileModalOpen, setIsAddFileModalOpen] = useState(false);
   const [isFileViewModalOpen, setIsFileViewModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -66,6 +66,7 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
     setIsFileViewModalOpen(true);
   }, []);
 
+
   const handleDeleteFile = useCallback(async (fileToDelete) => {
     if (!lesson || !lesson.id) {
       console.error('Không có bài học được chọn hoặc bài học không có id');
@@ -109,6 +110,10 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
     }
   }, [lesson, courseId, chapterId]);
 
+  const handleOpenB2UploadModal = () => {
+    onOpenB2UploadModal(lesson);
+  };
+
   if (isLoading) {
     return <LoadingSpinner />;
   }
@@ -129,6 +134,13 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
         className="mb-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition duration-300"
       >
         Thêm tài liệu
+      </button>
+      {/* Nút Upload B2 */}
+      <button
+        onClick={handleOpenB2UploadModal}
+        className="bg-green-500 text-white px-2 py-1 rounded text-sm mr-2"
+      >
+        Upload B2
       </button>
       {isAddFileModalOpen && (
         <AddFileModal
