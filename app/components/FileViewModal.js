@@ -41,34 +41,19 @@ export default function FileViewModal({ file, onClose }) {
     }
   };
 
-  const openLink = async (url, isB2) => {
+  const openLink = (url, isB2) => {
     console.log('openLink được gọi với URL:', url, 'và isB2:', isB2);
     if (url) {
       if (isB2) {
-        try {
-          console.log('Đang tải xuống file từ B2...');
-          const response = await fetch(url);
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          console.log('Phản hồi từ B2:', response);
-          const blob = await response.blob();
-          console.log('Blob đã được tạo:', blob);
-          const downloadUrl = window.URL.createObjectURL(blob);
-          console.log('URL tải xuống đã được tạo:', downloadUrl);
-          const link = document.createElement('a');
-          link.href = downloadUrl;
-          link.download = file.name;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          console.log('File đã được tải xuống');
-        } catch (error) {
-          console.error('Lỗi khi tải xuống file từ B2:', error);
-          setErrorMessage(`Lỗi khi tải xuống file: ${error.message}`);
+        // Nếu là video, chỉ cần set videoUrl
+        if (file.type.startsWith('video/')) {
+          setVideoUrl(url);
+        } else {
+          // Nếu không phải video, mở trong tab mới
+          window.open(url, '_blank');
         }
       } else {
-        console.log('Mở URL trong tab mới:', url);
+        // Nếu không phải B2, mở trong tab mới như trước
         window.open(url, '_blank');
       }
     } else {

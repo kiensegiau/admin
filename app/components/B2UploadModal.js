@@ -1,165 +1,136 @@
-import React, { useState, useCallback, useEffect } from "react";
-import { db } from '../firebase';
-import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import React, { useState, useCallback } from "react";
 import { Spin, Progress } from 'antd';
-import { uploadToDrive } from '../utils/driveUpload';
 import { uploadToB2 } from '../utils/b2Upload';
+import { segmentVideo } from '../utils/videoProcessing';
 
 export default function B2UploadModal({ onClose, courseId, chapterId, lessonId, courseName, chapterName, lessonName, onFileAdded }) {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState({ drive: 0, b2: 0 });
   const [errorMessage, setErrorMessage] = useState('');
-  const [isDriveVerified, setIsDriveVerified] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({
+    processing: 0,
+    uploading: 0,
+    segments: []
+  });
+  const [logs, setLogs] = useState([]);
 
-  const handleFileChange = (e) => {
-    if (e.target.files[0]) {
-      setFile(e.target.files[0]);
-    }
-  };
-
-  const updateProgress = useCallback((service, progress) => {
-    setUploadProgress(prev => ({ ...prev, [service]: progress }));
-  }, []);
-
-  const checkDriveVerification = useCallback(async () => {
-    const accessToken = document.cookie.split('; ').find(row => row.startsWith('googleDriveAccessToken='))?.split('=')[1];
-    if (accessToken) {
-      try {
-        const response = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`
-          }
-        });
-        if (response.ok) {
-          setIsDriveVerified(true);
+  const updateProgress = (stage, progress, segmentIndex = null) => {
+    setUploadProgress(prev => {
+      if (stage === 'processing') {
+        return { ...prev, processing: progress };
+      } else if (stage === 'uploading') {
+        if (segmentIndex !== null) {
+          const newSegments = [...prev.segments];
+          newSegments[segmentIndex] = progress;
+          return { ...prev, segments: newSegments };
         } else {
-          setIsDriveVerified(false);
+          return { ...prev, uploading: progress };
         }
-      } catch (error) {
-        console.error('Lỗi khi kiểm tra xác minh Google Drive:', error);
-        setIsDriveVerified(false);
       }
-    } else {
-      setIsDriveVerified(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    checkDriveVerification();
-  }, [checkDriveVerification]);
+      return prev;
+    });
+  };
 
   const handleUpload = async () => {
     if (!file) return;
     setUploading(true);
     setErrorMessage('');
-    try {
-      const accessToken = document.cookie.split('; ').find(row => row.startsWith('googleDriveAccessToken='))?.split('=')[1];
-      if (!accessToken) {
-        throw new Error('Không có access token. Vui lòng kết nối với Google Drive.');
-      }
+    setUploadProgress({ processing: 0, uploading: 0, segments: [] });
+    setLogs([]);
 
-      const drivePath = `/courses/${courseName}/${chapterName}/${lessonName}`;
-      const [driveResult, b2FileId] = await Promise.all([
-        uploadToDrive(file, accessToken, (progress) => updateProgress('drive', progress), drivePath),
-        uploadToB2(file, courseName, chapterName, lessonName, (progress) => updateProgress('b2', progress))
-      ]);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('courseName', courseName);
+    formData.append('chapterName', chapterName);
+    formData.append('lessonName', lessonName);
 
-      const fileData = {
-        name: file.name,
-        driveUrl: driveResult.webViewLink,
-        b2FileId: b2FileId,
-        type: file.type,
-        uploadTime: new Date().toISOString()
-      };
+    const eventSource = new EventSource(`/api/upload-and-segment-video?filename=${encodeURIComponent(file.name)}`);
 
-      const courseRef = doc(db, 'courses', courseId);
-      const courseDoc = await getDoc(courseRef);
-      const courseData = courseDoc.data();
-
-      if (!courseData) {
-        throw new Error('Không tìm thấy dữ liệu khóa học');
-      }
-
-      const updatedChapters = courseData.chapters.map(chapter => {
-        if (chapter.id === chapterId) {
-          const updatedLessons = chapter.lessons.map(lesson => {
-            if (lesson.id === lessonId) {
-              return {
-                ...lesson,
-                files: [...(lesson.files || []), fileData]
-              };
-            }
-            return lesson;
-          });
-          return { ...chapter, lessons: updatedLessons };
+    eventSource.onmessage = (event) => {
+      const rawData = event.data;
+      setLogs(prevLogs => [...prevLogs, rawData]);
+      
+      const jsonObjects = rawData.split('\n\n').filter(Boolean);
+      
+      jsonObjects.forEach(jsonStr => {
+        try {
+          const jsonData = JSON.parse(jsonStr);
+          if (jsonData.stage === 'processing') {
+            updateProgress('processing', jsonData.progress);
+          } else if (jsonData.stage === 'uploading') {
+            updateProgress('uploading', jsonData.progress);
+          } else if (jsonData.stage === 'segment') {
+            updateProgress('uploading', jsonData.progress, jsonData.segmentIndex);
+          } else if (jsonData.stage === 'complete') {
+            eventSource.close();
+          } else if (jsonData.stage === 'error') {
+            setErrorMessage(`Lỗi từ server: ${jsonData.message}`);
+            eventSource.close();
+          }
+        } catch (error) {
+          console.error('Lỗi khi xử lý sự kiện:', error, 'Dữ liệu gốc:', jsonStr);
+          setLogs(prevLogs => [...prevLogs, `Lỗi xử lý: ${error.message}`]);
         }
-        return chapter;
+      });
+    };
+
+    eventSource.onerror = () => {
+      setErrorMessage('Lỗi khi nhận cập nhật tiến trình');
+      setUploading(false);
+      setLogs(prevLogs => [...prevLogs, 'Lỗi kết nối EventSource']);
+    };
+
+    try {
+      const response = await fetch('/api/upload-and-segment-video', {
+        method: 'POST',
+        body: formData
       });
 
-      await updateDoc(courseRef, { chapters: updatedChapters });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`Lỗi xử lý video: ${errorData.error}`);
+      }
 
-      onFileAdded(fileData);
+      const result = await response.json();
+      onFileAdded(result);
       onClose();
     } catch (error) {
-      console.error('Lỗi chi tiết:', error);
       setErrorMessage(`Lỗi khi tải file: ${error.message}`);
+      setLogs(prevLogs => [...prevLogs, `Lỗi: ${error.message}`]);
     } finally {
       setUploading(false);
+      eventSource.close();
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center" onClick={onClose}>
-      <div className="bg-white p-5 rounded-lg shadow-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-xl font-bold mb-4">Tải lên tài liệu</h2>
-        {!isDriveVerified ? (
-          <div>
-            <p className="mb-4">Bạn cần xác minh Google Drive trước khi tải lên.</p>
-            <button
-              onClick={checkDriveVerification}
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition duration-300"
-            >
-              Xác minh Google Drive
-            </button>
+    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
+      <div className="bg-white p-5 rounded-lg shadow-xl max-w-md w-full">
+        <h2 className="text-xl font-bold mb-4">Tải lên video</h2>
+        <input type="file" onChange={(e) => setFile(e.target.files[0])} className="mb-4 w-full" accept="video/*" />
+        {errorMessage && <p className="text-red-500 mb-4">{errorMessage}</p>}
+        {uploading ? (
+          <div className="mb-4">
+            <h3 className="font-bold mb-2">Logs:</h3>
+            <div className="bg-gray-100 p-2 rounded h-40 overflow-y-auto">
+              {logs.map((log, index) => (
+                <p key={index} className="text-sm whitespace-pre-wrap">{log}</p>
+              ))}
+            </div>
           </div>
         ) : (
-          <>
-            <input type="file" onChange={handleFileChange} className="mb-4 w-full" />
-            {errorMessage && <p className="text-red-500 mb-4">{errorMessage}</p>}
-            {uploading ? (
-              <div className="mb-4">
-                <Spin spinning={uploading} tip="Đang tải lên...">
-                  <div className="mb-2">
-                    <p>Google Drive:</p>
-                    <Progress percent={Math.round(uploadProgress.drive)} status="active" />
-                  </div>
-                  <div>
-                    <p>B2:</p>
-                    <Progress percent={Math.round(uploadProgress.b2)} status="active" />
-                  </div>
-                </Spin>
-              </div>
-            ) : (
-              <div className="flex justify-end">
-                <button
-                  onClick={onClose}
-                  className="mr-2 px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition duration-300"
-                >
-                  Hủy
-                </button>
-                <button
-                  onClick={handleUpload}
-                  disabled={!file || uploading}
-                  className={`px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition duration-300 ${
-                    (!file || uploading) && 'opacity-50 cursor-not-allowed'
-                  }`}
-                >
-                  Tải lên
-                </button>
-              </div>
-            )}
-          </>
+          <div className="flex justify-end">
+            <button onClick={onClose} className="mr-2 px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">
+              Hủy
+            </button>
+            <button
+              onClick={handleUpload}
+              disabled={!file || uploading}
+              className={`px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 ${(!file || uploading) && 'opacity-50 cursor-not-allowed'}`}
+            >
+              Tải lên
+            </button>
+          </div>
         )}
       </div>
     </div>

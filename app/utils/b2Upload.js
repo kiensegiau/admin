@@ -8,49 +8,32 @@ const b2 = new B2({
   }
 });
 
-export const authorizeB2 = async () => {
-  try {
-    const response = await fetch('/api/b2-authorize', { method: 'POST' });
-    return await response.json();
-  } catch (error) {
-    console.error('Lỗi khi xác thực B2:', error);
-    throw error;
-  }
-};
-
 export const uploadToB2 = async (file, courseName, chapterName, lessonName) => {
   try {
-    await authorizeB2();
+    console.log('Bắt đầu quá trình upload lên B2');
     
-    const uploadUrlResponse = await fetch('/api/b2-get-upload-url', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bucketId: process.env.NEXT_PUBLIC_B2_BUCKET_ID }),
+    await b2.authorize();
+    console.log('Đã xác thực B2 thành công');
+    
+    console.log(`Đang upload file: ${file.name}`);
+    const { data: { uploadUrl, authorizationToken } } = await b2.getUploadUrl({
+      bucketId: process.env.NEXT_PUBLIC_B2_BUCKET_ID,
     });
-    const { uploadUrl, authorizationToken } = await uploadUrlResponse.json();
-
-    const sanitizeString = (str) => str?.replace(/[^a-zA-Z0-9._-]/g, '_') || 'unknown';
+    console.log(`Đã nhận được URL upload cho file ${file.name}`);
 
     const filePath = `khoa-hoc/${courseName}/${chapterName}/${lessonName}/${file.name}`;
+    const fileContent = Buffer.from(await file.arrayBuffer());
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('fileName', filePath);
-    formData.append('uploadUrl', uploadUrl);
-    formData.append('authorizationToken', authorizationToken);
-
-    const response = await fetch('/api/b2-upload-file', {
-      method: 'POST',
-      body: formData,
+    const { data: fileInfo } = await b2.uploadFile({
+      uploadUrl: uploadUrl,
+      uploadAuthToken: authorizationToken,
+      fileName: filePath,
+      data: fileContent,
+      contentType: file.type,
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const fileInfo = await response.json();
+    console.log(`Upload thành công file ${file.name}, fileId: ${fileInfo.fileId}`);
     return fileInfo.fileId;
-
   } catch (error) {
     console.error("Lỗi chi tiết khi tải lên Backblaze B2:", error);
     throw new Error(`Lỗi khi tải lên Backblaze B2: ${error.message}`);
