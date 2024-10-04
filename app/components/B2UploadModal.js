@@ -2,14 +2,13 @@ import React, { useState, useCallback, useEffect } from "react";
 import { db } from '../firebase';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { Spin, Progress } from 'antd';
-import { uploadToFirebase } from '../utils/firebaseUpload';
 import { uploadToDrive } from '../utils/driveUpload';
 import { uploadToB2 } from '../utils/b2Upload';
 
 export default function B2UploadModal({ onClose, courseId, chapterId, lessonId, courseName, chapterName, lessonName, onFileAdded }) {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState({ firebase: 0, drive: 0, b2: 0 });
+  const [uploadProgress, setUploadProgress] = useState({ drive: 0, b2: 0 });
   const [errorMessage, setErrorMessage] = useState('');
   const [isDriveVerified, setIsDriveVerified] = useState(false);
 
@@ -55,23 +54,19 @@ export default function B2UploadModal({ onClose, courseId, chapterId, lessonId, 
     setUploading(true);
     setErrorMessage('');
     try {
-      const firebasePath = `/courses/${courseName}/${chapterName}/${lessonName}/${file.name}`;
-      
       const accessToken = document.cookie.split('; ').find(row => row.startsWith('googleDriveAccessToken='))?.split('=')[1];
       if (!accessToken) {
         throw new Error('Không có access token. Vui lòng kết nối với Google Drive.');
       }
 
       const drivePath = `/courses/${courseName}/${chapterName}/${lessonName}`;
-      const [firebaseURL, driveResult, b2FileId] = await Promise.all([
-        uploadToFirebase(file, firebasePath, (progress) => updateProgress('firebase', progress)),
+      const [driveResult, b2FileId] = await Promise.all([
         uploadToDrive(file, accessToken, (progress) => updateProgress('drive', progress), drivePath),
         uploadToB2(file, courseName, chapterName, lessonName, (progress) => updateProgress('b2', progress))
       ]);
 
       const fileData = {
         name: file.name,
-        firebaseUrl: firebaseURL,
         driveUrl: driveResult.webViewLink,
         b2FileId: b2FileId,
         type: file.type,
@@ -135,10 +130,6 @@ export default function B2UploadModal({ onClose, courseId, chapterId, lessonId, 
             {uploading ? (
               <div className="mb-4">
                 <Spin spinning={uploading} tip="Đang tải lên...">
-                  <div className="mb-2">
-                    <p>Firebase:</p>
-                    <Progress percent={Math.round(uploadProgress.firebase)} status="active" />
-                  </div>
                   <div className="mb-2">
                     <p>Google Drive:</p>
                     <Progress percent={Math.round(uploadProgress.drive)} status="active" />

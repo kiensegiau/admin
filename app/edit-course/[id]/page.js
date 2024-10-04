@@ -163,7 +163,19 @@ export default function EditCourse({ params }) {
       );
 
       await updateDoc(courseRef, { chapters: updatedChapters });
-      setCourse(prevCourse => ({ ...prevCourse, chapters: updatedChapters }));
+      
+      // Cập nhật state ngay lập tức
+      setCourse(prevCourse => ({
+        ...prevCourse,
+        chapters: updatedChapters
+      }));
+      
+      // Cập nhật selectedLesson để hiển thị file mới
+      setSelectedLesson(prevLesson => ({
+        ...prevLesson,
+        files: [...(prevLesson.files || []), fileData]
+      }));
+
       toast.success("Đã thêm file mới");
     } catch (error) {
       console.error("Lỗi khi thêm file:", error);

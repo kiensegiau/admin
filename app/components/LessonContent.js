@@ -62,10 +62,13 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
   }, [lesson, fetchLessonData]);
 
   const handleFileClick = useCallback((file) => {
-    setSelectedFile(file);
-    setIsFileViewModalOpen(true);
+    if (file.b2FileId) {
+      setSelectedFile(file);
+      setIsFileViewModalOpen(true);
+    } else if (file.driveUrl) {
+      window.open(file.driveUrl, '_blank');
+    }
   }, []);
-
 
   const handleDeleteFile = useCallback(async (fileToDelete) => {
     if (!lesson || !lesson.id) {
