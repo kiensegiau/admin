@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { doc, getDoc, updateDoc, collection, addDoc, deleteDoc, arrayUnion, getDocs, arrayRemove } from "firebase/firestore";
+import { doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
 import { db } from "../../firebase";
 import { toast } from "sonner";
 import Sidebar from "../../components/Sidebar";
@@ -16,7 +16,6 @@ import B2UploadModal from '../../components/B2UploadModal';
 
 export default function EditCourse({ params }) {
   const [course, setCourse] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const { id } = params;
@@ -45,11 +44,9 @@ export default function EditCourse({ params }) {
     const fetchCourse = async () => {
       setLoading(true);
       try {
-        const docRef = doc(db, "courses", id);
-        const docSnap = await getDoc(docRef);
+        const docSnap = await getDoc(doc(db, "courses", id));
         if (docSnap.exists()) {
-          const courseData = { id: docSnap.id, ...docSnap.data() };
-          setCourse(courseData);
+          setCourse({ id: docSnap.id, ...docSnap.data() });
         } else {
           toast.error("Không tìm thấy khóa học");
           router.push("/courses");
@@ -65,7 +62,6 @@ export default function EditCourse({ params }) {
     fetchCourse();
   }, [id, router]);
 
-  
   const handleAddChapters = async (chaptersData) => {
     try {
       const courseRef = doc(db, "courses", id);
@@ -103,25 +99,16 @@ export default function EditCourse({ params }) {
 
       const updatedChapters = courseData.chapters.map(chapter => {
         if (chapter.id === selectedChapterId) {
-          const newLesson = {
-            id: Date.now().toString(),
-            title: lessonData.title,
-            files: []
-          };
           return {
             ...chapter,
-            lessons: [...(chapter.lessons || []), newLesson]
+            lessons: [...(chapter.lessons || []), { id: Date.now().toString(), title: lessonData.title, files: [] }]
           };
         }
         return chapter;
       });
 
       await updateDoc(courseRef, { chapters: updatedChapters });
-
-      setCourse(prevCourse => ({
-        ...prevCourse,
-        chapters: updatedChapters
-      }));
+      setCourse(prevCourse => ({ ...prevCourse, chapters: updatedChapters }));
 
       toast.success("Đã thêm bài học mới");
       setIsAddLessonModalOpen(false);
@@ -131,33 +118,18 @@ export default function EditCourse({ params }) {
     }
   };
 
-
   const handleUpdateLesson = async (updatedLesson) => {
     try {
       const courseRef = doc(db, "courses", id);
       const courseDoc = await getDoc(courseRef);
-      const courseData = courseDoc.data();
-
-      const updatedChapters = courseData.chapters.map(chapter => {
-        if (chapter.id === selectedChapterId) {
-          const updatedLessons = chapter.lessons.map(l => {
-            if (l.id === updatedLesson.id) {
-              return { ...l, ...updatedLesson };
-            }
-            return l;
-          });
-          return { ...chapter, lessons: updatedLessons };
-        }
-        return chapter;
-      });
+      const updatedChapters = courseDoc.data().chapters.map(chapter => 
+        chapter.id === selectedChapterId
+          ? { ...chapter, lessons: chapter.lessons.map(l => l.id === updatedLesson.id ? { ...l, ...updatedLesson } : l) }
+          : chapter
+      );
 
       await updateDoc(courseRef, { chapters: updatedChapters });
-
-      setCourse(prevCourse => ({
-        ...prevCourse,
-        chapters: updatedChapters
-      }));
-
+      setCourse(prevCourse => ({ ...prevCourse, chapters: updatedChapters }));
       setSelectedLesson(updatedLesson);
       toast.success("Bài học đã được cập nhật");
     } catch (error) {
@@ -166,12 +138,9 @@ export default function EditCourse({ params }) {
     }
   };
 
-
-
-  const addFakeDataToCourse = async (courseId) => {
+  const addFakeDataToCourse = async () => {
     try {
-      const courseRef = doc(db, "courses", courseId);
-      await updateDoc(courseRef, moonCourseData);
+      await updateDoc(doc(db, "courses", id), moonCourseData);
       toast.success("Đã thêm dữ liệu giả vào khóa học");
     } catch (error) {
       console.error("Lỗi khi thêm dữ liệu giả:", error);
@@ -179,40 +148,22 @@ export default function EditCourse({ params }) {
     }
   };
 
-  const handleOpenB2UploadModal = (lesson) => {
-    setSelectedLesson(lesson);
-    setIsB2UploadModalOpen(true);
-  };
-
   const handleB2FileAdded = async (fileData) => {
     try {
       const courseRef = doc(db, "courses", id);
       const courseDoc = await getDoc(courseRef);
-      const courseData = courseDoc.data();
-
-      const updatedChapters = courseData.chapters.map(chapter => {
-        if (chapter.id === selectedLesson.chapterId) {
-          const updatedLessons = chapter.lessons.map(lesson => {
-            if (lesson.id === selectedLesson.id) {
-              return {
-                ...lesson,
-                files: [...(lesson.files || []), fileData]
-              };
-            }
-            return lesson;
-          });
-          return { ...chapter, lessons: updatedLessons };
-        }
-        return chapter;
-      });
+      const updatedChapters = courseDoc.data().chapters.map(chapter => 
+        chapter.id === selectedLesson.chapterId
+          ? { ...chapter, lessons: chapter.lessons.map(lesson => 
+              lesson.id === selectedLesson.id
+                ? { ...lesson, files: [...(lesson.files || []), fileData] }
+                : lesson
+            )}
+          : chapter
+      );
 
       await updateDoc(courseRef, { chapters: updatedChapters });
-
-      setCourse(prevCourse => ({
-        ...prevCourse,
-        chapters: updatedChapters
-      }));
-
+      setCourse(prevCourse => ({ ...prevCourse, chapters: updatedChapters }));
       toast.success("Đã thêm file mới");
     } catch (error) {
       console.error("Lỗi khi thêm file:", error);
@@ -230,7 +181,6 @@ export default function EditCourse({ params }) {
 
   if (!course) return null;
 
-
   return (
     <div className="flex h-screen bg-gray-100">
       <Sidebar />
@@ -238,19 +188,11 @@ export default function EditCourse({ params }) {
         <Header />
         <main className="flex-1 flex overflow-hidden bg-gray-200">
           <div className="w-1/3 overflow-y-auto p-6 bg-white border-r">
-            <h1 className="text-3xl font-semibold text-gray-800 mb-6">
-              {course.title}
-            </h1>
-            <button
-              onClick={() => setIsAddChapterModalOpen(true)}
-              className="mb-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-            >
+            <h1 className="text-3xl font-semibold text-gray-800 mb-6">{course.title}</h1>
+            <button onClick={() => setIsAddChapterModalOpen(true)} className="mb-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
               Thêm chương mới
             </button>
-            <button
-              onClick={() => addFakeDataToCourse(id)}
-              className="mb-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-            >
+            <button onClick={addFakeDataToCourse} className="mb-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
               Thêm dữ liệu giả
             </button>
             <ChapterList
@@ -267,20 +209,18 @@ export default function EditCourse({ params }) {
               setExpandedChapter={setSelectedChapterId}
             />
           </div>
-
           <div className="w-2/3 overflow-y-auto p-6">
             <LessonContent
               lesson={selectedLesson}
               onUpdateLesson={handleUpdateLesson}
               courseId={id}
               chapterId={selectedChapterId}
-              courseName={course.title}
-              chapterName={
-                course.chapters.find(
-                  (chapter) => chapter.id === selectedChapterId
-                )?.title
-              }
-              onOpenB2UploadModal={handleOpenB2UploadModal}
+              courseName={course?.title}
+              chapterName={course?.chapters?.find(chapter => chapter.id === selectedLesson?.chapterId)?.title}
+              onOpenB2UploadModal={(lesson) => {
+                setSelectedLesson(lesson);
+                setIsB2UploadModalOpen(true);
+              }}
             />
           </div>
         </main>
@@ -298,19 +238,16 @@ export default function EditCourse({ params }) {
             chapterId={selectedChapterId}
           />
         )}
-        {isB2UploadModalOpen && (
+        {isB2UploadModalOpen && selectedLesson && (
           <B2UploadModal
             onClose={() => setIsB2UploadModalOpen(false)}
             onFileAdded={handleB2FileAdded}
             courseId={id}
             chapterId={selectedChapterId}
-            lessonId={selectedLesson?.id}
-            courseName={course.title}
-            chapterName={
-              course.chapters.find((c) => c.id === selectedLesson?.chapterId)
-                ?.title
-            }
-            lessonName={selectedLesson?.title}
+            lessonId={selectedLesson.id}
+            courseName={course?.title}
+            chapterName={course?.chapters?.find(chapter => chapter.id === selectedChapterId)?.title}
+            lessonName={selectedLesson.title}
           />
         )}
       </div>

@@ -3,22 +3,14 @@ import fetch from "node-fetch";
 
 export async function POST(req) {
   const formData = await req.formData();
-  const file = formData.get("file");
-  const fileName = formData.get("fileName");
-  const uploadUrl = formData.get("uploadUrl");
-  const authorizationToken = formData.get("authorizationToken");
+  const [file, fileName, uploadUrl, authorizationToken] = ['file', 'fileName', 'uploadUrl', 'authorizationToken'].map(key => formData.get(key));
 
   if (!file || !fileName || !uploadUrl || !authorizationToken) {
-    return NextResponse.json(
-      { error: "Missing required fields" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Thiếu các trường bắt buộc" }, { status: 400 });
   }
 
   try {
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
+    const buffer = Buffer.from(await file.arrayBuffer());
     const response = await fetch(uploadUrl, {
       method: "POST",
       headers: {
@@ -31,11 +23,10 @@ export async function POST(req) {
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      throw new Error(`Lỗi HTTP! Trạng thái: ${response.status}`);
     }
 
-    const fileInfo = await response.json();
-    return NextResponse.json(fileInfo);
+    return NextResponse.json(await response.json());
   } catch (error) {
     console.error("Lỗi khi tải file lên B2:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
