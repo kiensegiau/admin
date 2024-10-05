@@ -7,6 +7,7 @@ import LoadingSpinner from './LoadingSpinner';
 import { toast } from 'sonner';
 import { ref, deleteObject } from 'firebase/storage';
 import { storage } from '.././firebase';
+import VideoModal from './VideoModal'; // Thêm import này
 
 export default function LessonContent({ lesson, courseId, chapterId, courseName, chapterName, onOpenB2UploadModal }) {
   const [isAddFileModalOpen, setIsAddFileModalOpen] = useState(false);
@@ -14,6 +15,8 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
   const [selectedFile, setSelectedFile] = useState(null);
   const [lessonData, setLessonData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedVideoFile, setSelectedVideoFile] = useState(null);
+  const [isVideoPlayerVisible, setIsVideoPlayerVisible] = useState(false);
 
   const fetchLessonData = useCallback(async () => {
     if (!lesson || !lesson.id) {
@@ -62,7 +65,9 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
   }, [lesson, fetchLessonData]);
 
   const handleFileClick = useCallback((file) => {
-    if (file.b2FileId) {
+    if (file.type.startsWith('video/') || file.type === 'application/x-mpegURL') {
+      setSelectedVideoFile(file);
+    } else if (file.b2FileId) {
       setSelectedFile(file);
       setIsFileViewModalOpen(true);
     } else if (file.driveUrl) {
@@ -117,6 +122,18 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
     onOpenB2UploadModal(lesson);
   };
 
+  const handleCloseVideoModal = useCallback(() => {
+    setSelectedVideoFile(null);
+  }, []);
+
+  const handleViewVideo = () => {
+    if (lessonData?.videoUrl) {
+      setIsVideoPlayerVisible(true);
+    } else {
+      toast.error('Không có video cho bài học này');
+    }
+  };
+
   if (isLoading) {
     return <LoadingSpinner />;
   }
@@ -145,6 +162,30 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
       >
         Upload B2
       </button>
+      {lessonData?.videoUrl && (
+        <div>
+          <button
+            onClick={handleViewVideo}
+            className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 transition duration-300"
+          >
+            Xem Video
+          </button>
+          {isVideoPlayerVisible && (
+            <div className="mt-4">
+              <VideoPlayer 
+                src={`/api/video-proxy?url=${encodeURIComponent(lessonData.videoUrl)}`} 
+                onError={(error) => console.error('Video Player Error:', error)}
+              />
+              <button
+                onClick={() => setIsVideoPlayerVisible(false)}
+                className="mt-2 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition duration-300"
+              >
+                Đóng Video
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {isAddFileModalOpen && (
         <AddFileModal
           onClose={() => setIsAddFileModalOpen(false)}
@@ -185,6 +226,9 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
         </div>
       ) : (
         <p className="text-gray-500 italic">Chưa có tài liệu nào cho bài học này.</p>
+      )}
+      {selectedVideoFile && (
+        <VideoModal file={selectedVideoFile} onClose={handleCloseVideoModal} />
       )}
       {isFileViewModalOpen && (
         <FileViewModal

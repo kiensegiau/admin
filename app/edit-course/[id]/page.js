@@ -64,14 +64,22 @@ export default function EditCourse({ params }) {
 
   const handleAddChapters = async (chaptersData) => {
     try {
+      if (typeof chaptersData === 'object' && !Array.isArray(chaptersData)) {
+        chaptersData = [chaptersData];
+      } else if (!Array.isArray(chaptersData)) {
+        console.error('chaptersData không hợp lệ:', chaptersData);
+        toast.error('Dữ liệu chương không hợp lệ');
+        return;
+      }
+
       const courseRef = doc(db, "courses", id);
       const courseDoc = await getDoc(courseRef);
       const courseData = courseDoc.data();
 
-      const newChapters = chaptersData.map((chapterTitle, index) => ({
+      const newChapters = chaptersData.map((chapter, index) => ({
         id: Date.now().toString() + index,
-        title: chapterTitle,
-        order: (courseData.chapters ? courseData.chapters.length : 0) + index + 1,
+        title: chapter.title || `Chương ${index + 1}`,
+        order: chapter.order || (courseData.chapters ? courseData.chapters.length : 0) + index + 1,
         lessons: []
       }));
 
@@ -81,7 +89,7 @@ export default function EditCourse({ params }) {
 
       setCourse(prevCourse => ({
         ...prevCourse,
-        chapters: [...(prevCourse.chapters || []), ...newChapters]
+        chapters: sortChaptersAndLessons([...(prevCourse.chapters || []), ...newChapters])
       }));
 
       toast.success("Đã thêm các chương mới");
