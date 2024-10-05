@@ -7,6 +7,7 @@ import { uploadToB2 } from "../../utils/b2Upload";
 import { segmentVideo } from "../../utils/videoProcessing";
 import { PassThrough } from 'stream';
 import os from 'os';
+import { getFirestore, doc, getDoc, updateDoc } from 'firebase/firestore';
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
@@ -26,9 +27,6 @@ export async function GET(req) {
 
   const streamResponse = new NextResponse(stream, { headers });
 
-  // Gửi sự kiện khởi tạo
-  sendEvent({ stage: 'init', message: 'Bắt đầu xử lý video' });
-
   return streamResponse;
 }
 
@@ -38,37 +36,20 @@ export async function POST(req) {
   const courseName = formData.get("courseName");
   const chapterName = formData.get("chapterName");
   const lessonName = formData.get("lessonName");
+  const courseId = formData.get("courseId");
+  const chapterId = formData.get("chapterId");
+  const lessonId = formData.get("lessonId");
 
   if (!file) {
-    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    if (!file || !courseId || !chapterId || !lessonId) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
   }
 
-  const stream = new PassThrough();
-  const encoder = new TextEncoder();
-
- const sendEvent = (data) => {
-   stream.write(`data: ${JSON.stringify(data)}\n\n`);
- };
-
-  const headers = {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-  };
-
-  const streamResponse = new NextResponse(stream, { headers });
-
-  // Xử lý video và upload lên B2
   try {
     console.log('Bắt đầu xử lý POST request');
     console.log('File nhận được:', file.name);
     console.log('Coursename:', courseName);
-    console.log('Chaptername:', chapterName);
-    console.log('Lessonname:', lessonName);
-
-    // Thêm log trước mỗi lần gọi sendEvent
-    console.log('Gửi sự kiện:', { stage: 'processing', progress: 0 });
-    sendEvent({ stage: 'processing', progress: 0 });
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const tempDir = path.join(os.tmpdir(), uuidv4());
@@ -76,55 +57,78 @@ export async function POST(req) {
     const inputPath = path.join(tempDir, file.name);
     await fs.promises.writeFile(inputPath, buffer);
 
-    const { outputPath, outputDir } = await segmentVideo(inputPath, tempDir, (progress) => {
-      sendEvent({ stage: 'processing', progress });
+    const { outputPath, outputDir } = await segmentVideo(inputPath, tempDir);
+
+    const playlist = await fs.promises.readFile(outputPath, 'utf8');
+    const segments = fs.readdirSync(outputDir).filter(file => file.endsWith('.ts'));
+
+    const segmentUploads = await Promise.all(segments.map(async (segment) => {
+      const segmentPath = path.join(outputDir, segment);
+      const segmentContent = await fs.promises.readFile(segmentPath);
+      const segmentFile = new File([segmentContent], segment, { type: 'video/MP2T' });
+      const result = await uploadToB2(segmentFile, courseName, chapterName, lessonName);
+      console.log(`Segment ${segment} uploaded. URL: ${result.downloadUrl}`);
+      return result;
+    }));
+
+    let updatedPlaylistContent = playlist;
+    segmentUploads.forEach(({ fileId, downloadUrl }, index) => {
+      updatedPlaylistContent = updatedPlaylistContent.replace(
+        segments[index],
+        downloadUrl
+      );
     });
 
-    // Thêm log sau khi xử lý video
-    console.log('Xử lý video hoàn tất');
+    const updatedPlaylistFile = new File([updatedPlaylistContent], 'playlist.m3u8', { type: 'application/x-mpegURL' });
+    const { fileId: playlistId, downloadUrl: playlistUrl } = await uploadToB2(updatedPlaylistFile, courseName, chapterName, lessonName);
 
-    sendEvent({ stage: 'uploading', progress: 0 });
+    console.log('Nội dung playlist sau khi cập nhật:');
+    console.log(updatedPlaylistContent);
 
-    const playlist = await fs.promises.readFile(outputPath);
-    const segments = await Promise.all(
-      fs.readdirSync(outputDir)
-        .filter(file => file.endsWith('.ts'))
-        .map(async file => {
-          const filePath = path.join(outputDir, file);
-          const content = await fs.promises.readFile(filePath);
-          return new File([content], file, { type: 'video/MP2T' });
-        })
-    );
+    console.log(`Playlist uploaded. URL: ${playlistUrl}`);
 
-    // Thêm log trước và sau khi upload playlist
-    console.log('Bắt đầu upload playlist');
-    const playlistId = await uploadToB2(new File([playlist], 'playlist.m3u8', { type: 'application/x-mpegURL' }), courseName, chapterName, lessonName);
-    console.log('Upload playlist hoàn tất, ID:', playlistId);
-    sendEvent({ stage: 'uploading', progress: 50 });
+    // Lưu thông tin vào Firebase
+    const db = getFirestore();
+    const courseRef = doc(db, 'courses', courseId);
+    const courseDoc = await getDoc(courseRef);
+    const courseData = courseDoc.data();
 
-    // Thêm log trước và sau khi upload segments
-    console.log('Bắt đầu upload segments');
-    const segmentIds = await Promise.all(segments.map((segment, index) => 
-      uploadToB2(segment, courseName, chapterName, lessonName).then(id => {
-        console.log(`Upload segment ${index + 1}/${segments.length} hoàn tất, ID:`, id);
-        sendEvent({ stage: 'segment', progress: (index + 1) / segments.length * 100, segmentIndex: index });
-        return id;
-      })
-    ));
-    console.log('Upload tất cả segments hoàn tất');
+    if (!courseData) {
+      throw new Error('Không tìm thấy dữ liệu khóa học');
+    }
 
-    fs.rmSync(outputDir, { recursive: true, force: true });
+    const fileData = {
+      name: 'playlist.m3u8',
+      url: playlistUrl,
+      type: 'application/x-mpegURL',
+      uploadTime: new Date().toISOString()
+    };
 
-    // Thêm log trước khi kết thúc
+    const updatedChapters = courseData.chapters.map(chapter => {
+      if (chapter.id === chapterId) {
+        const updatedLessons = chapter.lessons.map(lesson => {
+          if (lesson.id === lessonId) {
+            return {
+              ...lesson,
+              videoUrl: playlistUrl,
+              files: [...(lesson.files || []), fileData]
+            };
+          }
+          return lesson;
+        });
+        return { ...chapter, lessons: updatedLessons };
+      }
+      return chapter;
+    });
+
+    await updateDoc(courseRef, { chapters: updatedChapters });
+
+    fs.rmSync(tempDir, { recursive: true, force: true });
+
     console.log('Xử lý POST request hoàn tất');
-    sendEvent({ stage: 'complete', message: 'Upload hoàn tất' });
-    stream.end();
-
-    return streamResponse;
+    return NextResponse.json({ playlistId, playlistUrl });
   } catch (error) {
-    console.error('Lỗi khi xử lý và upload video:', error);
-    sendEvent({ stage: 'error', message: error.message });
-    stream.end();
-    return streamResponse;
+    console.error("Lỗi khi xử lý và upload video:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

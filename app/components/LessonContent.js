@@ -162,7 +162,7 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
           <h3 className="text-xl font-semibold mb-4">Tài liệu bài học</h3>
           <ul className="space-y-2">
             {lessonData.files.map((file, index) => (
-              <li key={index} className="flex items-center justify-between bg-gray-100 p-2 rounded hover:bg-gray-200 transition duration-300">
+              <li key={file.id || index} className="flex items-center justify-between bg-gray-100 p-2 rounded hover:bg-gray-200 transition duration-300">
                 <span className="flex-1">{file.name}</span>
                 <span className="text-sm text-gray-500 mr-4">
                   {new Date(file.uploadTime).toLocaleString()}
