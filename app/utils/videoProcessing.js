@@ -21,7 +21,9 @@ export const segmentVideo = async (inputPath, outputDir, progressCallback) => {
       if (match) {
         const [, hours, minutes, seconds] = match;
         const totalSeconds = parseInt(hours) * 3600 + parseInt(minutes) * 60 + parseFloat(seconds);
-        progressCallback(totalSeconds);
+        if (typeof progressCallback === 'function') {
+          progressCallback(totalSeconds);
+        }
       }
     });
   });
