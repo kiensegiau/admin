@@ -17,7 +17,7 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
   const [isLoading, setIsLoading] = useState(true);
   const [selectedVideoFile, setSelectedVideoFile] = useState(null);
   const [isVideoPlayerVisible, setIsVideoPlayerVisible] = useState(false);
-
+console.log(lessonData);
   const fetchLessonData = useCallback(async () => {
     if (!lesson || !lesson.id) {
       console.log('Không có bài học được chọn hoặc bài học không có id');
@@ -65,7 +65,7 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
   }, [lesson, fetchLessonData]);
 
   const handleFileClick = useCallback((file) => {
-    if (file.type.startsWith('video/') || file.type === 'application/x-mpegURL') {
+    if (file.type === 'application/x-mpegURL' || file.type.startsWith('video/')) {
       setSelectedVideoFile(file);
     } else if (file.b2FileId) {
       setSelectedFile(file);
@@ -230,12 +230,7 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
       {selectedVideoFile && (
         <VideoModal file={selectedVideoFile} onClose={handleCloseVideoModal} />
       )}
-      {isFileViewModalOpen && (
-        <FileViewModal
-          file={selectedFile}
-          onClose={() => setIsFileViewModalOpen(false)}
-        />
-      )}
+      
     </div>
   );
 }

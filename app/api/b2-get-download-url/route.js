@@ -11,9 +11,11 @@ export async function POST(req) {
       applicationKey: process.env.NEXT_PUBLIC_B2_APPLICATION_KEY,
     });
 
+    console.log("Đang xác thực B2...");
     await b2.authorize();
     console.log("Đã xác thực B2 thành công");
 
+    console.log("Đang lấy thông tin file...");
     const fileInfo = await b2.getFileInfo({ fileId });
     console.log("Thông tin file từ B2:", fileInfo.data);
 
@@ -21,6 +23,7 @@ export async function POST(req) {
       throw new Error("Không tìm thấy thông tin file trong phản hồi từ B2");
     }
 
+    console.log("Đang lấy authorization...");
     const response = await b2.getDownloadAuthorization({
       bucketId: process.env.NEXT_PUBLIC_B2_BUCKET_ID,
       fileNamePrefix: fileInfo.data.fileName,
@@ -38,7 +41,7 @@ export async function POST(req) {
 
     return NextResponse.json({ downloadUrl });
   } catch (error) {
-    console.error("Lỗi khi lấy URL tải xuống từ B2:", error);
+    console.error("Lỗi chi tiết khi lấy URL tải xuống từ B2:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

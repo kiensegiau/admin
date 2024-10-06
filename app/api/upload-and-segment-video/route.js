@@ -67,8 +67,8 @@ export async function POST(req) {
     console.log("Hoàn thành upload các segment");
 
     let updatedPlaylistContent = playlist;
-    segmentUploads.forEach(({ downloadUrl }, index) => {
-      updatedPlaylistContent = updatedPlaylistContent.replace(segments[index], downloadUrl);
+    segmentUploads.forEach(({ fileId }, index) => {
+      updatedPlaylistContent = updatedPlaylistContent.replace(segments[index], fileId);
     });
 
     console.log("Bắt đầu upload playlist");
@@ -87,7 +87,7 @@ export async function POST(req) {
 
     const fileData = {
       name: file.name,
-      url: playlistUrl,
+      b2FileId: playlistId,
       type: 'application/x-mpegURL',
       uploadTime: new Date().toISOString()
     };

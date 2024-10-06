@@ -1,22 +1,18 @@
 import { NextResponse } from "next/server";
+import B2 from "backblaze-b2";
 
-export async function POST() {
+export async function GET(req) {
   try {
-    const authResponse = await fetch('https://api.backblazeb2.com/b2api/v2/b2_authorize_account', {
-      method: 'GET',
-      headers: {
-        Authorization: 'Basic ' + Buffer.from(process.env.NEXT_PUBLIC_B2_APPLICATION_KEY_ID + ':' + process.env.NEXT_PUBLIC_B2_APPLICATION_KEY).toString('base64')
-      }
+    const b2 = new B2({
+      applicationKeyId: process.env.NEXT_PUBLIC_B2_APPLICATION_KEY_ID,
+      applicationKey: process.env.NEXT_PUBLIC_B2_APPLICATION_KEY,
     });
 
-    if (!authResponse.ok) {
-      throw new Error(`B2 authorization failed: ${authResponse.statusText}`);
-    }
-
-    const authData = await authResponse.json();
-    return NextResponse.json(authData);
+    await b2.authorize();
+    
+    return NextResponse.json({ authorized: true });
   } catch (error) {
-    console.error('B2 authorization error:', error);
-    return NextResponse.json({ error: 'B2 authorization failed' }, { status: 500 });
+    console.error("Lỗi khi xác thực B2:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

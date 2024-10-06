@@ -4,7 +4,7 @@ import ReactPlayer from 'react-player';
 export default function FileViewModal({ file, onClose }) {
   const [videoUrl, setVideoUrl] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
-
+console.log('aaa');
   useEffect(() => {
     if (file.b2FileId && file.type.startsWith('video/')) {
       fetchVideoUrl();
