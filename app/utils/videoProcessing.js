@@ -1,19 +1,30 @@
 import { exec } from 'child_process';
 import path from 'path';
 
-export const segmentVideo = async (inputPath, outputDir, progressCallback) => {
+export const segmentVideoMultipleResolutions = async (inputPath, outputDir, progressCallback) => {
   return new Promise((resolve, reject) => {
-    const outputPath = path.join(outputDir, 'output.m3u8');
-    const ffmpegCommand = `ffmpeg -i "${inputPath}" -c:v libx264 -preset veryfast -crf 28 -c:a aac -b:a 128k -f hls -hls_time 10 -hls_list_size 0 "${outputPath}"`;
+    const outputPaths = {};
+    const resolutions = [
+      { bitrate: '800k', name: '480p' },
+      { bitrate: '1200k', name: '720p' },
+      { bitrate: '2000k', name: '1080p' },
+      { bitrate: '3000k', name: '1440p' }
+    ];
+    const ffmpegCommands = resolutions.map(({ bitrate, name }) => {
+      const resolutionDir = path.join(outputDir, name);
+      const outputPath = path.join(resolutionDir, 'playlist.m3u8');
+      outputPaths[name] = outputPath;
+      return `ffmpeg -i "${inputPath}" -c:v copy -c:a copy -b:v ${bitrate} -maxrate ${bitrate} -bufsize ${parseInt(bitrate)*2}k -f hls -hls_time 10 -hls_list_size 0 -hls_segment_filename "${resolutionDir}/%03d.ts" "${outputPath}"`;
+    });
 
-    const ffmpegProcess = exec(ffmpegCommand, (error, stdout, stderr) => {
+    const ffmpegProcess = exec(ffmpegCommands.join(' && '), (error, stdout, stderr) => {
       if (error) {
         console.error(`Lỗi khi xử lý video: ${error.message}`);
         reject(error);
         return;
       }
-      console.log('Hoàn thành quá trình phân đoạn video');
-      resolve({ outputPath, outputDir });
+      console.log('Hoàn thành quá trình phân đoạn video và tạo nhiều bitrate');
+      resolve({ outputPaths, outputDir });
     });
 
     ffmpegProcess.stderr.on('data', (data) => {

@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { uploadToB2 } from "../../utils/b2Upload";
-import { segmentVideo } from "../../utils/videoProcessing";
+import { uploadToR2 } from "../../utils/r2Upload";
+import { segmentVideoMultipleResolutions } from "../../utils/videoProcessing";
 import { PassThrough } from 'stream';
 import os from 'os';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
@@ -23,6 +23,7 @@ export async function GET(req) {
 
   return new NextResponse(stream, { headers });
 }
+
 
 export async function POST(req) {
   console.log("Bắt đầu xử lý yêu cầu POST");
@@ -48,33 +49,52 @@ export async function POST(req) {
     const inputPath = path.join(tempDir, file.name);
     await fs.promises.writeFile(inputPath, buffer);
 
-    console.log("Bắt đầu phân đoạn video");
-    const { outputPath, outputDir } = await segmentVideo(inputPath, tempDir, () => {});
-    console.log("Hoàn thành phân đoạn video");
+    console.log("Bắt đầu phân đoạn video và tạo nhiều bitrate");
+    const { outputPaths, outputDir } = await segmentVideoMultipleResolutions(inputPath, tempDir, () => {});
+    console.log("Hoàn thành phân đoạn video và tạo nhiều bitrate");
 
-    const playlist = await fs.promises.readFile(outputPath, 'utf8');
-    const segments = fs.readdirSync(outputDir).filter(file => file.endsWith('.ts'));
-    console.log(`Số lượng segment: ${segments.length}`);
+    console.log("Bắt đầu upload các segment và playlist");
+    const uploadPromises = Object.entries(outputPaths).map(async ([bitrate, outputPath]) => {
+      const bitrateDir = path.dirname(outputPath);
+      const playlist = await fs.promises.readFile(outputPath, 'utf8');
+      const segments = fs.readdirSync(bitrateDir).filter(file => file.endsWith('.ts'));
 
-    console.log("Bắt đầu upload các segment");
-    const segmentUploads = await Promise.all(segments.map(async (segment, index) => {
-      console.log(`Đang upload segment ${index + 1}/${segments.length}`);
-      const segmentPath = path.join(outputDir, segment);
-      const segmentContent = await fs.promises.readFile(segmentPath);
-      const segmentFile = new File([segmentContent], segment, { type: 'video/MP2T' });
-      return uploadToB2(segmentFile, courseName, chapterName, lessonName);
-    }));
-    console.log("Hoàn thành upload các segment");
+      const segmentUploads = await Promise.all(segments.map(async (segment) => {
+        const segmentPath = path.join(bitrateDir, segment);
+        const segmentContent = await fs.promises.readFile(segmentPath);
+        const segmentFile = new File([segmentContent], `${bitrate}/${segment}`, { type: 'video/MP2T' });
+        return uploadToR2(segmentFile, courseName, chapterName, lessonName);
+      }));
 
-    let updatedPlaylistContent = playlist;
-    segmentUploads.forEach(({ fileId }, index) => {
-      updatedPlaylistContent = updatedPlaylistContent.replace(segments[index], fileId);
+      let updatedPlaylistContent = playlist;
+      segmentUploads.forEach(({ fileId }, index) => {
+        updatedPlaylistContent = updatedPlaylistContent.replace(segments[index], fileId);
+      });
+
+      const updatedPlaylistFile = new File([updatedPlaylistContent], `${bitrate}/playlist.m3u8`, { type: 'application/x-mpegURL' });
+      return uploadToR2(updatedPlaylistFile, courseName, chapterName, lessonName);
     });
 
-    console.log("Bắt đầu upload playlist");
-    const updatedPlaylistFile = new File([updatedPlaylistContent], 'playlist.m3u8', { type: 'application/x-mpegURL' });
-    const { fileId: playlistId, downloadUrl: playlistUrl } = await uploadToB2(updatedPlaylistFile, courseName, chapterName, lessonName);
-    console.log("Hoàn thành upload playlist");
+    const playlistUploads = await Promise.all(uploadPromises);
+    console.log("Hoàn thành upload các segment và playlist");
+
+    console.log("Bắt đầu tạo master playlist");
+    let masterPlaylistContent = "#EXTM3U\n#EXT-X-VERSION:3\n";
+    const resolutions = [
+      { bitrate: '800k', name: '480p' },
+      { bitrate: '1200k', name: '720p' },
+      { bitrate: '2000k', name: '1080p' },
+      { bitrate: '3000k', name: '1440p' }
+    ];
+    playlistUploads.forEach(({ downloadUrl }, index) => {
+      const resolution = Object.keys(outputPaths)[index];
+      const bitrate = resolutions.find(r => r.name === resolution).bitrate;
+      masterPlaylistContent += `#EXT-X-STREAM-INF:BANDWIDTH=${parseInt(bitrate)*1000},RESOLUTION=${resolution}\n${downloadUrl}\n`;
+    });
+
+    const masterPlaylistFile = new File([masterPlaylistContent], 'master.m3u8', { type: 'application/x-mpegURL' });
+    const { fileId: masterPlaylistId, downloadUrl: masterPlaylistUrl } = await uploadToR2(masterPlaylistFile, courseName, chapterName, lessonName);
+    console.log("Hoàn thành tạo và upload master playlist");
 
     console.log("Bắt đầu cập nhật dữ liệu khóa học");
     const courseRef = doc(db, 'courses', courseId);
@@ -87,8 +107,8 @@ export async function POST(req) {
 
     const fileData = {
       name: file.name,
-      b2FileId: playlistId,
-      type: 'application/x-mpegURL',
+      r2FileId: masterPlaylistId,
+      type: 'application/vnd.apple.mpegurl',
       uploadTime: new Date().toISOString()
     };
 
@@ -100,7 +120,7 @@ export async function POST(req) {
               lesson.id === lessonId
                 ? {
                     ...lesson,
-                    videoUrl: playlistUrl,
+                    videoUrl: masterPlaylistUrl,
                     files: [...(lesson.files || []), fileData]
                   }
                 : lesson
@@ -116,7 +136,7 @@ export async function POST(req) {
     console.log("Đã xóa thư mục tạm");
 
     console.log("Hoàn thành xử lý yêu cầu POST");
-    return NextResponse.json({ playlistId, playlistUrl });
+    return NextResponse.json({ masterPlaylistId, masterPlaylistUrl });
   } catch (error) {
     console.error("Lỗi khi xử lý và upload video:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });

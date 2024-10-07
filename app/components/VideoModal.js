@@ -41,7 +41,7 @@ const VideoModal = ({ file, onClose }) => {
       setVideoUrl(url);
     } catch (error) {
       console.error("Lỗi khi xử lý nội dung m3u8:", error);
-      toast.error("Không thể tải video. Vui lòng thử lại sau.");
+      // toast.error("Không thể tải video. Vui lòng thử lại sau.");
     }
   }, [b2]);
 
@@ -73,8 +73,6 @@ const VideoModal = ({ file, onClose }) => {
           if (retryCount < 3) {
             console.log(`Đang thử lại lần ${retryCount + 1}...`);
             setTimeout(() => fetchM3u8Content(retryCount + 1), 1000 * (retryCount + 1));
-          } else {
-            toast.error("Không thể tải video sau nhiều lần thử. Vui lòng thử lại sau.");
           }
         }
       } else if (file.url) {
