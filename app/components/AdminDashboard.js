@@ -4,6 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { getAuthUrl } from '../utils/driveUpload';
 import { useEffect, useState } from 'react';
+import testR2Connection from "../utils/r2DirectUpload";
 
 const GoogleDriveButton = React.memo(() => {
   const handleClick = async () => {
@@ -38,7 +39,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     console.log('Tất cả cookies:', document.cookie);
     console.log('Kiểm tra token trong AdminDashboard');
-
+testR2Connection()
     const checkTokenFromServer = async () => {
       try {
         const response = await fetch('/api/check-token');
@@ -89,6 +90,7 @@ export default function AdminDashboard() {
       <Link href="/google-drive-upload" className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 transition duration-300 ml-4">
         Tải lên Google Drive
       </Link>
+    
       {/* Thêm các phần khác của dashboard ở đây */}
     </div>
   );

@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { ref, deleteObject } from 'firebase/storage';
 import { storage } from '.././firebase';
 import VideoModal from './VideoModal'; // Thêm import này
+import { testR2Connection } from '../utils/r2DirectUpload';
 
 export default function LessonContent({ lesson, courseId, chapterId, courseName, chapterName, onOpenB2UploadModal }) {
   const [isAddFileModalOpen, setIsAddFileModalOpen] = useState(false);

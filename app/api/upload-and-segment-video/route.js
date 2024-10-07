@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { uploadToR2 } from "../../utils/r2Upload";
+import { uploadToR2Direct } from "../../utils/r2DirectUpload";
 import { segmentVideoMultipleResolutions } from "../../utils/videoProcessing";
 import { PassThrough } from 'stream';
 import os from 'os';
@@ -24,24 +24,24 @@ export async function GET(req) {
   return new NextResponse(stream, { headers });
 }
 
-
 export async function POST(req) {
-  console.log("Bắt đầu xử lý yêu cầu POST");
-  const formData = await req.formData();
-  const file = formData.get("file");
-  const courseName = formData.get("courseName");
-  const chapterName = formData.get("chapterName");
-  const lessonName = formData.get("lessonName");
-  const courseId = formData.get("courseId");
-  const chapterId = formData.get("chapterId");
-  const lessonId = formData.get("lessonId");
-
-  if (!file || !courseId || !chapterId || !lessonId) {
-    console.log("Thiếu các trường bắt buộc");
-    return NextResponse.json({ error: "Thiếu các trường bắt buộc" }, { status: 400 });
-  }
-
+  let tempDir = '';
   try {
+    console.log("Bắt đầu xử lý yêu cầu POST");
+    const formData = await req.formData();
+    const file = formData.get("file");
+    const courseName = formData.get("courseName");
+    const chapterName = formData.get("chapterName");
+    const lessonName = formData.get("lessonName");
+    const courseId = formData.get("courseId");
+    const chapterId = formData.get("chapterId");
+    const lessonId = formData.get("lessonId");
+
+    if (!file || !courseId || !chapterId || !lessonId) {
+      console.log("Thiếu các trường bắt buộc");
+      return NextResponse.json({ error: "Thiếu các trường bắt buộc" }, { status: 400 });
+    }
+
     console.log("Bắt đầu xử lý video");
     const buffer = Buffer.from(await file.arrayBuffer());
     const tempDir = path.join(os.tmpdir(), uuidv4());
@@ -63,7 +63,7 @@ export async function POST(req) {
         const segmentPath = path.join(bitrateDir, segment);
         const segmentContent = await fs.promises.readFile(segmentPath);
         const segmentFile = new File([segmentContent], `${bitrate}/${segment}`, { type: 'video/MP2T' });
-        return uploadToR2(segmentFile, courseName, chapterName, lessonName);
+        return uploadToR2Direct(segmentFile, courseName, chapterName, lessonName);
       }));
 
       let updatedPlaylistContent = playlist;
@@ -72,7 +72,7 @@ export async function POST(req) {
       });
 
       const updatedPlaylistFile = new File([updatedPlaylistContent], `${bitrate}/playlist.m3u8`, { type: 'application/x-mpegURL' });
-      return uploadToR2(updatedPlaylistFile, courseName, chapterName, lessonName);
+      return uploadToR2Direct(updatedPlaylistFile, courseName, chapterName, lessonName);
     });
 
     const playlistUploads = await Promise.all(uploadPromises);
@@ -93,7 +93,7 @@ export async function POST(req) {
     });
 
     const masterPlaylistFile = new File([masterPlaylistContent], 'master.m3u8', { type: 'application/x-mpegURL' });
-    const { fileId: masterPlaylistId, downloadUrl: masterPlaylistUrl } = await uploadToR2(masterPlaylistFile, courseName, chapterName, lessonName);
+    const { fileId: masterPlaylistId, downloadUrl: masterPlaylistUrl } = await uploadToR2Direct(masterPlaylistFile, courseName, chapterName, lessonName);
     console.log("Hoàn thành tạo và upload master playlist");
 
     console.log("Bắt đầu cập nhật dữ liệu khóa học");
@@ -136,9 +136,21 @@ export async function POST(req) {
     console.log("Đã xóa thư mục tạm");
 
     console.log("Hoàn thành xử lý yêu cầu POST");
-    return NextResponse.json({ masterPlaylistId, masterPlaylistUrl });
+    const publicUrl = `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${masterPlaylistId}`;
+    return NextResponse.json({ masterPlaylistId, masterPlaylistUrl, publicUrl });
   } catch (error) {
-    console.error("Lỗi khi xử lý và upload video:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("Lỗi chi tiết trong quá trình xử lý:", error);
+    if (error.code === 'ENOENT') {
+      return NextResponse.json({ error: "Không thể tạo hoặc truy cập thư mục tạm thời" }, { status: 500 });
+    } else if (error.code === 4294967294) {
+      return NextResponse.json({ error: "Lỗi khi chạy FFmpeg. Kiểm tra quyền truy cập và đường dẫn" }, { status: 500 });
+    } else {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+  } finally {
+    // Xóa các file tạm nếu có
+    if (tempDir) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   }
 }

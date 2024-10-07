@@ -11,6 +11,13 @@ const s3Client = new S3Client({
 
 export const uploadToR2 = async (file, courseName, chapterName, lessonName) => {
   try {
+    console.log('Uploading to R2 with params:', {
+      Bucket: process.env.R2_BUCKET_NAME,
+      AccountID: process.env.R2_ACCOUNT_ID,
+      AccessKeyID: process.env.R2_ACCESS_KEY_ID.substring(0, 5) + '...',
+      FilePath: `khoa-hoc/${courseName}/${chapterName}/${lessonName}/${file.name}`
+    });
+
     const filePath = `khoa-hoc/${courseName}/${chapterName}/${lessonName}/${file.name}`;
     const fileContent = await file.arrayBuffer();
 
