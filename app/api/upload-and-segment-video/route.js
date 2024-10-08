@@ -50,17 +50,21 @@ export async function POST(req) {
       const segmentUploads = await Promise.all(segments.filter(file => file.endsWith('.ts')).map(async (segment) => {
         const segmentPath = path.join(bitrateDir, segment);
         const segmentContent = await fs.readFile(segmentPath);
-        const segmentFile = new File([segmentContent], `${bitrate}/${segment}`, { type: 'video/MP2T' });
-        return uploadToR2Direct(segmentFile, courseName, chapterName, lessonName);
+        const segmentKey = `khoa-hoc/${courseName}/${chapterName}/${lessonName}/${bitrate}/${segment}`;
+        const segmentFile = new File([segmentContent], segment, { type: 'video/MP2T' });
+        const { fileId } = await uploadToR2Direct(segmentFile, courseName, chapterName, lessonName, bitrate);
+        return { segment, fileId };
       }));
 
       let updatedPlaylistContent = playlist;
-      segmentUploads.forEach(({ fileId }, index) => {
-        updatedPlaylistContent = updatedPlaylistContent.replace(segments[index], fileId);
+      segmentUploads.forEach(({ segment, fileId }) => {
+        updatedPlaylistContent = updatedPlaylistContent.replace(segment, fileId.split('/').pop());
       });
 
-      const updatedPlaylistFile = new File([updatedPlaylistContent], `${bitrate}/playlist.m3u8`, { type: 'application/x-mpegURL' });
-      return { bitrate, upload: await uploadToR2Direct(updatedPlaylistFile, courseName, chapterName, lessonName) };
+      const playlistKey = `${courseName}/${chapterName}/${lessonName}/${bitrate}/playlist.m3u8`;
+      const updatedPlaylistFile = new File([updatedPlaylistContent], 'playlist.m3u8', { type: 'application/x-mpegURL' });
+      const { fileId: playlistFileId } = await uploadToR2Direct(updatedPlaylistFile, courseName, chapterName, lessonName, bitrate);
+      return { bitrate, playlistFileId };
     }));
 
     const resolutions = [
@@ -70,10 +74,17 @@ export async function POST(req) {
       
     ];
 
-    const masterPlaylistContent = "#EXTM3U\n#EXT-X-VERSION:3\n" + uploadResults.map(({ bitrate, upload }) => {
+    const masterPlaylistContent = "#EXTM3U\n#EXT-X-VERSION:3\n" + uploadResults.map(({ bitrate, playlistFileId }) => {
       const resolution = resolutions.find(r => r.name === bitrate);
-      return `#EXT-X-STREAM-INF:BANDWIDTH=${parseInt(resolution.bitrate)*1000},RESOLUTION=${bitrate}\n${upload.downloadUrl}`;
+      const fullUrl = `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${playlistFileId}`;
+      return `#EXT-X-STREAM-INF:BANDWIDTH=${parseInt(resolution.bitrate)*1000},RESOLUTION=${bitrate}\n${fullUrl}`;
     }).join('\n');
+
+    const playlist720p = uploadResults.find(result => result.bitrate === '720p');
+    if (playlist720p) {
+      const url720p = `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${playlist720p.playlistFileId}`;
+      console.log('URL playlist 720p:', url720p);
+    }
 
     const masterPlaylistFile = new File([masterPlaylistContent], 'master.m3u8', { type: 'application/x-mpegURL' });
     const { fileId: masterPlaylistId, downloadUrl: masterPlaylistUrl } = await uploadToR2Direct(masterPlaylistFile, courseName, chapterName, lessonName);

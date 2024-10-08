@@ -39,7 +39,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     console.log('Tất cả cookies:', document.cookie);
     console.log('Kiểm tra token trong AdminDashboard');
-testR2Connection()
+
     const checkTokenFromServer = async () => {
       try {
         const response = await fetch('/api/check-token');

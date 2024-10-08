@@ -12,35 +12,27 @@ const s3Client = new S3Client({
 
 export async function uploadToR2Direct(file, courseName, chapterName, lessonName) {
   const key = `khoa-hoc/${courseName}/${chapterName}/${lessonName}/${file.name}`;
+  
+  let fileContent;
+  if (file instanceof File) {
+    fileContent = Buffer.from(await file.arrayBuffer());
+  } else if (file instanceof Buffer) {
+    fileContent = file;
+  } else {
+    throw new Error('Unsupported file type');
+  }
 
   const command = new PutObjectCommand({
     Bucket: process.env.NEXT_PUBLIC_R2_BUCKET_NAME,
     Key: key,
+    Body: fileContent,
     ContentType: file.type,
   });
 
   try {
-    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-    console.log('Signed URL:', signedUrl);
-
-    const response = await fetch(signedUrl, {
-      method: 'PUT',
-      body: file,
-      headers: {
-        'Content-Type': file.type,
-      },
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('R2 response:', response.status, errorText);
-      throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
-    }
-
-    return {
-      fileId: key,
-      downloadUrl: `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${key}`,
-    };
+    await s3Client.send(command);
+    console.log(`File uploaded successfully to ${key}`);
+    return { fileId: key, downloadUrl: `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${key}` };
   } catch (error) {
     console.error('Chi tiết lỗi khi tải lên R2:', error);
     throw error;
@@ -58,3 +50,5 @@ export async function testR2Connection() {
     return false;
   }
 }
+
+export const r2Client = s3Client;

@@ -9,6 +9,7 @@ import { ref, deleteObject } from 'firebase/storage';
 import { storage } from '.././firebase';
 import VideoModal from './VideoModal'; // Thêm import này
 import { testR2Connection } from '../utils/r2DirectUpload';
+import VideoPlayer from './VideoPlayer';
 
 export default function LessonContent({ lesson, courseId, chapterId, courseName, chapterName, onOpenB2UploadModal }) {
   const [isAddFileModalOpen, setIsAddFileModalOpen] = useState(false);
@@ -18,6 +19,7 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
   const [isLoading, setIsLoading] = useState(true);
   const [selectedVideoFile, setSelectedVideoFile] = useState(null);
   const [isVideoPlayerVisible, setIsVideoPlayerVisible] = useState(false);
+  const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
 console.log(lessonData);
   const fetchLessonData = useCallback(async () => {
     if (!lesson || !lesson.id) {
@@ -66,9 +68,10 @@ console.log(lessonData);
   }, [lesson, fetchLessonData]);
 
   const handleFileClick = useCallback((file) => {
-    if (file.type === 'application/x-mpegURL' || file.type.startsWith('video/')) {
+    if (file.type === 'application/vnd.apple.mpegurl' || file.type.startsWith('video/')) {
       setSelectedVideoFile(file);
-    } else if (file.b2FileId) {
+      setIsVideoModalOpen(true);
+    } else if (file.r2FileId) {
       setSelectedFile(file);
       setIsFileViewModalOpen(true);
     } else if (file.driveUrl) {
@@ -125,6 +128,7 @@ console.log(lessonData);
 
   const handleCloseVideoModal = useCallback(() => {
     setSelectedVideoFile(null);
+    setIsVideoModalOpen(false);
   }, []);
 
   const handleViewVideo = () => {
@@ -150,7 +154,7 @@ console.log(lessonData);
   return (
     <div className="p-6 bg-white rounded-lg shadow-md">
       <h2 className="text-3xl font-semibold mb-6">{lesson.title}</h2>
-      <button 
+      <button
         onClick={() => setIsAddFileModalOpen(true)}
         className="mb-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition duration-300"
       >
@@ -173,9 +177,9 @@ console.log(lessonData);
           </button>
           {isVideoPlayerVisible && (
             <div className="mt-4">
-              <VideoPlayer 
-                src={`/api/video-proxy?url=${encodeURIComponent(lessonData.videoUrl)}`} 
-                onError={(error) => console.error('Video Player Error:', error)}
+              <VideoPlayer
+                fileId={lessonData.videoUrl}
+                onError={(error) => console.error("Video Player Error:", error)}
               />
               <button
                 onClick={() => setIsVideoPlayerVisible(false)}
@@ -204,7 +208,10 @@ console.log(lessonData);
           <h3 className="text-xl font-semibold mb-4">Tài liệu bài học</h3>
           <ul className="space-y-2">
             {lessonData.files.map((file, index) => (
-              <li key={file.id || index} className="flex items-center justify-between bg-gray-100 p-2 rounded hover:bg-gray-200 transition duration-300">
+              <li
+                key={file.id || index}
+                className="flex items-center justify-between bg-gray-100 p-2 rounded hover:bg-gray-200 transition duration-300"
+              >
                 <span className="flex-1">{file.name}</span>
                 <span className="text-sm text-gray-500 mr-4">
                   {new Date(file.uploadTime).toLocaleString()}
@@ -226,12 +233,17 @@ console.log(lessonData);
           </ul>
         </div>
       ) : (
-        <p className="text-gray-500 italic">Chưa có tài liệu nào cho bài học này.</p>
+        <p className="text-gray-500 italic">
+          Chưa có tài liệu nào cho bài học này.
+        </p>
       )}
-      {selectedVideoFile && (
-        <VideoModal file={selectedVideoFile} onClose={handleCloseVideoModal} />
+      {isVideoModalOpen && selectedVideoFile && (
+        <VideoModal
+          fileId={selectedVideoFile.r2FileId}
+          fileName={selectedVideoFile.name}
+          onClose={handleCloseVideoModal}
+        />
       )}
-      
     </div>
   );
 }
