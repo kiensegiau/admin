@@ -1,41 +1,50 @@
-import aws4 from 'aws4';
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-export async function uploadToR2Direct(file, courseName, chapterName, lessonName) {
-  const fileName = `${courseName}/${chapterName}/${lessonName}/${file.name}`;
-  const url = `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${fileName}`;
-
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-
-  const request = {
-    method: 'PUT',
-    host: `${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    path: `/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${fileName}`,
-    headers: {
-      'Content-Type': file.type,
-    },
-    body: buffer,
-  };
-
-  const signedRequest = aws4.sign(request, {
+const s3Client = new S3Client({
+  region: "auto",
+  endpoint: `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
     accessKeyId: process.env.NEXT_PUBLIC_R2_ACCESS_KEY_ID,
     secretAccessKey: process.env.NEXT_PUBLIC_R2_SECRET_ACCESS_KEY,
+  },
+});
+
+export async function uploadToR2Direct(file, courseName, chapterName, lessonName) {
+  const key = `khoa-hoc/${courseName}/${chapterName}/${lessonName}/${file.name}`;
+
+  const command = new PutObjectCommand({
+    Bucket: process.env.NEXT_PUBLIC_R2_BUCKET_NAME,
+    Key: key,
+    ContentType: file.type,
   });
 
-  const response = await fetch(url, {
-    method: signedRequest.method,
-    headers: signedRequest.headers,
-    body: buffer,
-  });
+  try {
+    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    console.log('Signed URL:', signedUrl);
 
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}, body: ${await response.text()}`);
+    const response = await fetch(signedUrl, {
+      method: 'PUT',
+      body: file,
+      headers: {
+        'Content-Type': file.type,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('R2 response:', response.status, errorText);
+      throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+    }
+
+    return {
+      fileId: key,
+      downloadUrl: `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${key}`,
+    };
+  } catch (error) {
+    console.error('Chi tiết lỗi khi tải lên R2:', error);
+    throw error;
   }
-
-  return {
-    fileId: fileName,
-    downloadUrl: url,
-  };
 }
 
 export async function testR2Connection() {

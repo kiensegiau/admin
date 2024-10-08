@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import fs from "fs";
+import fs from "fs/promises";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { uploadToR2Direct } from "../../utils/r2DirectUpload";
@@ -29,39 +29,27 @@ export async function POST(req) {
   try {
     console.log("Bắt đầu xử lý yêu cầu POST");
     const formData = await req.formData();
-    const file = formData.get("file");
-    const courseName = formData.get("courseName");
-    const chapterName = formData.get("chapterName");
-    const lessonName = formData.get("lessonName");
-    const courseId = formData.get("courseId");
-    const chapterId = formData.get("chapterId");
-    const lessonId = formData.get("lessonId");
+    const { file, courseName, chapterName, lessonName, courseId, chapterId, lessonId } = Object.fromEntries(formData);
 
     if (!file || !courseId || !chapterId || !lessonId) {
-      console.log("Thiếu các trường bắt buộc");
       return NextResponse.json({ error: "Thiếu các trường bắt buộc" }, { status: 400 });
     }
 
-    console.log("Bắt đầu xử lý video");
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const tempDir = path.join(os.tmpdir(), uuidv4());
-    fs.mkdirSync(tempDir, { recursive: true });
+    tempDir = path.join(os.tmpdir(), uuidv4());
+    await fs.mkdir(tempDir, { recursive: true });
     const inputPath = path.join(tempDir, file.name);
-    await fs.promises.writeFile(inputPath, buffer);
+    await fs.writeFile(inputPath, Buffer.from(await file.arrayBuffer()));
 
-    console.log("Bắt đầu phân đoạn video và tạo nhiều bitrate");
-    const { outputPaths, outputDir } = await segmentVideoMultipleResolutions(inputPath, tempDir, () => {});
-    console.log("Hoàn thành phân đoạn video và tạo nhiều bitrate");
+    const { outputPaths } = await segmentVideoMultipleResolutions(inputPath, tempDir, () => {});
 
-    console.log("Bắt đầu upload các segment và playlist");
-    const uploadPromises = Object.entries(outputPaths).map(async ([bitrate, outputPath]) => {
+    const uploadResults = await Promise.all(Object.entries(outputPaths).map(async ([bitrate, outputPath]) => {
       const bitrateDir = path.dirname(outputPath);
-      const playlist = await fs.promises.readFile(outputPath, 'utf8');
-      const segments = fs.readdirSync(bitrateDir).filter(file => file.endsWith('.ts'));
+      const playlist = await fs.readFile(outputPath, 'utf8');
+      const segments = await fs.readdir(bitrateDir);
 
-      const segmentUploads = await Promise.all(segments.map(async (segment) => {
+      const segmentUploads = await Promise.all(segments.filter(file => file.endsWith('.ts')).map(async (segment) => {
         const segmentPath = path.join(bitrateDir, segment);
-        const segmentContent = await fs.promises.readFile(segmentPath);
+        const segmentContent = await fs.readFile(segmentPath);
         const segmentFile = new File([segmentContent], `${bitrate}/${segment}`, { type: 'video/MP2T' });
         return uploadToR2Direct(segmentFile, courseName, chapterName, lessonName);
       }));
@@ -72,31 +60,24 @@ export async function POST(req) {
       });
 
       const updatedPlaylistFile = new File([updatedPlaylistContent], `${bitrate}/playlist.m3u8`, { type: 'application/x-mpegURL' });
-      return uploadToR2Direct(updatedPlaylistFile, courseName, chapterName, lessonName);
-    });
+      return { bitrate, upload: await uploadToR2Direct(updatedPlaylistFile, courseName, chapterName, lessonName) };
+    }));
 
-    const playlistUploads = await Promise.all(uploadPromises);
-    console.log("Hoàn thành upload các segment và playlist");
-
-    console.log("Bắt đầu tạo master playlist");
-    let masterPlaylistContent = "#EXTM3U\n#EXT-X-VERSION:3\n";
     const resolutions = [
       { bitrate: '800k', name: '480p' },
       { bitrate: '1200k', name: '720p' },
-      { bitrate: '2000k', name: '1080p' },
-      { bitrate: '3000k', name: '1440p' }
+      { bitrate: '2000k', name: '1080p' }
+      
     ];
-    playlistUploads.forEach(({ downloadUrl }, index) => {
-      const resolution = Object.keys(outputPaths)[index];
-      const bitrate = resolutions.find(r => r.name === resolution).bitrate;
-      masterPlaylistContent += `#EXT-X-STREAM-INF:BANDWIDTH=${parseInt(bitrate)*1000},RESOLUTION=${resolution}\n${downloadUrl}\n`;
-    });
+
+    const masterPlaylistContent = "#EXTM3U\n#EXT-X-VERSION:3\n" + uploadResults.map(({ bitrate, upload }) => {
+      const resolution = resolutions.find(r => r.name === bitrate);
+      return `#EXT-X-STREAM-INF:BANDWIDTH=${parseInt(resolution.bitrate)*1000},RESOLUTION=${bitrate}\n${upload.downloadUrl}`;
+    }).join('\n');
 
     const masterPlaylistFile = new File([masterPlaylistContent], 'master.m3u8', { type: 'application/x-mpegURL' });
     const { fileId: masterPlaylistId, downloadUrl: masterPlaylistUrl } = await uploadToR2Direct(masterPlaylistFile, courseName, chapterName, lessonName);
-    console.log("Hoàn thành tạo và upload master playlist");
 
-    console.log("Bắt đầu cập nhật dữ liệu khóa học");
     const courseRef = doc(db, 'courses', courseId);
     const courseDoc = await getDoc(courseRef);
     const courseData = courseDoc.data();
@@ -130,12 +111,7 @@ export async function POST(req) {
     );
 
     await updateDoc(courseRef, { chapters: updatedChapters });
-    console.log("Hoàn thành cập nhật dữ liệu khóa học");
 
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    console.log("Đã xóa thư mục tạm");
-
-    console.log("Hoàn thành xử lý yêu cầu POST");
     const publicUrl = `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${masterPlaylistId}`;
     return NextResponse.json({ masterPlaylistId, masterPlaylistUrl, publicUrl });
   } catch (error) {
@@ -148,9 +124,8 @@ export async function POST(req) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
   } finally {
-    // Xóa các file tạm nếu có
     if (tempDir) {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   }
 }
