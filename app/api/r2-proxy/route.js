@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const s3Client = new S3Client({
   region: "auto",
@@ -14,13 +15,11 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const key = searchParams.get("key");
   
-  console.log("Requested key:", key);
+  console.log("Khóa được yêu cầu:", key);
 
   if (!key) {
-    return NextResponse.json(
-      { error: "Missing key parameter" },
-      { status: 400 }
-    );
+    console.error("Lỗi: Thiếu tham số khóa");
+    return NextResponse.json({ error: "Thiếu tham số khóa" }, { status: 400 });
   }
 
   try {
@@ -29,26 +28,61 @@ export async function GET(request) {
       Key: key,
     });
 
-    const { Body, ContentType } = await s3Client.send(command);
-    const arrayBuffer = await Body.transformToByteArray();
+    console.log("Đang tạo URL đã ký...");
+    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    
+    console.log("URL đã xử lý:", signedUrl);
 
-    return new NextResponse(arrayBuffer, {
+    const response = await fetch(signedUrl);
+    const contentType = response.headers.get('content-type');
+    
+    if (key.endsWith('.ts')) {
+      const arrayBuffer = await response.arrayBuffer();
+      return new NextResponse(Buffer.from(arrayBuffer), {
+        headers: {
+          'Content-Type': 'video/MP2T',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        },
+      });
+    }
+
+    let data = await response.text();
+
+    if (contentType.includes('application/x-mpegURL') || contentType.includes('application/vnd.apple.mpegurl')) {
+      console.log('Nội dung m3u8 gốc:', data);
+      const lines = data.split('\n');
+      const processedLines = lines.map(line => {
+        if (!line.startsWith('#') && line.trim() !== '') {
+          return `/api/r2-proxy?key=${encodeURIComponent(key.split('/').slice(0, -1).concat(line.trim()).join('/'))}`;
+        }
+        return line;
+      });
+      data = processedLines.join('\n');
+      console.log("Nội dung m3u8 đã xử lý:", data);
+    }
+
+    return new NextResponse(data, {
       headers: {
-        "Content-Type": ContentType,
-        "Access-Control-Allow-Origin": "*",
+        'Content-Type': contentType,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       },
     });
   } catch (error) {
-    console.error("Error fetching from R2:", error);
-    if (error.name === 'NoSuchKey') {
-      return NextResponse.json(
-        { error: "File not found in R2" },
-        { status: 404 }
-      );
-    }
-    return NextResponse.json(
-      { error: "Failed to fetch file from R2" },
-      { status: 500 }
-    );
+    console.error("Lỗi khi xử lý yêu cầu:", error);
+    return NextResponse.json({ error: "Không thể xử lý yêu cầu" }, { status: 500 });
   }
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    },
+  });
 }

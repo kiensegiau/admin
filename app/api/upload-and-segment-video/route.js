@@ -3,11 +3,12 @@ import fs from "fs/promises";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { uploadToR2Direct } from "../../utils/r2DirectUpload";
-import { segmentVideoMultipleResolutions } from "../../utils/videoProcessing";
+import { segmentVideo } from "../../utils/videoProcessing";
 import { PassThrough } from 'stream';
 import os from 'os';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
+import { exec } from 'child_process';
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
@@ -28,6 +29,7 @@ export async function POST(req) {
   let tempDir = '';
   try {
     console.log("Bắt đầu xử lý yêu cầu POST");
+    
     const formData = await req.formData();
     const { file, courseName, chapterName, lessonName, courseId, chapterId, lessonId } = Object.fromEntries(formData);
 
@@ -40,54 +42,37 @@ export async function POST(req) {
     const inputPath = path.join(tempDir, file.name);
     await fs.writeFile(inputPath, Buffer.from(await file.arrayBuffer()));
 
-    const { outputPaths } = await segmentVideoMultipleResolutions(inputPath, tempDir, () => {});
+    const outputDir = path.join(tempDir, 'output');
+    await fs.mkdir(outputDir, { recursive: true });
 
-    const uploadResults = await Promise.all(Object.entries(outputPaths).map(async ([bitrate, outputPath]) => {
-      const bitrateDir = path.dirname(outputPath);
-      const playlist = await fs.readFile(outputPath, 'utf8');
-      const segments = await fs.readdir(bitrateDir);
+    const progressCallback = (progress) => {
+      console.log(`Tiến độ xử lý: ${progress}%`);
+      // Ở đây bạn có thể gửi tiến độ đến client nếu cần
+    };
 
-      const segmentUploads = await Promise.all(segments.filter(file => file.endsWith('.ts')).map(async (segment) => {
-        const segmentPath = path.join(bitrateDir, segment);
-        const segmentContent = await fs.readFile(segmentPath);
-        const segmentKey = `khoa-hoc/${courseName}/${chapterName}/${lessonName}/${bitrate}/${segment}`;
-        const segmentFile = new File([segmentContent], segment, { type: 'video/MP2T' });
-        const { fileId } = await uploadToR2Direct(segmentFile, courseName, chapterName, lessonName, bitrate);
-        return { segment, fileId };
-      }));
+    const outputPath = await segmentVideo(inputPath, outputDir, progressCallback);
 
-      let updatedPlaylistContent = playlist;
-      segmentUploads.forEach(({ segment, fileId }) => {
-        updatedPlaylistContent = updatedPlaylistContent.replace(segment, fileId.split('/').pop());
-      });
+    const baseKey = `khoa-hoc/${courseName}/${chapterName}/${lessonName}`;
+    const playlist = await fs.readFile(outputPath, 'utf8');
+    const segments = await fs.readdir(outputDir);
 
-      const playlistKey = `${courseName}/${chapterName}/${lessonName}/${bitrate}/playlist.m3u8`;
-      const updatedPlaylistFile = new File([updatedPlaylistContent], 'playlist.m3u8', { type: 'application/x-mpegURL' });
-      const { fileId: playlistFileId } = await uploadToR2Direct(updatedPlaylistFile, courseName, chapterName, lessonName, bitrate);
-      return { bitrate, playlistFileId };
+    const segmentUploads = await Promise.all(segments.filter(file => file.endsWith('.ts')).map(async (segment) => {
+      const segmentPath = path.join(outputDir, segment);
+      const segmentContent = await fs.readFile(segmentPath);
+      const segmentKey = `${baseKey}/${segment}`;
+      const segmentFile = new File([segmentContent], segmentKey, { type: 'video/MP2T' });
+      await uploadToR2Direct(segmentFile, courseName, chapterName, lessonName);
+      return { segment, fileId: segmentKey };
     }));
 
-    const resolutions = [
-      { bitrate: '800k', name: '480p' },
-      { bitrate: '1200k', name: '720p' },
-      { bitrate: '2000k', name: '1080p' }
-      
-    ];
+    let updatedPlaylistContent = playlist;
+    segmentUploads.forEach(({ segment, fileId }) => {
+      updatedPlaylistContent = updatedPlaylistContent.replace(segment, `/api/r2-proxy?key=${encodeURIComponent(fileId)}`);
+    });
 
-    const masterPlaylistContent = "#EXTM3U\n#EXT-X-VERSION:3\n" + uploadResults.map(({ bitrate, playlistFileId }) => {
-      const resolution = resolutions.find(r => r.name === bitrate);
-      const fullUrl = `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${playlistFileId}`;
-      return `#EXT-X-STREAM-INF:BANDWIDTH=${parseInt(resolution.bitrate)*1000},RESOLUTION=${bitrate}\n${fullUrl}`;
-    }).join('\n');
-
-    const playlist720p = uploadResults.find(result => result.bitrate === '720p');
-    if (playlist720p) {
-      const url720p = `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${playlist720p.playlistFileId}`;
-      console.log('URL playlist 720p:', url720p);
-    }
-
-    const masterPlaylistFile = new File([masterPlaylistContent], 'master.m3u8', { type: 'application/x-mpegURL' });
-    const { fileId: masterPlaylistId, downloadUrl: masterPlaylistUrl } = await uploadToR2Direct(masterPlaylistFile, courseName, chapterName, lessonName);
+    const playlistKey = `${baseKey}/playlist.m3u8`;
+    const playlistFile = new File([updatedPlaylistContent], playlistKey, { type: 'application/x-mpegURL' });
+    const { downloadUrl: playlistUrl } = await uploadToR2Direct(playlistFile, courseName, chapterName, lessonName);
 
     const courseRef = doc(db, 'courses', courseId);
     const courseDoc = await getDoc(courseRef);
@@ -99,7 +84,7 @@ export async function POST(req) {
 
     const fileData = {
       name: file.name,
-      r2FileId: masterPlaylistId,
+      r2FileId: playlistKey,
       type: 'application/vnd.apple.mpegurl',
       uploadTime: new Date().toISOString()
     };
@@ -112,7 +97,7 @@ export async function POST(req) {
               lesson.id === lessonId
                 ? {
                     ...lesson,
-                    videoUrl: masterPlaylistUrl,
+                    videoUrl: playlistUrl,
                     files: [...(lesson.files || []), fileData]
                   }
                 : lesson
@@ -123,17 +108,11 @@ export async function POST(req) {
 
     await updateDoc(courseRef, { chapters: updatedChapters });
 
-    const publicUrl = `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${masterPlaylistId}`;
-    return NextResponse.json({ masterPlaylistId, masterPlaylistUrl, publicUrl });
+    const publicUrl = `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${playlistKey}`;
+    return NextResponse.json({ playlistKey, playlistUrl, publicUrl });
   } catch (error) {
     console.error("Lỗi chi tiết trong quá trình xử lý:", error);
-    if (error.code === 'ENOENT') {
-      return NextResponse.json({ error: "Không thể tạo hoặc truy cập thư mục tạm thời" }, { status: 500 });
-    } else if (error.code === 4294967294) {
-      return NextResponse.json({ error: "Lỗi khi chạy FFmpeg. Kiểm tra quyền truy cập và đường dẫn" }, { status: 500 });
-    } else {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
   } finally {
     if (tempDir) {
       await fs.rm(tempDir, { recursive: true, force: true });
