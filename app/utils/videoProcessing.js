@@ -2,8 +2,12 @@ import { exec } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 
-export const segmentVideo = async (inputPath, outputDir, progressCallback) => {
-  const outputPath = path.join(outputDir, 'playlist.m3u8');
+export const segmentVideoMultipleResolutions = async (inputPath, outputDir, progressCallback) => {
+  const resolutions = [
+    { height: 720, bitrate: '2500k' },
+    { height: 480, bitrate: '1000k' },
+    { height: 360, bitrate: '750k' }
+  ];
 
   const durationCommand = `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${inputPath}"`;
   const duration = await new Promise((resolve, reject) => {
@@ -16,30 +20,34 @@ export const segmentVideo = async (inputPath, outputDir, progressCallback) => {
     });
   });
 
-  const command = `ffmpeg -i "${inputPath}" -c:v libx264 -preset fast -crf 22 -c:a aac -b:a 128k -f hls -hls_time 10 -hls_list_size 0 -hls_segment_filename "${outputDir}/%03d.ts" "${outputPath}"`;
+  const ffmpegPromises = resolutions.map(({ height, bitrate }) => {
+    return new Promise((resolve, reject) => {
+      const resolutionDir = path.join(outputDir, `${height}p`);
+      fs.mkdirSync(resolutionDir, { recursive: true });
+      const outputPath = path.join(resolutionDir, 'playlist.m3u8');
 
-  return new Promise((resolve, reject) => {
-    const ffmpegProcess = exec(command, (error, stdout, stderr) => {
-      if (error) {
-        console.error(`Lỗi khi xử lý video: ${error.message}`);
-        reject(error);
-      } else {
-        console.log('Hoàn thành xử lý video');
-        resolve(outputPath);
-      }
-    });
+      const command = `ffmpeg -i "${inputPath}" -vf scale=-2:${height} -c:v libx264 -b:v ${bitrate} -c:a aac -b:a 128k -f hls -hls_time 10 -hls_list_size 0 -hls_segment_filename "${resolutionDir}/%03d.ts" "${outputPath}"`;
 
-    ffmpegProcess.stderr.on('data', (data) => {
-      const match = data.match(/time=(\d{2}):(\d{2}):(\d{2}.\d{2})/);
-      if (match) {
-        const [, hours, minutes, seconds] = match;
-        const totalSeconds = parseInt(hours) * 3600 + parseInt(minutes) * 60 + parseFloat(seconds);
-        const progress = (totalSeconds / duration) * 100;
-        if (typeof progressCallback === 'function') {
-          progressCallback(progress.toFixed(2));
+      const ffmpegProcess = exec(command, (error, stdout, stderr) => {
+        if (error) {
+          console.error(`Lỗi khi xử lý video ${height}p:`, error);
+          reject(error);
+        } else {
+          console.log(`Hoàn thành xử lý video ${height}p`);
+          resolve(outputPath);
         }
-        console.log(`Tiến độ xử lý: ${progress.toFixed(2)}%`);
-      }
+      });
+
+      ffmpegProcess.stdout.on('data', (data) => {
+        console.log(`ffmpeg stdout (${height}p):`, data);
+      });
+
+      ffmpegProcess.stderr.on('data', (data) => {
+        console.error(`ffmpeg stderr (${height}p):`, data);
+      });
     });
   });
+
+  const outputPaths = await Promise.all(ffmpegPromises);
+  return outputPaths;
 };

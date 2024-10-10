@@ -3,12 +3,33 @@ import fs from "fs/promises";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { uploadToR2Direct } from "../../utils/r2DirectUpload";
-import { segmentVideo } from "../../utils/videoProcessing";
+import { segmentVideoMultipleResolutions } from "../../utils/videoProcessing";
 import { PassThrough } from 'stream';
 import os from 'os';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { exec } from 'child_process';
+import { uploadToR2MultiPart } from '../../utils/r2Upload';
+
+function getBandwidth(resolution) {
+  const bandwidths = {
+    '360p': 800000,
+    '480p': 1400000,
+    '720p': 2800000,
+    '1080p': 5000000
+  };
+  return bandwidths[resolution] || 1000000;
+}
+
+function getResolution(resolution) {
+  const resolutions = {
+    '360p': '640x360',
+    '480p': '854x480',
+    '720p': '1280x720',
+    '1080p': '1920x1080'
+  };
+  return resolutions[resolution] || '854x480';
+}
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
@@ -45,35 +66,49 @@ export async function POST(req) {
     const outputDir = path.join(tempDir, 'output');
     await fs.mkdir(outputDir, { recursive: true });
 
-    const progressCallback = (progress) => {
-      console.log(`Tiến độ xử lý: ${progress}%`);
+    const progressCallback = (progress, resolution) => {
+      console.log(`Tiến độ xử lý ${resolution}: ${progress}%`);
       // Ở đây bạn có thể gửi tiến độ đến client nếu cần
     };
 
-    const outputPath = await segmentVideo(inputPath, outputDir, progressCallback);
+    const outputPaths = await segmentVideoMultipleResolutions(inputPath, outputDir, progressCallback);
 
     const baseKey = `khoa-hoc/${courseName}/${chapterName}/${lessonName}`;
-    const playlist = await fs.readFile(outputPath, 'utf8');
-    const segments = await fs.readdir(outputDir);
+    const resolutionUploads = await Promise.all(outputPaths.map(async (outputPath) => {
+      const resolution = path.basename(path.dirname(outputPath));
+      const playlist = await fs.readFile(outputPath, 'utf8');
+      const segments = await fs.readdir(path.dirname(outputPath));
 
-    const segmentUploads = await Promise.all(segments.filter(file => file.endsWith('.ts')).map(async (segment) => {
-      const segmentPath = path.join(outputDir, segment);
-      const segmentContent = await fs.readFile(segmentPath);
-      const segmentKey = `${baseKey}/${segment}`;
-      const segmentFile = new File([segmentContent], segmentKey, { type: 'video/MP2T' });
-      await uploadToR2Direct(segmentFile, courseName, chapterName, lessonName);
-      return { segment, fileId: segmentKey };
+      const segmentUploads = await Promise.all(segments.filter(file => file.endsWith('.ts')).map(async (segment) => {
+        const segmentPath = path.join(path.dirname(outputPath), segment);
+        const segmentContent = await fs.readFile(segmentPath);
+        const segmentKey = `${baseKey}/${resolution}/${segment}`;
+        return uploadToR2MultiPart(segmentContent, segmentKey, courseName, chapterName, lessonName);
+      }));
+
+      let updatedPlaylistContent = playlist;
+      segmentUploads.forEach(({ segment, fileId }) => {
+        updatedPlaylistContent = updatedPlaylistContent.replace(segment, `/api/r2-proxy?key=${encodeURIComponent(fileId)}`);
+      });
+
+      const playlistKey = `${baseKey}/${resolution}/playlist.m3u8`;
+      const playlistFile = new File([updatedPlaylistContent], playlistKey, { type: 'application/x-mpegURL' });
+      const { downloadUrl: playlistUrl } = await uploadToR2Direct(playlistFile, courseName, chapterName, lessonName);
+
+      return { resolution, playlistUrl };
     }));
 
-    let updatedPlaylistContent = playlist;
-    segmentUploads.forEach(({ segment, fileId }) => {
-      updatedPlaylistContent = updatedPlaylistContent.replace(segment, `/api/r2-proxy?key=${encodeURIComponent(fileId)}`);
-    });
+    // Tạo master playlist
+    const masterPlaylistContent = resolutionUploads.map(({ resolution, playlistUrl }) => {
+      const encodedKey = encodeURIComponent(`${baseKey}/${resolution}/playlist.m3u8`);
+      return `#EXT-X-STREAM-INF:BANDWIDTH=${getBandwidth(resolution)},RESOLUTION=${getResolution(resolution)}\n/api/r2-proxy?key=${encodedKey}`;
+    }).join('\n');
 
-    const playlistKey = `${baseKey}/playlist.m3u8`;
-    const playlistFile = new File([updatedPlaylistContent], playlistKey, { type: 'application/x-mpegURL' });
-    const { downloadUrl: playlistUrl } = await uploadToR2Direct(playlistFile, courseName, chapterName, lessonName);
+    const masterPlaylistKey = `${baseKey}/master.m3u8`;
+    const masterPlaylistFile = new File([masterPlaylistContent], masterPlaylistKey, { type: 'application/x-mpegURL' });
+    const { downloadUrl: masterPlaylistUrl } = await uploadToR2Direct(masterPlaylistFile, courseName, chapterName, lessonName);
 
+    // Cập nhật thông tin khóa học
     const courseRef = doc(db, 'courses', courseId);
     const courseDoc = await getDoc(courseRef);
     const courseData = courseDoc.data();
@@ -84,7 +119,7 @@ export async function POST(req) {
 
     const fileData = {
       name: file.name,
-      r2FileId: playlistKey,
+      r2FileId: masterPlaylistKey,
       type: 'application/vnd.apple.mpegurl',
       uploadTime: new Date().toISOString()
     };
@@ -97,7 +132,7 @@ export async function POST(req) {
               lesson.id === lessonId
                 ? {
                     ...lesson,
-                    videoUrl: playlistUrl,
+                    videoUrl: masterPlaylistUrl,
                     files: [...(lesson.files || []), fileData]
                   }
                 : lesson
@@ -108,8 +143,7 @@ export async function POST(req) {
 
     await updateDoc(courseRef, { chapters: updatedChapters });
 
-    const publicUrl = `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${playlistKey}`;
-    return NextResponse.json({ playlistKey, playlistUrl, publicUrl });
+    return NextResponse.json({ masterPlaylistKey, masterPlaylistUrl });
   } catch (error) {
     console.error("Lỗi chi tiết trong quá trình xử lý:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
