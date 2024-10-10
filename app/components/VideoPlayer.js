@@ -1,53 +1,63 @@
 import React, { useEffect, useRef } from 'react';
 import videojs from 'video.js';
 import 'video.js/dist/video-js.css';
-import '@videojs/http-streaming';
 
 export default function VideoPlayer({ fileId, onError }) {
   const videoRef = useRef(null);
   const playerRef = useRef(null);
 
   useEffect(() => {
-    if (!playerRef.current) {
-      const videoElement = videoRef.current;
-      if (!videoElement) return;
-
-      playerRef.current = videojs(videoElement, {
-        controls: true,
-        fluid: true,
-        html5: {
-          hls: {
-            enableLowInitialPlaylist: true,
-            smoothQualityChange: true,
-            overrideNative: true,
-          },
-        },
-      });
-
-      playerRef.current.src({
-        src: `/api/r2-proxy?key=${encodeURIComponent(fileId)}`,
-        type: 'application/x-mpegURL',
-      });
-
-      playerRef.current.on('error', (error) => {
-        console.error('Lỗi trình phát video:', error);
-        onError(new Error('Lỗi khi tải video'));
-      });
-
-      playerRef.current.qualityLevels().on('change', () => {
-        const qualityLevels = playerRef.current.qualityLevels();
-        const currentQuality = qualityLevels[qualityLevels.selectedIndex];
-        console.log('Chất lượng hiện tại:', currentQuality ? `${currentQuality.height}p` : 'Auto');
-      });
+    console.log('VideoPlayer useEffect triggered');
+    console.log('fileId:', fileId);
+    
+    if (!videoRef.current) {
+      console.log('videoRef.current is null');
+      return;
     }
+
+    if (playerRef.current) {
+      console.log('Disposing existing player');
+      playerRef.current.dispose();
+    }
+
+    console.log('Initializing new player');
+    playerRef.current = videojs(videoRef.current, {
+      controls: true,
+      fluid: true,
+      html5: {
+        hls: {
+          enableLowInitialPlaylist: true,
+          smoothQualityChange: true,
+          overrideNative: true,
+        },
+      },
+    });
+
+    console.log('Setting source:', fileId);
+    playerRef.current.src({
+      src: fileId,
+      type: 'application/x-mpegURL'
+    });
+
+    playerRef.current.on('error', (error) => {
+      console.error('Lỗi trình phát video:', error);
+      const errorDetails = playerRef.current.error();
+      let errorMessage = 'Lỗi khi tải video';
+      if (errorDetails) {
+        errorMessage += `: ${errorDetails.message}`;
+      }
+      onError(new Error(errorMessage));
+    });
 
     return () => {
       if (playerRef.current) {
+        console.log('Cleaning up player');
         playerRef.current.dispose();
-        playerRef.current = null;
       }
     };
   }, [fileId, onError]);
+
+  console.log('VideoPlayer render, videoRef:', videoRef.current);
 
   return (
     <div data-vjs-player>

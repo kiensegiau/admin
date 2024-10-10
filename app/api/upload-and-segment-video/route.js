@@ -78,23 +78,39 @@ export async function POST(req) {
       const resolution = path.basename(path.dirname(outputPath));
       const playlist = await fs.readFile(outputPath, 'utf8');
       const segments = await fs.readdir(path.dirname(outputPath));
+      const tsSegments = segments.filter(file => file.endsWith('.ts'));
 
-      const segmentUploads = await Promise.all(segments.filter(file => file.endsWith('.ts')).map(async (segment) => {
+      // Tải lên các phân đoạn video
+      const segmentUploads = await Promise.all(tsSegments.map(async (segment) => {
         const segmentPath = path.join(path.dirname(outputPath), segment);
         const segmentContent = await fs.readFile(segmentPath);
         const segmentKey = `${baseKey}/${resolution}/${segment}`;
         return uploadToR2MultiPart(segmentContent, segmentKey, courseName, chapterName, lessonName);
       }));
 
+      // Cập nhật nội dung playlist với các URL mới của phân đoạn
       let updatedPlaylistContent = playlist;
-      segmentUploads.forEach(({ segment, fileId }) => {
-        updatedPlaylistContent = updatedPlaylistContent.replace(segment, `/api/r2-proxy?key=${encodeURIComponent(fileId)}`);
-      });
+      const tsSegmentsInPlaylist = tsSegments.filter(segment => playlist.includes(segment));
+      updatedPlaylistContent = playlist.split('\n').map(line => {
+        if (!line.startsWith('#') && line.trim() !== '') {
+          const segmentName = line.trim();
+          if (tsSegmentsInPlaylist.includes(segmentName)) {
+            const segmentKey = `${baseKey}/${resolution}/${segmentName}`;
+            return `/api/r2-proxy?key=${encodeURIComponent(segmentKey)}`;
+          }
+        }
+        return line;
+      }).join('\n');
 
+      console.log("Nội dung playlist đã cập nhật:", updatedPlaylistContent);
+
+      // Tạo và tải lên tệp playlist cập nhật
       const playlistKey = `${baseKey}/${resolution}/playlist.m3u8`;
       const playlistFile = new File([updatedPlaylistContent], playlistKey, { type: 'application/x-mpegURL' });
+      // Sử dụng phương thức tải lên trực tiếp cho tệp playlist nhỏ hơn
       const { downloadUrl: playlistUrl } = await uploadToR2Direct(playlistFile, courseName, chapterName, lessonName);
 
+      // Trả về thông tin về độ phân giải và URL của playlist
       return { resolution, playlistUrl };
     }));
 
@@ -119,10 +135,12 @@ export async function POST(req) {
 
     const fileData = {
       name: file.name,
-      r2FileId: masterPlaylistKey,
+      r2FileId: `/api/r2-proxy?key=${encodeURIComponent(masterPlaylistKey)}`,
       type: 'application/vnd.apple.mpegurl',
       uploadTime: new Date().toISOString()
     };
+
+    const proxyVideoUrl = `/api/r2-proxy?key=${encodeURIComponent(masterPlaylistKey)}`;
 
     const updatedChapters = courseData.chapters.map(chapter => 
       chapter.id === chapterId
@@ -132,7 +150,7 @@ export async function POST(req) {
               lesson.id === lessonId
                 ? {
                     ...lesson,
-                    videoUrl: masterPlaylistUrl,
+                 
                     files: [...(lesson.files || []), fileData]
                   }
                 : lesson
