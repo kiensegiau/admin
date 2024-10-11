@@ -8,7 +8,8 @@ export default function CourseDetails({ course, onClose }) {
   const [isEditing, setIsEditing] = useState(false);
 
   const handleChange = (e) => {
-    setEditedCourse({ ...editedCourse, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setEditedCourse(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSave = async () => {
@@ -22,6 +23,32 @@ export default function CourseDetails({ course, onClose }) {
     }
   };
 
+  const renderField = (label, name, type = "text") => (
+    <p className="text-sm text-gray-500 mb-2">
+      <strong>{label}:</strong>
+      {isEditing ? (
+        type === "textarea" ? (
+          <textarea
+            name={name}
+            value={editedCourse[name]}
+            onChange={handleChange}
+            className="border rounded px-2 py-1 ml-2 w-full"
+          />
+        ) : (
+          <input
+            name={name}
+            type={type}
+            value={editedCourse[name]}
+            onChange={handleChange}
+            className="border rounded px-2 py-1 ml-2"
+          />
+        )
+      ) : (
+        name === "price" ? `${editedCourse[name]} VND` : editedCourse[name]
+      )}
+    </p>
+  );
+
   return (
     <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
       <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
@@ -29,46 +56,9 @@ export default function CourseDetails({ course, onClose }) {
           Chi tiết khóa học
         </h3>
         <div className="mt-2">
-          <p className="text-sm text-gray-500 mb-2">
-            <strong>Tiêu đề:</strong>
-            {isEditing ? (
-              <input
-                name="title"
-                value={editedCourse.title}
-                onChange={handleChange}
-                className="border rounded px-2 py-1 ml-2"
-              />
-            ) : (
-              editedCourse.title
-            )}
-          </p>
-          <p className="text-sm text-gray-500 mb-2">
-            <strong>Mô tả:</strong>
-            {isEditing ? (
-              <textarea
-                name="description"
-                value={editedCourse.description}
-                onChange={handleChange}
-                className="border rounded px-2 py-1 ml-2 w-full"
-              />
-            ) : (
-              editedCourse.description
-            )}
-          </p>
-          <p className="text-sm text-gray-500 mb-2">
-            <strong>Giá:</strong>
-            {isEditing ? (
-              <input
-                name="price"
-                type="number"
-                value={editedCourse.price}
-                onChange={handleChange}
-                className="border rounded px-2 py-1 ml-2"
-              />
-            ) : (
-              `${editedCourse.price} VND`
-            )}
-          </p>
+          {renderField("Tiêu đề", "title")}
+          {renderField("Mô tả", "description", "textarea")}
+          {renderField("Giá", "price", "number")}
         </div>
         <div className="mt-4">
           {isEditing ? (

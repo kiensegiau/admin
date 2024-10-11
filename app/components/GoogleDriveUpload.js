@@ -6,13 +6,10 @@ import { uploadToDrive } from '../utils/driveUpload';
 export default function GoogleDriveUpload() {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadResult, setUploadResult] = useState(null);
 
   const handleFileChange = (e) => {
-    if (e.target.files[0]) {
-      setFile(e.target.files[0]);
-    }
+    setFile(e.target.files[0] || null);
   };
 
   const handleUpload = async () => {
@@ -27,7 +24,6 @@ export default function GoogleDriveUpload() {
       const fileData = {
         name: file.name,
         type: file.type,
-        // Chuyển đổi file thành base64
         content: await new Promise((resolve) => {
           const reader = new FileReader();
           reader.onloadend = () => resolve(reader.result.split(',')[1]);
@@ -37,10 +33,10 @@ export default function GoogleDriveUpload() {
 
       const result = await uploadToDrive(fileData, accessToken);
       setUploadResult(result);
-      setUploading(false);
     } catch (error) {
       console.error('Lỗi khi tải lên:', error);
       setUploadResult({ error: error.message });
+    } finally {
       setUploading(false);
     }
   };

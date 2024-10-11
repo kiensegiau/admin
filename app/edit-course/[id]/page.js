@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
 import { db } from "../../firebase";
@@ -26,19 +26,19 @@ export default function EditCourse({ params }) {
   const [selectedLesson, setSelectedLesson] = useState(null);
   const [isB2UploadModalOpen, setIsB2UploadModalOpen] = useState(false);
 
-  const sortChaptersAndLessons = (chapters) => {
+  const sortChaptersAndLessons = useCallback((chapters) => {
     return chapters.sort((a, b) => a.title.localeCompare(b.title)).map(chapter => ({
       ...chapter,
       lessons: chapter.lessons ? chapter.lessons.sort((a, b) => a.title.localeCompare(b.title)) : []
     }));
-  };
+  }, []);
 
-  const updateChapters = (updatedChapters) => {
+  const updateChapters = useCallback((updatedChapters) => {
     setCourse(prevCourse => ({
       ...prevCourse,
       chapters: sortChaptersAndLessons(updatedChapters)
     }));
-  };
+  }, [sortChaptersAndLessons]);
 
   useEffect(() => {
     const fetchCourse = async () => {
@@ -64,19 +64,12 @@ export default function EditCourse({ params }) {
 
   const handleAddChapters = async (chaptersData) => {
     try {
-      if (typeof chaptersData === 'object' && !Array.isArray(chaptersData)) {
-        chaptersData = [chaptersData];
-      } else if (!Array.isArray(chaptersData)) {
-        console.error('chaptersData không hợp lệ:', chaptersData);
-        toast.error('Dữ liệu chương không hợp lệ');
-        return;
-      }
-
+      const chaptersArray = Array.isArray(chaptersData) ? chaptersData : [chaptersData];
       const courseRef = doc(db, "courses", id);
       const courseDoc = await getDoc(courseRef);
       const courseData = courseDoc.data();
 
-      const newChapters = chaptersData.map((chapter, index) => ({
+      const newChapters = chaptersArray.map((chapter, index) => ({
         id: Date.now().toString() + index,
         title: chapter.title || `Chương ${index + 1}`,
         order: chapter.order || (courseData.chapters ? courseData.chapters.length : 0) + index + 1,
@@ -172,13 +165,11 @@ export default function EditCourse({ params }) {
 
       await updateDoc(courseRef, { chapters: updatedChapters });
       
-      // Cập nhật state ngay lập tức
       setCourse(prevCourse => ({
         ...prevCourse,
         chapters: updatedChapters
       }));
       
-      // Cập nhật selectedLesson để hiển thị file mới
       setSelectedLesson(prevLesson => ({
         ...prevLesson,
         files: [...(prevLesson.files || []), fileData]

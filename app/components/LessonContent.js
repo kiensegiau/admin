@@ -1,14 +1,11 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { db } from '.././firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import AddFileModal from './AddFileModal';
 import FileViewModal from './FileViewModal';
 import LoadingSpinner from './LoadingSpinner';
 import { toast } from 'sonner';
-import { ref, deleteObject } from 'firebase/storage';
-import { storage } from '.././firebase';
-import VideoModal from './VideoModal'; // Thêm import này
-import { testR2Connection } from '../utils/r2DirectUpload';
+import VideoModal from './VideoModal';
 import VideoPlayer from './VideoPlayer';
 
 export default function LessonContent({ lesson, courseId, chapterId, courseName, chapterName, onOpenB2UploadModal }) {
@@ -20,37 +17,23 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
   const [selectedVideoFile, setSelectedVideoFile] = useState(null);
   const [isVideoPlayerVisible, setIsVideoPlayerVisible] = useState(false);
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
-console.log(lessonData);
+
   const fetchLessonData = useCallback(async () => {
-    if (!lesson || !lesson.id) {
-      console.log('Không có bài học được chọn hoặc bài học không có id');
+    if (!lesson?.id) {
       setLessonData(null);
       setIsLoading(false);
       return;
     }
 
-    console.log('Đang tải dữ liệu cho bài học:', lesson.id);
     try {
       const courseRef = doc(db, 'courses', courseId);
       const courseDoc = await getDoc(courseRef);
       if (courseDoc.exists()) {
         const courseData = courseDoc.data();
         const chapter = courseData.chapters.find(ch => ch.id === chapterId);
-        if (chapter) {
-          const lessonData = chapter.lessons.find(l => l.id === lesson.id);
-          if (lessonData) {
-            console.log('Dữ liệu bài học:', lessonData);
-            setLessonData(lessonData);
-          } else {
-            console.log('Không tìm thấy dữ liệu cho bài học:', lesson.id);
-            setLessonData({ title: lesson.title || '', files: [] });
-          }
-        } else {
-          console.log('Không tìm thấy chương:', chapterId);
-          setLessonData({ title: lesson.title || '', files: [] });
-        }
+        const lessonData = chapter?.lessons.find(l => l.id === lesson.id);
+        setLessonData(lessonData || { title: lesson.title || '', files: [] });
       } else {
-        console.log('Không tìm thấy khóa học:', courseId);
         setLessonData({ title: lesson.title || '', files: [] });
       }
     } catch (error) {
@@ -80,8 +63,7 @@ console.log(lessonData);
   }, []);
 
   const handleDeleteFile = useCallback(async (fileToDelete) => {
-    if (!lesson || !lesson.id) {
-      console.error('Không có bài học được chọn hoặc bài học không có id');
+    if (!lesson?.id) {
       toast.error('Không thể xóa file: Bài học không hợp lệ');
       return;
     }
@@ -92,21 +74,18 @@ console.log(lessonData);
         const courseDoc = await getDoc(courseRef);
         const courseData = courseDoc.data();
 
-        const updatedChapters = courseData.chapters.map(chapter => {
-          if (chapter.id === chapterId) {
-            const updatedLessons = chapter.lessons.map(l => {
-              if (l.id === lesson.id) {
-                return {
-                  ...l,
-                  files: l.files.filter(file => file.name !== fileToDelete.name)
-                };
+        const updatedChapters = courseData.chapters.map(chapter => 
+          chapter.id === chapterId
+            ? {
+                ...chapter,
+                lessons: chapter.lessons.map(l => 
+                  l.id === lesson.id
+                    ? { ...l, files: l.files.filter(file => file.name !== fileToDelete.name) }
+                    : l
+                )
               }
-              return l;
-            });
-            return { ...chapter, lessons: updatedLessons };
-          }
-          return chapter;
-        });
+            : chapter
+        );
 
         await updateDoc(courseRef, { chapters: updatedChapters });
 
@@ -122,15 +101,6 @@ console.log(lessonData);
     }
   }, [lesson, courseId, chapterId]);
 
-  const handleOpenB2UploadModal = () => {
-    onOpenB2UploadModal(lesson);
-  };
-
-  const handleCloseVideoModal = useCallback(() => {
-    setSelectedVideoFile(null);
-    setIsVideoModalOpen(false);
-  }, []);
-
   const handleViewVideo = () => {
     if (lessonData?.videoUrl) {
       setIsVideoPlayerVisible(true);
@@ -139,9 +109,7 @@ console.log(lessonData);
     }
   };
 
-  if (isLoading) {
-    return <LoadingSpinner />;
-  }
+  if (isLoading) return <LoadingSpinner />;
 
   if (!lesson) {
     return (
@@ -160,9 +128,8 @@ console.log(lessonData);
       >
         Thêm tài liệu
       </button>
-      {/* Nút Upload B2 */}
       <button
-        onClick={handleOpenB2UploadModal}
+        onClick={() => onOpenB2UploadModal(lesson)}
         className="bg-green-500 text-white px-2 py-1 rounded text-sm mr-2"
       >
         Upload B2
@@ -241,7 +208,10 @@ console.log(lessonData);
         <VideoModal
           fileId={selectedVideoFile.r2FileId}
           fileName={selectedVideoFile.name}
-          onClose={handleCloseVideoModal}
+          onClose={() => {
+            setSelectedVideoFile(null);
+            setIsVideoModalOpen(false);
+          }}
         />
       )}
     </div>

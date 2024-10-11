@@ -12,19 +12,15 @@ export async function POST(req) {
 
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
-    const fileMetadata = {
-      name: file.name,
-      mimeType: file.type,
-    };
-
-    const media = {
-      mimeType: file.type,
-      body: Readable.from(Buffer.from(file.content, 'base64')),
-    };
-
     const response = await drive.files.create({
-      requestBody: fileMetadata,
-      media: media,
+      requestBody: {
+        name: file.name,
+        mimeType: file.type,
+      },
+      media: {
+        mimeType: file.type,
+        body: Readable.from(Buffer.from(file.content, 'base64')),
+      },
       fields: 'id, webViewLink',
     });
 

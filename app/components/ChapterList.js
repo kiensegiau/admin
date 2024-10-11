@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { updateDoc, doc, deleteDoc, getDoc, collection } from "firebase/firestore";
+import { updateDoc, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { toast } from "sonner";
 import { Spin } from 'antd';
@@ -9,11 +9,8 @@ export default function ChapterList({ courseId, chapters, onSelectLesson, onAddL
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (expandedChapter) {
-      const chapterStillExists = chapters.some(chapter => chapter.id === expandedChapter);
-      if (!chapterStillExists) {
-        onSelectChapter(null);
-      }
+    if (expandedChapter && !chapters.some(chapter => chapter.id === expandedChapter)) {
+      onSelectChapter(null);
     }
   }, [chapters, expandedChapter, onSelectChapter]);
 
@@ -22,67 +19,57 @@ export default function ChapterList({ courseId, chapters, onSelectLesson, onAddL
   };
 
   const deleteChapter = async (chapterId) => {
-    if (window.confirm("Bạn có chắc chắn muốn xóa chương này?")) {
-      setLoading(true);
-      try {
-        const courseRef = doc(db, "courses", courseId);
-        const courseDoc = await getDoc(courseRef);
-        const courseData = courseDoc.data();
+    if (!window.confirm("Bạn có chắc chắn muốn xóa chương này?")) return;
 
-        const updatedChapters = courseData.chapters.filter(chapter => chapter.id !== chapterId);
+    setLoading(true);
+    try {
+      const courseRef = doc(db, "courses", courseId);
+      const courseDoc = await getDoc(courseRef);
+      const updatedChapters = courseDoc.data().chapters.filter(chapter => chapter.id !== chapterId);
 
-        await updateDoc(courseRef, {
-          chapters: updatedChapters
-        });
-
-        onUpdateChapters(updatedChapters);
-        
-        if (expandedChapter === chapterId) {
-          setExpandedChapter(null);
-        }
-
-        toast.success("Chương đã được xóa");
-      } catch (error) {
-        console.error("Lỗi khi xóa chương:", error);
-        toast.error("Không thể xóa chương");
-      } finally {
-        setLoading(false);
+      await updateDoc(courseRef, { chapters: updatedChapters });
+      onUpdateChapters(updatedChapters);
+      
+      if (expandedChapter === chapterId) {
+        setExpandedChapter(null);
       }
+
+      toast.success("Chương đã được xóa");
+    } catch (error) {
+      console.error("Lỗi khi xóa chương:", error);
+      toast.error("Không thể xóa chương");
+    } finally {
+      setLoading(false);
     }
   };
 
   const deleteLesson = async (chapterId, lessonId) => {
-    if (window.confirm("Bạn có chắc chắn muốn xóa bài học này?")) {
-      setLoading(true);
-      try {
-        const courseRef = doc(db, "courses", courseId);
-        const courseDoc = await getDoc(courseRef);
-        const courseData = courseDoc.data();
-        const updatedChapters = courseData.chapters.map(chapter => {
-          if (chapter.id === chapterId) {
-            return {
-              ...chapter,
-              lessons: chapter.lessons.filter(lesson => lesson.id !== lessonId)
-            };
-          }
-          return chapter;
-        });
-        await updateDoc(courseRef, { chapters: updatedChapters });
-        onUpdateChapters(updatedChapters);
-        toast.success("Bài học đã được xóa");
-      } catch (error) {
-        console.error("Lỗi khi xóa bài học:", error);
-        toast.error("Không thể xóa bài học");
-      } finally {
-        setLoading(false);
-      }
+    if (!window.confirm("Bạn có chắc chắn muốn xóa bài học này?")) return;
+
+    setLoading(true);
+    try {
+      const courseRef = doc(db, "courses", courseId);
+      const courseDoc = await getDoc(courseRef);
+      const updatedChapters = courseDoc.data().chapters.map(chapter => 
+        chapter.id === chapterId 
+          ? { ...chapter, lessons: chapter.lessons.filter(lesson => lesson.id !== lessonId) }
+          : chapter
+      );
+      await updateDoc(courseRef, { chapters: updatedChapters });
+      onUpdateChapters(updatedChapters);
+      toast.success("Bài học đã được xóa");
+    } catch (error) {
+      console.error("Lỗi khi xóa bài học:", error);
+      toast.error("Không thể xóa bài học");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <Spin spinning={loading}>
       <div className="space-y-4">
-        {chapters.map((chapter, index) => (
+        {chapters.map((chapter) => (
           <div key={chapter.id} className="border rounded-lg overflow-hidden">
             <div
               className="flex justify-between items-center cursor-pointer bg-gray-100 p-4"

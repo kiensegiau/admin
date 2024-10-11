@@ -14,12 +14,9 @@ const s3Client = new S3Client({
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const key = searchParams.get("key");
-  
-  console.log("Khóa được yêu cầu:", key);
 
   if (!key) {
-    console.error("Lỗi: Thiếu tham số khóa");
-    return NextResponse.json({ error: "Thiếu tham số khóa" }, { status: 400 });
+    return NextResponse.json({ error: "Missing key parameter" }, { status: 400 });
   }
 
   try {
@@ -28,14 +25,10 @@ export async function GET(request) {
       Key: key,
     });
 
-    console.log("Đang tạo URL đã ký...");
     const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-    
-    console.log("URL đã xử lý:", signedUrl);
-
     const response = await fetch(signedUrl);
     const contentType = response.headers.get('content-type');
-    
+
     if (key.endsWith('.ts')) {
       const arrayBuffer = await response.arrayBuffer();
       return new NextResponse(Buffer.from(arrayBuffer), {
@@ -51,16 +44,13 @@ export async function GET(request) {
     let data = await response.text();
 
     if (contentType.includes('application/x-mpegURL') || contentType.includes('application/vnd.apple.mpegurl')) {
-      console.log('Nội dung m3u8 gốc:', data);
       const lines = data.split('\n');
-      const processedLines = lines.map(line => {
+      data = lines.map(line => {
         if (!line.startsWith('#') && line.trim() !== '') {
           return `/api/r2-proxy?key=${encodeURIComponent(key.split('/').slice(0, -1).concat(line.trim()).join('/'))}`;
         }
         return line;
-      });
-      data = processedLines.join('\n');
-      console.log("Nội dung m3u8 đã xử lý:", data);
+      }).join('\n');
     }
 
     return new NextResponse(data, {
@@ -72,8 +62,8 @@ export async function GET(request) {
       },
     });
   } catch (error) {
-    console.error("Lỗi khi xử lý yêu cầu:", error);
-    return NextResponse.json({ error: "Không thể xử lý yêu cầu" }, { status: 500 });
+    console.error('Error:', error);
+    return NextResponse.json({ error: "Unable to process request" }, { status: 500 });
   }
 }
 

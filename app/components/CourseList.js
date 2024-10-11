@@ -30,8 +30,7 @@ export default function CourseList() {
     setLoading(true);
     try {
       const querySnapshot = await getDocs(collection(db, 'courses'));
-      const courseList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setCourses(courseList);
+      setCourses(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     } catch (error) {
       console.error("Lỗi khi lấy danh sách khóa học:", error);
       toast.error("Không thể tải danh sách khóa học");

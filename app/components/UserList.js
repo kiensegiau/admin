@@ -1,11 +1,10 @@
 'use client';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { toast } from 'sonner';
 import Modal from './Modal';
 import { Spin } from 'antd';
-
 import AddUserModal from './AddUserModal';
 
 const UserList = React.memo(() => {
