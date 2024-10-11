@@ -36,6 +36,8 @@
     "react-player": "^2.16.0",
     "sonner": "^1.5.0",
     "video.js": "^8.18.1",
+    "videojs-contrib-quality-levels": "^4.1.0",
+    "videojs-http-source-selector": "^1.1.6",
     "yup": "^1.4.0"
   },
   "devDependencies": {
