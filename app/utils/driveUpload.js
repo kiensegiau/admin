@@ -1,5 +1,7 @@
 import { OAuth2Client } from 'google-auth-library';
 import axios from 'axios';
+import { google } from 'googleapis';
+import { Readable } from 'stream';
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -22,13 +24,13 @@ export const setCredentials = async (code) => {
 
 export async function uploadToDrive(file, accessToken, onProgress, drivePath) {
   try {
-    // Tạo cấu trúc thư mục
     const folderIds = await createFolderStructure(drivePath, accessToken);
     const parentFolderId = folderIds[folderIds.length - 1];
 
     const metadata = {
       name: file.name,
-      parents: [parentFolderId]
+      parents: [parentFolderId],
+      mimeType: file.type
     };
 
     const form = new FormData();
@@ -41,7 +43,7 @@ export async function uploadToDrive(file, accessToken, onProgress, drivePath) {
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'multipart/form-data',
+          'Content-Type': `multipart/form-data; boundary=${form._boundary}`,
         },
         onUploadProgress: (progressEvent) => {
           const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -55,8 +57,8 @@ export async function uploadToDrive(file, accessToken, onProgress, drivePath) {
       webViewLink: response.data.webViewLink
     };
   } catch (error) {
-    console.error('Lỗi khi tải lên Google Drive:', error);
-    throw error;
+    console.error('Lỗi chi tiết:', error.response?.data);
+    throw new Error(`Lỗi khi tải lên Google Drive: ${error.response?.data?.error?.message || error.message}`);
   }
 }
 

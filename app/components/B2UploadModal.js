@@ -7,6 +7,7 @@ export default function B2UploadModal({ onClose, courseId, chapterId, lessonId, 
   const [uploadProgress, setUploadProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
   const [isDriveVerified, setIsDriveVerified] = useState(false);
+  const [currentStep, setCurrentStep] = useState('');
 
   const handleFileChange = (e) => {
     setFile(e.target.files[0] || null);
@@ -41,9 +42,11 @@ export default function B2UploadModal({ onClose, courseId, chapterId, lessonId, 
       return;
     }
 
+    console.log('Bắt đầu upload file:', file.name);
     setUploading(true);
     setErrorMessage('');
     setUploadProgress(0);
+    setCurrentStep('Đang chuẩn bị upload');
 
     const formData = new FormData();
     formData.append("file", file);
@@ -55,31 +58,61 @@ export default function B2UploadModal({ onClose, courseId, chapterId, lessonId, 
     formData.append("lessonId", lessonId);
 
     try {
-      const response = await fetch('/api/upload-and-segment-video', {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      console.log('Gửi request upload');
+      let response;
+      if (file.type.startsWith('video/')) {
+        response = await fetch('/api/upload-and-segment-video', {
+          method: 'POST',
+          body: formData
+        });
+      } else {
+        response = await fetch('/api/upload-file', {
+          method: 'POST',
+          body: formData
+        });
       }
 
-      const result = await response.json();
-      message.success("Video đã được upload, phân đoạn và lưu trữ thành công");
-      onFileAdded(result);
+      console.log('Nhận response từ server');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const decodedChunk = decoder.decode(value, { stream: true });
+        const lines = decodedChunk.split('\n\n');
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.slice(6));
+            console.log('Nhận dữ liệu từ server:', data);
+            if (data.error) {
+              throw new Error(data.error);
+            }
+            setUploadProgress(prevProgress => data.progress || prevProgress);
+            setCurrentStep(prevStep => data.step || prevStep);
+          }
+        }
+      }
+
+      console.log('Upload hoàn thành');
+      message.success("File đã được upload và lưu trữ thành công");
+      onFileAdded();
       onClose();
     } catch (error) {
       console.error("Lỗi khi upload:", error);
-      setErrorMessage(`Lỗi khi upload video: ${error.message}`);
+      setErrorMessage(`Lỗi khi upload file: ${error.message}`);
     } finally {
       setUploading(false);
+      console.log('Kết thúc quá trình upload');
     }
   };
 
   return (
     <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center">
       <div className="bg-white p-5 rounded-lg shadow-xl max-w-md w-full">
-        <h2 className="text-xl font-bold mb-4">Upload Video</h2>
+        <h2 className="text-xl font-bold mb-4">Upload File</h2>
         {!isDriveVerified ? (
           <div>
             <p className="mb-4">Bạn cần xác minh Google Drive trước khi tải lên.</p>
@@ -92,13 +125,14 @@ export default function B2UploadModal({ onClose, courseId, chapterId, lessonId, 
           </div>
         ) : (
           <>
-            <input type="file" onChange={handleFileChange} accept="video/*" className="mb-4" />
+            <input type="file" onChange={handleFileChange} accept="video/*,application/pdf,application/zip,image/*" className="mb-4" />
             {errorMessage && <p className="text-red-500 mb-4">{errorMessage}</p>}
             {uploading ? (
               <div className="mb-4">
-                <Spin spinning={uploading} tip="Đang xử lý...">
+                <Spin spinning={uploading} tip={currentStep}>
                   <Progress percent={uploadProgress} status="active" />
                 </Spin>
+                <p className="mt-2">{currentStep}</p>
               </div>
             ) : (
               <div className="flex justify-end">

@@ -48,11 +48,6 @@ export const uploadToR2 = async (file, courseName, chapterName, lessonName) => {
 
 export const uploadToR2MultiPart = async (content, key, courseName, chapterName, lessonName) => {
   try {
-    console.log('Uploading to R2 with multipart:', {
-      Bucket: process.env.NEXT_PUBLIC_R2_BUCKET_NAME,
-      Key: key,
-    });
-
     const params = {
       Bucket: process.env.NEXT_PUBLIC_R2_BUCKET_NAME,
       Key: key,

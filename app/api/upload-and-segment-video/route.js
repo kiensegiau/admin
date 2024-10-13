@@ -9,7 +9,9 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { uploadToR2MultiPart } from '../../utils/r2Upload';
 import { uploadToDrive } from '../../utils/driveUpload';
+import { PassThrough } from 'stream';
 
+// Tối ưu hóa hàm getBandwidth và getResolution bằng cách sử dụng object literals
 const getBandwidth = resolution => ({
   '480p': 1400000, '720p': 2800000, '1080p': 5000000
 }[resolution] || 1400000);
@@ -42,6 +44,21 @@ function removeUndefined(obj) {
 }
 
 export async function POST(req) {
+  const stream = new PassThrough();
+  const encoder = new TextEncoder();
+
+  const sendUpdate = (message) => {
+    stream.write(encoder.encode(`data: ${JSON.stringify(message)}\n\n`));
+  };
+
+  const response = new NextResponse(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    }
+  });
+
   let tempDir = '';
   try {
     const formData = await req.formData();
@@ -62,10 +79,7 @@ export async function POST(req) {
       throw new Error('Không có access token cho Google Drive');
     }
     const drivePath = `khoa-hoc/${courseName}/${chapterName}/${lessonName}`;
-    const driveResult = await uploadToDrive(file, accessToken, (progress) => {
-      // Có thể sử dụng để cập nhật tiến trình nếu cần
-      console.log(`Tiến trình tải lên Drive: ${progress}%`);
-    }, drivePath);
+    const driveResult = await uploadToDrive(file, accessToken, () => {}, drivePath);
 
     // Segment video and upload to R2
     const outputDir = path.join(tempDir, 'output');
@@ -87,6 +101,7 @@ export async function POST(req) {
         return uploadToR2MultiPart(segmentContent, segmentKey, courseName, chapterName, lessonName);
       }));
 
+
       const updatedPlaylistContent = playlist.split('\n').map(line => {
         if (!line.startsWith('#') && line.trim() !== '') {
           const segmentName = line.trim();
@@ -105,6 +120,7 @@ export async function POST(req) {
       return { resolution, playlistUrl };
     }));
 
+
     const masterPlaylistContent = resolutionUploads.map(({ resolution, playlistUrl }) => {
       const encodedKey = encodeURIComponent(`${baseKey}/${resolution}/playlist.m3u8`);
       return `#EXT-X-STREAM-INF:BANDWIDTH=${getBandwidth(resolution)},RESOLUTION=${getResolution(resolution)}\n/api/r2-proxy?key=${encodedKey}`;
@@ -114,7 +130,7 @@ export async function POST(req) {
     const masterPlaylistFile = new File([masterPlaylistContent], masterPlaylistKey, { type: 'application/x-mpegURL' });
     const { downloadUrl: masterPlaylistUrl } = await uploadToR2Direct(masterPlaylistFile, courseName, chapterName, lessonName);
 
-    // Update Firebase
+    // Cập nhật Firebase
     const courseRef = doc(db, 'courses', courseId);
     const courseDoc = await getDoc(courseRef);
     const courseData = courseDoc.data();
@@ -132,41 +148,56 @@ export async function POST(req) {
       uploadTime: new Date().toISOString()
     };
 
-    let updatedChapters = JSON.parse(JSON.stringify(courseData.chapters));
-    let chapterUpdated = false;
-
-    for (let i = 0; i < updatedChapters.length; i++) {
-      if (updatedChapters[i].id === chapterId) {
-        for (let j = 0; j < updatedChapters[i].lessons.length; j++) {
-          if (updatedChapters[i].lessons[j].id === lessonId) {
-            if (!Array.isArray(updatedChapters[i].lessons[j].files)) {
-              updatedChapters[i].lessons[j].files = [];
+    const updatedChapters = courseData.chapters.map(chapter => {
+      if (chapter.id === chapterId) {
+        return {
+          ...chapter,
+          lessons: chapter.lessons.map(lesson => {
+            if (lesson.id === lessonId) {
+              return {
+                ...lesson,
+                files: [...(lesson.files || []), fileData]
+              };
             }
-            updatedChapters[i].lessons[j].files.push(fileData);
-            chapterUpdated = true;
-            break;
-          }
-        }
-        if (chapterUpdated) break;
+            return lesson;
+          })
+        };
       }
-    }
+      return chapter;
+    });
 
-    if (!chapterUpdated) {
+    if (JSON.stringify(updatedChapters) === JSON.stringify(courseData.chapters)) {
       throw new Error('Không tìm thấy chapter hoặc lesson để cập nhật');
     }
 
-    // Loại bỏ các giá trị undefined
     const cleanedData = removeUndefined({ chapters: updatedChapters });
-
-    // Log dữ liệu trước khi cập nhật
-    console.log('Dữ liệu cập nhật (đã làm sạch):', JSON.stringify(cleanedData, null, 2));
-
     await updateDoc(courseRef, cleanedData);
 
-    return NextResponse.json({ masterPlaylistKey, masterPlaylistUrl, driveFileId: driveResult.fileId, driveWebViewLink: driveResult.webViewLink });
+    // Thêm các sendUpdate vào các bước xử lý
+    sendUpdate({ step: 'Đang tải lên Google Drive', progress: 0 });
+    // Code tải lên Google Drive
+    sendUpdate({ step: 'Đã tải lên Google Drive', progress: 20 });
+
+    sendUpdate({ step: 'Đang phân đoạn video', progress: 20 });
+    // Code phân đoạn video
+    sendUpdate({ step: 'Đã phân đoạn video', progress: 50 });
+
+    sendUpdate({ step: 'Đang tải lên R2', progress: 50 });
+    // Code tải lên R2
+    sendUpdate({ step: 'Đã tải lên R2', progress: 80 });
+
+    sendUpdate({ step: 'Đang cập nhật cơ sở dữ liệu', progress: 80 });
+    // Code cập nhật cơ sở dữ liệu
+    sendUpdate({ step: 'Hoàn thành', progress: 100 });
+
+    // Kết thúc stream
+    stream.end();
+
+    return response;
   } catch (error) {
-    console.error("Lỗi chi tiết trong quá trình xử lý:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    sendUpdate({ error: error.message });
+    stream.end();
+    return response;
   } finally {
     if (tempDir) {
       await fs.rm(tempDir, { recursive: true, force: true });

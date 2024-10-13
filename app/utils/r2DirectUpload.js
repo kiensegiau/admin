@@ -10,7 +10,7 @@ const s3Client = new S3Client({
 });
 
 export async function uploadToR2Direct(file, courseName, chapterName, lessonName) {
-  const key = file.name;
+  const key = `khoa-hoc/${courseName}/${chapterName}/${lessonName}/${file.name}`;
   
   let fileContent;
   if (file instanceof File) {
@@ -32,7 +32,7 @@ export async function uploadToR2Direct(file, courseName, chapterName, lessonName
     await s3Client.send(command);
     return { 
       fileId: key, 
-      downloadUrl: `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${key}` 
+      downloadUrl: `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.NEXT_PUBLIC_R2_BUCKET_NAME}/${encodeURIComponent(key)}` 
     };
   } catch (error) {
     console.error('Chi tiết lỗi khi tải lên R2:', error);
