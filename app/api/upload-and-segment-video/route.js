@@ -10,6 +10,7 @@ import { db } from '../../firebase';
 import { uploadToR2MultiPart } from '../../utils/r2Upload';
 import { uploadToDrive } from '../../utils/driveUpload';
 import { PassThrough } from 'stream';
+import busboy from 'busboy';
 
 // Tối ưu hóa hàm getBandwidth và getResolution bằng cách sử dụng object literals
 const getBandwidth = resolution => ({
@@ -19,6 +20,12 @@ const getBandwidth = resolution => ({
 const getResolution = resolution => ({
   '480p': '854x480', '720p': '1280x720', '1080p': '1920x1080'
 }[resolution] || '854x480');
+
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
 
 export async function GET(req) {
   const stream = new PassThrough();
@@ -44,11 +51,13 @@ function removeUndefined(obj) {
 }
 
 export async function POST(req) {
+  console.log('=== Bắt đầu xử lý request POST ===');
   const stream = new PassThrough();
   const encoder = new TextEncoder();
 
   const sendUpdate = (message) => {
     stream.write(encoder.encode(`data: ${JSON.stringify(message)}\n\n`));
+    console.log('Gửi cập nhật:', message);
   };
 
   const response = new NextResponse(stream, {
@@ -60,13 +69,36 @@ export async function POST(req) {
   });
 
   let tempDir = '';
+
   try {
-    const formData = await req.formData();
-    const { file, courseName, chapterName, lessonName, courseId, chapterId, lessonId } = Object.fromEntries(formData);
-    // console.log('Dữ liệu nhận được từ formData:', Object.fromEntries(formData));
+    console.log('Trước khi parse FormData');
+    const formData = await parseFormData(req);
+    console.log('Sau khi parse FormData:', formData);
+
+    const file = formData.file;
+    const courseName = formData.courseName;
+    const chapterName = formData.chapterName;
+    const lessonName = formData.lessonName;
+    const courseId = formData.courseId;
+    const chapterId = formData.chapterId;
+    const lessonId = formData.lessonId;
+
+    console.log('Dữ liệu nhận được:', { 
+      courseName, 
+      chapterName, 
+      lessonName, 
+      courseId, 
+      chapterId, 
+      lessonId,
+      file: file ? { filename: file.filename, size: file.size } : 'Không có file'
+    });
+
     if (!file || !courseId || !chapterId || !lessonId) {
+      console.error('Thiếu các trường bắt buộc');
       return NextResponse.json({ error: "Thiếu các trường bắt buộc" }, { status: 400 });
     }
+
+    console.log('File nhận được:', file.filename, 'Size:', file.size);
 
     tempDir = path.join(os.tmpdir(), uuidv4());
     await fs.mkdir(tempDir, { recursive: true });
@@ -195,12 +227,56 @@ export async function POST(req) {
 
     return response;
   } catch (error) {
+    console.error('Lỗi trong quá trình xử lý:', error);
     sendUpdate({ error: error.message });
     stream.end();
     return response;
   } finally {
     if (tempDir) {
-      await fs.rm(tempDir, { recursive: true, force: true });
+      console.log('Xóa thư mục tạm thời:', tempDir);
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(console.error);
     }
   }
+
+  console.log('=== Kết thúc xử lý request POST ===');
+}
+
+function parseFormData(req) {
+  return new Promise((resolve, reject) => {
+    console.log('Bắt đầu parse FormData');
+    const bb = busboy({ headers: req.headers });
+    const formData = {};
+
+    bb.on('file', (name, file, info) => {
+      console.log('Đang xử lý file:', name);
+      const { filename, encoding, mimeType } = info;
+      let fileContent = Buffer.alloc(0);
+
+      file.on('data', (data) => {
+        fileContent = Buffer.concat([fileContent, data]);
+      });
+
+      file.on('end', () => {
+        console.log('Kết thúc xử lý file:', name);
+        formData[name] = { filename, encoding, mimeType, content: fileContent, size: fileContent.length };
+      });
+    });
+
+    bb.on('field', (name, val) => {
+      console.log('Trường dữ liệu:', name, val);
+      formData[name] = val;
+    });
+
+    bb.on('close', () => {
+      console.log('Kết thúc parse FormData');
+      resolve(formData);
+    });
+
+    bb.on('error', (error) => {
+      console.error('Lỗi khi parse FormData:', error);
+      reject(error);
+    });
+
+    req.body.pipe(bb);
+  });
 }
