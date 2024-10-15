@@ -5,7 +5,7 @@ const menuItems = [
   { name: 'Dashboard', icon: HomeIcon, href: '/dashboard' },
   { name: 'Người dùng', icon: UserGroupIcon, href: '/users' },
   { name: 'Khóa học', icon: AcademicCapIcon, href: '/courses' },
-  { name: 'Báo cáo', icon: ChartBarIcon, href: '/reports' },
+  { name: 'drive', icon: ChartBarIcon, href: '/import-from-drive' },
   { name: 'Cài đặt', icon: CogIcon, href: '/settings' },
 ];
 

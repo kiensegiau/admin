@@ -40,22 +40,7 @@ export default function AdminDashboard() {
     console.log('Tất cả cookies:', document.cookie);
     console.log('Kiểm tra token trong AdminDashboard');
 
-    const checkTokenFromServer = async () => {
-      try {
-        const response = await fetch('/api/check-token');
-        const data = await response.json();
-        console.log('Token từ server:', data);
-        if (data.hasToken) {
-          setIsConnected(true);
-          setTokenInfo(data.tokenValue);
-        }
-      } catch (error) {
-        console.error('Lỗi khi kiểm tra token từ server:', error);
-      }
-    };
-
-    checkTokenFromServer();
-
+   
     const checkToken = () => {
       const accessToken = document.cookie.split('; ').find(row => row.startsWith('googleDriveAccessToken='))?.split('=')[1];
       if (accessToken) {
@@ -77,7 +62,7 @@ export default function AdminDashboard() {
 
   return (
     <div>
-      <h1>Admin Dashboard</h1>
+      <h1>Admin Dashboard11111</h1>
       {console.log('Rendering AdminDashboard, isConnected:', isConnected)}
       {isConnected ? (
         <div>

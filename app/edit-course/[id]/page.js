@@ -13,6 +13,7 @@ import LessonContent from "../../components/LessonContent";
 import { Spin } from 'antd';
 import { moonCourseData } from '../../courses/fakedata';
 import B2UploadModal from '../../components/B2UploadModal';
+import GoogleDriveFolderSelector from '../../components/GoogleDriveFolderSelector';
 
 export default function EditCourse({ params }) {
   const [course, setCourse] = useState(null);
@@ -25,6 +26,7 @@ export default function EditCourse({ params }) {
   const [selectedChapterId, setSelectedChapterId] = useState(null);
   const [selectedLesson, setSelectedLesson] = useState(null);
   const [isB2UploadModalOpen, setIsB2UploadModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const sortChaptersAndLessons = useCallback((chapters) => {
     return chapters.sort((a, b) => a.title.localeCompare(b.title)).map(chapter => ({
@@ -260,6 +262,13 @@ export default function EditCourse({ params }) {
             chapterName={course?.chapters?.find(chapter => chapter.id === selectedChapterId)?.title}
             lessonName={selectedLesson.title}
           />
+        )}
+        {isImportModalOpen && (
+          <div className="modal">
+            <h2>Chọn thư mục khóa học từ Google Drive</h2>
+            <GoogleDriveFolderSelector onSelect={handleFolderSelect} courseId={id} />
+            <button onClick={() => setIsImportModalOpen(false)}>Đóng</button>
+          </div>
         )}
       </div>
     </div>
