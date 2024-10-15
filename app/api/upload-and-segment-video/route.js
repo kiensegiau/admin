@@ -63,7 +63,7 @@ export async function POST(req) {
   try {
     const formData = await req.formData();
     const { file, courseName, chapterName, lessonName, courseId, chapterId, lessonId } = Object.fromEntries(formData);
-    console.log('Dữ liệu nhận được từ formData:', Object.fromEntries(formData));
+    // console.log('Dữ liệu nhận được từ formData:', Object.fromEntries(formData));
     if (!file || !courseId || !chapterId || !lessonId) {
       return NextResponse.json({ error: "Thiếu các trường bắt buộc" }, { status: 400 });
     }

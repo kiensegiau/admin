@@ -142,7 +142,7 @@ async function createLesson(courseId, chapterId, name) {
 }
 
 async function addFileToLesson(courseId, chapterId, lessonId, file, accessToken, courseName, chapterName, lessonName) {
-  console.log(`Bắt đầu thêm file: ${file.name} vào bài học: ${lessonId}`);
+  console.log(`Bắt đầu thêm file: ${file.name} vào bài học: ${lessonName} (ID: ${lessonId})`);
   console.log('Bắt đầu tải file từ Google Drive');
   
   try {
@@ -164,6 +164,8 @@ async function addFileToLesson(courseId, chapterId, lessonId, file, accessToken,
     formData.append("courseId", courseId);
     formData.append("chapterId", chapterId);
     formData.append("lessonId", lessonId);
+    formData.append("fileName", file.name);
+    formData.append("fileMimeType", file.mimeType);
     console.log('Đã tạo Blob từ file, kích thước:', formData.get("file").size);
 
     console.log('Gửi request upload');
@@ -191,31 +193,7 @@ async function addFileToLesson(courseId, chapterId, lessonId, file, accessToken,
     }
 
     console.log('Upload hoàn thành');
-    
-    // Thêm thông tin file vào bài học trong cơ sở dữ liệu
-    const courseRef = doc(db, 'courses', courseId);
-    const courseDoc = await getDoc(courseRef);
-    const updatedChapters = courseDoc.data().chapters.map(chapter => {
-      if (chapter.id === chapterId) {
-        const updatedLessons = chapter.lessons.map(lesson => {
-          if (lesson.id === lessonId) {
-            return {
-              ...lesson,
-              files: [...(lesson.files || []), {
-                name: file.name,
-                mimeType: file.mimeType,
-                url: uploadResponse.data.url // Giả sử uploadResponse.data chứa URL của file đã upload
-              }]
-            };
-          }
-          return lesson;
-        });
-        return { ...chapter, lessons: updatedLessons };
-      }
-      return chapter;
-    });
-    await updateDoc(courseRef, { chapters: updatedChapters });
-
+    console.log(`Đã thêm file ${file.name} vào bài học ${lessonName}`);
     return uploadResponse.data;
   } catch (error) {
     console.error('Chi tiết lỗi khi upload:', error);
@@ -223,7 +201,7 @@ async function addFileToLesson(courseId, chapterId, lessonId, file, accessToken,
   }
 }
 
-async function processFolder(folderId, parentType, parentId, chapterName = '', accessToken, sendUpdate, courseId, courseName = '') {
+async function processFolder(folderId, parentType, parentId, chapterName = '', accessToken, sendUpdate, courseId, courseName = '', lessonName = '') {
   const oauth2Client = new google.auth.OAuth2();
   oauth2Client.setCredentials({ access_token: accessToken });
   const drive = google.drive({ version: 'v3', auth: oauth2Client });
@@ -255,12 +233,12 @@ async function processFolder(folderId, parentType, parentId, chapterName = '', a
         console.log('Tạo bài học mới');
         const { lessonId } = await createLesson(courseId, parentId, item.name);
         console.log('lessonId mới:', lessonId);
-        await processFolder(item.id, 'lesson', lessonId, chapterName, accessToken, sendUpdate, courseId, courseName);
+        await processFolder(item.id, 'lesson', lessonId, chapterName, accessToken, sendUpdate, courseId, courseName, item.name);
       }
     } else {
       if (parentType === 'lesson') {
         console.log('Thêm file vào bài học');
-        await addFileToLesson(courseId, chapterName, parentId, item, accessToken, courseName, chapterName, item.name);
+        await addFileToLesson(courseId, chapterName, parentId, item, accessToken, courseName, chapterName, lessonName);
         sendUpdate({ step: `Đã thêm file: ${item.name}`, progress: 70 });
       }
     }
