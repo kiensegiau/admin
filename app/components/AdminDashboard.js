@@ -35,6 +35,7 @@ const GoogleDriveButton = React.memo(() => {
 export default function AdminDashboard() {
   const [isConnected, setIsConnected] = useState(false);
   const [tokenInfo, setTokenInfo] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     console.log('Tất cả cookies:', document.cookie);
@@ -60,6 +61,26 @@ export default function AdminDashboard() {
     return () => clearTimeout(timer);
   }, []);
 
+  const handleClearR2Bucket = async () => {
+    if (window.confirm('Bạn có chắc chắn muốn xóa tất cả dữ liệu trong R2 bucket không?')) {
+      setIsDeleting(true);
+      try {
+        const response = await fetch('/api/clear-r2-bucket', { method: 'POST' });
+        const data = await response.json();
+        if (response.ok) {
+          alert(data.message);
+        } else {
+          throw new Error(data.error);
+        }
+      } catch (error) {
+        console.error('Lỗi khi xóa dữ liệu R2:', error);
+        alert('Có lỗi xảy ra khi xóa dữ liệu R2. Vui lòng thử lại sau.');
+      } finally {
+        setIsDeleting(false);
+      }
+    }
+  };
+
   return (
     <div>
       <h1>Admin Dashboard11111</h1>
@@ -75,7 +96,15 @@ export default function AdminDashboard() {
       <Link href="/google-drive-upload" className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 transition duration-300 ml-4">
         Tải lên Google Drive
       </Link>
-    
+      
+      <button
+        onClick={handleClearR2Bucket}
+        disabled={isDeleting}
+        className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition duration-300 ml-4"
+      >
+        {isDeleting ? 'Đang xóa...' : 'Xóa dữ liệu R2'}
+      </button>
+      
       {/* Thêm các phần khác của dashboard ở đây */}
     </div>
   );

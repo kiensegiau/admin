@@ -65,7 +65,6 @@ async function createNewCourse(name) {
 export async function POST(req) {
   const stream = new PassThrough();
   const encoder = new TextEncoder();
-
   const sendUpdate = (message) => {
     stream.write(encoder.encode(`data: ${JSON.stringify(message)}\n\n`));
   };
@@ -80,15 +79,8 @@ export async function POST(req) {
 
   let tempDir = '';
   try {
-    const contentType = req.headers.get('content-type');
-    if (!contentType || !contentType.includes('multipart/form-data')) {
-      throw new Error('Invalid Content-Type. Expected multipart/form-data');
-    }
-
     const formData = await req.formData();
     const { folderId } = Object.fromEntries(formData);
-    console.log('Dữ liệu nhận được từ formData:', Object.fromEntries(formData));
-
     const accessToken = formData.get('accessToken') || req.cookies.get('googleDriveAccessToken')?.value;
     if (!accessToken) {
       throw new Error('Không có access token cho Google Drive');
@@ -98,13 +90,9 @@ export async function POST(req) {
     oauth2Client.setCredentials({ access_token: accessToken });
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
-    console.log('Cấu trúc thư mục import:');
-    await logFolderStructure(folderId, accessToken);
-
     const folderInfo = await drive.files.get({ fileId: folderId, fields: 'name' });
     const newCourse = await createNewCourse(folderInfo.data.name);
     const actualCourseId = newCourse.id;
-    const folderName = folderInfo.data.name;
     sendUpdate({ step: `Đã tạo khóa học mới với ID: ${actualCourseId} và tên: ${newCourse.name}`, progress: 10 });
 
     await processFolder(folderId, 'course', actualCourseId, '', accessToken, sendUpdate, actualCourseId, newCourse.name);
@@ -264,7 +252,7 @@ async function addFileToLesson(courseId, lessonId, file, accessToken, courseName
         })
         .join("\n");
 
-      const masterPlaylistKey = `${baseKey}/master.m3u8`;
+      const masterPlaylistKey = `/master.m3u8`;
       const masterPlaylistFile = new File(
         [masterPlaylistContent],
         masterPlaylistKey,
@@ -430,36 +418,18 @@ async function processFolder(folderId, parentType, parentId, chapterName = '', a
     fields: 'files(id, name, mimeType)',
   });
 
-  console.log(`Bắt đầu xử lý thư mục: ${folderId}, loại: ${parentType}`);
-  console.log(`Số lượng file/thư mục con: ${res.data.files.length}`);
-
   for (const item of res.data.files) {
-    console.log('Xử lý item:', item);
-    console.log('parentType:', parentType);
-    console.log('courseId:', courseId);
-    console.log('parentId:', parentId);
-    console.log('chapterName:', chapterName);
-    console.log('accessToken:', accessToken);
-    console.log('courseName:', courseName);
-
     if (item.mimeType === 'application/vnd.google-apps.folder') {
       if (parentType === 'course') {
-        console.log('Tạo chương mới');
         const chapterId = await createChapter(courseId, item.name);
-        console.log('chapterId mới:', chapterId);
         await processFolder(item.id, 'chapter', chapterId, item.name, accessToken, sendUpdate, courseId, courseName);
       } else if (parentType === 'chapter') {
-        console.log('Tạo bài học mới');
         const { lessonId } = await createLesson(courseId, parentId, item.name);
-        console.log('lessonId mới:', lessonId);
         await processFolder(item.id, 'lesson', lessonId, chapterName, accessToken, sendUpdate, courseId, courseName, item.name);
       }
-    } else {
-      if (parentType === 'lesson') {
-        console.log('Thêm file vào bài học');
-        await addFileToLesson(courseId, parentId, item, accessToken, courseName, chapterName, lessonName);
-        sendUpdate({ step: `Đã thêm file: ${item.name}`, progress: 70 });
-      }
+    } else if (parentType === 'lesson') {
+      await addFileToLesson(courseId, parentId, item, accessToken, courseName, chapterName, lessonName);
+      sendUpdate({ step: `Đã thêm file: ${item.name}`, progress: 70 });
     }
   }
 }
