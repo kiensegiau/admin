@@ -30,6 +30,6 @@ const VideoModal = ({ fileId, fileName, onClose }) => {
       </div>
     </div>
   );
-}
+};
 
 export default VideoModal;

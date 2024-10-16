@@ -2,93 +2,89 @@ import React, { useEffect, useRef, useState } from "react";
 import videojs from "video.js";
 import "video.js/dist/video-js.css";
 import "@videojs/http-streaming";
+import "videojs-contrib-quality-levels";
+import "videojs-hls-quality-selector";
 
-export default function VideoPlayer({ fileId, onError }) {
+export default function VideoPlayer({ fileId, onError, autoPlay = false }) {
   const videoRef = useRef(null);
   const playerRef = useRef(null);
-  const [videoData, setVideoData] = useState(null);
+  const [videoUrl, setVideoUrl] = useState(null);
 
   useEffect(() => {
-    const fetchVideoData = async () => {
-      console.log('Đang tải dữ liệu video cho fileId:', fileId);
-      
+    const fetchVideoUrl = async () => {
       try {
         const response = await fetch(fileId);
         if (!response.ok) {
-          throw new Error(`Không thể tải thông tin video. Mã trạng thái: ${response.status}`);
+          throw new Error("Không thể tải nội dung playlist");
         }
-        const xmlData = await response.text();
-        console.log('Dữ liệu XML nhận được:', xmlData);
-        
-        // Phân tích XML
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(xmlData, "text/xml");
-        const errorCode = xmlDoc.getElementsByTagName("Code")[0]?.textContent;
-        const errorMessage = xmlDoc.getElementsByTagName("Message")[0]?.textContent;
-        
-        if (errorCode === "NoSuchKey") {
-          throw new Error(`File video không tồn tại hoặc đã bị xóa. Vui lòng kiểm tra lại.`);
-        } else if (errorCode && errorMessage) {
-          throw new Error(`Lỗi từ server: ${errorCode} - ${errorMessage}`);
-        }
-        
-        // Nếu không có lỗi, xử lý dữ liệu XML ở đây
-        // Ví dụ: Lấy URL video từ XML (giả sử có thẻ VideoUrl)
-        const videoUrl = xmlDoc.getElementsByTagName("VideoUrl")[0]?.textContent;
-        if (!videoUrl) {
-          throw new Error("Không tìm thấy URL video trong dữ liệu XML");
-        }
-        
-        setVideoData({ r2FileId: videoUrl, type: "video/mp4" }); // Giả sử type là mp4
+        setVideoUrl(fileId);
       } catch (error) {
-        console.error('Lỗi chi tiết khi tải thông tin video:', error);
-        onError(error);
+        console.error("Lỗi khi tải URL video:", error);
+        onError(new Error("Không thể tải video. Vui lòng thử lại sau."));
       }
     };
 
-    fetchVideoData();
+    fetchVideoUrl();
   }, [fileId, onError]);
 
   useEffect(() => {
-    if (!videoRef.current || !videoData) return;
+    if (!videoRef.current || !videoUrl) return;
 
-    const options = {
+    if (playerRef.current) {
+      playerRef.current.dispose();
+    }
+
+    playerRef.current = videojs(videoRef.current, {
       controls: true,
       fluid: true,
       responsive: true,
+      aspectRatio: "16:9",
+      autoplay: autoPlay,
       html5: {
         hls: {
-          overrideNative: true,
           enableLowInitialPlaylist: true,
           smoothQualityChange: true,
+          overrideNative: true,
         },
         vhs: {
-          overrideNative: true
-        }
+          overrideNative: true,
+        },
       },
-      liveui: false,
-      liveTracker: false,
-    };
-
-    playerRef.current = videojs(videoRef.current, options);
+      controlBar: {
+        children: [
+          "playToggle",
+          "volumePanel",
+          "currentTimeDisplay",
+          "timeDivider",
+          "durationDisplay",
+          "progressControl",
+          "liveDisplay",
+          "remainingTimeDisplay",
+          "customControlSpacer",
+          "playbackRateMenuButton",
+          "qualitySelector",
+          "fullscreenToggle",
+        ],
+      },
+    });
 
     playerRef.current.src({
-      src: videoData.r2FileId,
-      type: videoData.type
+      src: videoUrl,
+      type: "application/x-mpegURL",
     });
 
-    playerRef.current.on('loadedmetadata', () => {
-      playerRef.current.play();
-    });
-
-    playerRef.current.on('error', (error) => {
-      console.error('Lỗi trình phát video:', error);
+    playerRef.current.on("error", (error) => {
+      console.error("Lỗi trình phát video:", error);
       const errorDetails = playerRef.current.error();
-      let errorMessage = 'Lỗi khi phát video';
+      let errorMessage = "Lỗi khi tải video";
       if (errorDetails) {
-        errorMessage += `: ${errorDetails.message}`;
+        errorMessage = getErrorMessage(errorDetails);
       }
       onError(new Error(errorMessage));
+    });
+
+    playerRef.current.hlsQualitySelector({
+      displayCurrentQuality: true,
     });
 
     return () => {
@@ -96,11 +92,26 @@ export default function VideoPlayer({ fileId, onError }) {
         playerRef.current.dispose();
       }
     };
-  }, [videoData, onError]);
+  }, [videoUrl, onError, autoPlay]);
 
   return (
     <div data-vjs-player>
       <video ref={videoRef} className="video-js vjs-big-play-centered" />
     </div>
   );
+}
+
+function getErrorMessage(errorDetails) {
+  switch (errorDetails.code) {
+    case 1:
+      return "Quá trình tải video bị hủy bỏ";
+    case 2:
+      return "Lỗi mạng khi tải video";
+    case 3:
+      return "Lỗi giải mã video";
+    case 4:
+      return "Video không được hỗ trợ";
+    default:
+      return `Lỗi khi tải video: ${errorDetails.message}`;
+  }
 }
