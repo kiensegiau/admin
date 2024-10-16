@@ -252,7 +252,7 @@ async function addFileToLesson(courseId, lessonId, file, accessToken, courseName
         })
         .join("\n");
 
-      const masterPlaylistKey = `/master.m3u8`;
+      const masterPlaylistKey = `${baseKey}/master.m3u8`;
       const masterPlaylistFile = new File(
         [masterPlaylistContent],
         masterPlaylistKey,
