@@ -14,7 +14,11 @@ export async function GET(request) {
       
       const response = NextResponse.redirect(new URL('/dashboard', request.url));
       response.cookies.set('googleDriveAccessToken', tokens.access_token, { 
-        maxAge: 3600,
+        maxAge: tokens.expires_in,
+        path: '/'
+      });
+      response.cookies.set('tokenExpiration', Date.now() + tokens.expires_in * 1000, {
+        maxAge: tokens.expires_in,
         path: '/'
       });
       console.log('Đã set cookie và chuyển hướng đến /dashboard');

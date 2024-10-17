@@ -19,6 +19,8 @@ export const getAuthUrl = () => {
 export const setCredentials = async (code) => {
   const { tokens } = await oauth2Client.getToken(code);
   oauth2Client.setCredentials(tokens);
+  // Lưu refresh token vào cookie hoặc local storage
+  document.cookie = `googleDriveRefreshToken=${tokens.refresh_token}; max-age=31536000; path=/`;
   return tokens;
 };
 

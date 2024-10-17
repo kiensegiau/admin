@@ -1,5 +1,4 @@
 import { OAuth2Client } from 'google-auth-library';
-import { getSession } from 'next-auth/react';
 
 const client = new OAuth2Client(
   process.env.GOOGLE_CLIENT_ID,
@@ -7,19 +6,23 @@ const client = new OAuth2Client(
   'http://localhost:3000/api/auth/google/callback'
 );
 
-export default async function handler(req, res) {
-  const session = await getSession({ req });
-  const { refresh_token } = session.googleTokens;
-
+export async function POST(req) {
   try {
-    const { tokens } = await client.refreshToken(refresh_token);
+    const { refreshToken } = await req.json();
+    const { tokens } = await client.refreshToken(refreshToken);
     
-    session.googleTokens = tokens;
-    await session.save();
-
-    res.status(200).json({ message: 'Token refreshed successfully' });
+    return new Response(JSON.stringify({
+      access_token: tokens.access_token,
+      expires_in: tokens.expires_in
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   } catch (error) {
-    console.error('Error refreshing token:', error);
-    res.status(500).json({ error: 'Failed to refresh token' });
+    console.error('Lỗi khi làm mới token:', error);
+    return new Response(JSON.stringify({ error: 'Không thể làm mới token' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 }

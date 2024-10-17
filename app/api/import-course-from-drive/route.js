@@ -12,6 +12,7 @@ import { uploadToR2Direct } from "../../utils/r2DirectUpload";
 import { segmentVideoMultipleResolutions } from "../../utils/videoProcessing";
 import { uploadToR2MultiPart } from "../../utils/r2Upload";
 import { uploadToDrive } from "../../utils/driveUpload";
+import { refreshAccessToken } from '../../utils/auth';
 
 const getBandwidth = (resolution) => ({
   "480p": 1400000,
@@ -62,6 +63,38 @@ async function createNewCourse(name) {
   return { id: courseRef.id, name: `${name} (copy)` };
 }
 
+async function checkAndRefreshToken(accessToken) {
+  try {
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token: accessToken });
+    await oauth2Client.getTokenInfo(accessToken);
+    return accessToken;
+  } catch (error) {
+    if (error.message === 'invalid_token') {
+      const refreshToken = getCookie('googleDriveRefreshToken');
+      if (refreshToken) {
+        const newTokens = await refreshAccessToken(refreshToken);
+        setCookie('googleDriveAccessToken', newTokens.access_token, { maxAge: newTokens.expires_in });
+        return newTokens.access_token;
+      }
+    }
+    throw error;
+  }
+}
+
+function getCookie(name) {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop().split(';').shift();
+}
+
+function setCookie(name, value, options = {}) {
+  let cookieString = `${name}=${value}`;
+  if (options.maxAge) cookieString += `; Max-Age=${options.maxAge}`;
+  if (options.path) cookieString += `; Path=${options.path}`;
+  document.cookie = cookieString;
+}
+
 export async function POST(req) {
   const stream = new PassThrough();
   const encoder = new TextEncoder();
@@ -81,10 +114,12 @@ export async function POST(req) {
   try {
     const formData = await req.formData();
     const { folderId } = Object.fromEntries(formData);
-    const accessToken = formData.get('accessToken') || req.cookies.get('googleDriveAccessToken')?.value;
+    let accessToken = formData.get('accessToken') || req.cookies.get('googleDriveAccessToken')?.value;
     if (!accessToken) {
       throw new Error('Không có access token cho Google Drive');
     }
+
+    accessToken = await checkAndRefreshToken(accessToken);
 
     const oauth2Client = new google.auth.OAuth2();
     oauth2Client.setCredentials({ access_token: accessToken });
@@ -409,6 +444,7 @@ async function addFileToLesson(courseId, lessonId, file, accessToken, courseName
 }
 
 async function processFolder(folderId, parentType, parentId, chapterName = '', accessToken, sendUpdate, courseId, courseName = '', lessonName = '') {
+  accessToken = await checkAndRefreshToken(accessToken);
   const oauth2Client = new google.auth.OAuth2();
   oauth2Client.setCredentials({ access_token: accessToken });
   const drive = google.drive({ version: 'v3', auth: oauth2Client });
