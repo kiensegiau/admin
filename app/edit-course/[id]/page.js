@@ -10,10 +10,11 @@ import ChapterList from "../../components/ChapterList";
 import AddChapterModal from "../../components/AddChapterModal";
 import AddLessonModal from "../../components/AddLessonModal";
 import LessonContent from "../../components/LessonContent";
-import { Spin } from 'antd';
-import { moonCourseData } from '../../courses/fakedata';
-import B2UploadModal from '../../components/B2UploadModal';
-import GoogleDriveFolderSelector from '../../components/GoogleDriveFolderSelector';
+import { Spin } from "antd";
+import { moonCourseData } from "../../courses/fakedata";
+import B2UploadModal from "../../components/B2UploadModal";
+import GoogleDriveFolderSelector from "../../components/GoogleDriveFolderSelector";
+import AddDescriptionModal from "./AddDescriptionModal";
 
 export default function EditCourse({ params }) {
   const [course, setCourse] = useState(null);
@@ -27,20 +28,29 @@ export default function EditCourse({ params }) {
   const [selectedLesson, setSelectedLesson] = useState(null);
   const [isB2UploadModalOpen, setIsB2UploadModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isAddDescriptionModalOpen, setIsAddDescriptionModalOpen] =
+    useState(false);
 
   const sortChaptersAndLessons = useCallback((chapters) => {
-    return chapters.sort((a, b) => a.title.localeCompare(b.title)).map(chapter => ({
-      ...chapter,
-      lessons: chapter.lessons ? chapter.lessons.sort((a, b) => a.title.localeCompare(b.title)) : []
-    }));
+    return chapters
+      .sort((a, b) => a.title.localeCompare(b.title))
+      .map((chapter) => ({
+        ...chapter,
+        lessons: chapter.lessons
+          ? chapter.lessons.sort((a, b) => a.title.localeCompare(b.title))
+          : [],
+      }));
   }, []);
 
-  const updateChapters = useCallback((updatedChapters) => {
-    setCourse(prevCourse => ({
-      ...prevCourse,
-      chapters: sortChaptersAndLessons(updatedChapters)
-    }));
-  }, [sortChaptersAndLessons]);
+  const updateChapters = useCallback(
+    (updatedChapters) => {
+      setCourse((prevCourse) => ({
+        ...prevCourse,
+        chapters: sortChaptersAndLessons(updatedChapters),
+      }));
+    },
+    [sortChaptersAndLessons]
+  );
 
   useEffect(() => {
     const fetchCourse = async () => {
@@ -66,7 +76,9 @@ export default function EditCourse({ params }) {
 
   const handleAddChapters = async (chaptersData) => {
     try {
-      const chaptersArray = Array.isArray(chaptersData) ? chaptersData : [chaptersData];
+      const chaptersArray = Array.isArray(chaptersData)
+        ? chaptersData
+        : [chaptersData];
       const courseRef = doc(db, "courses", id);
       const courseDoc = await getDoc(courseRef);
       const courseData = courseDoc.data();
@@ -74,17 +86,22 @@ export default function EditCourse({ params }) {
       const newChapters = chaptersArray.map((chapter, index) => ({
         id: Date.now().toString() + index,
         title: chapter.title || `Chương ${index + 1}`,
-        order: chapter.order || (courseData.chapters ? courseData.chapters.length : 0) + index + 1,
-        lessons: []
+        order:
+          chapter.order ||
+          (courseData.chapters ? courseData.chapters.length : 0) + index + 1,
+        lessons: [],
       }));
 
       await updateDoc(courseRef, {
-        chapters: arrayUnion(...newChapters)
+        chapters: arrayUnion(...newChapters),
       });
 
-      setCourse(prevCourse => ({
+      setCourse((prevCourse) => ({
         ...prevCourse,
-        chapters: sortChaptersAndLessons([...(prevCourse.chapters || []), ...newChapters])
+        chapters: sortChaptersAndLessons([
+          ...(prevCourse.chapters || []),
+          ...newChapters,
+        ]),
       }));
 
       toast.success("Đã thêm các chương mới");
@@ -100,18 +117,21 @@ export default function EditCourse({ params }) {
       const courseDoc = await getDoc(courseRef);
       const courseData = courseDoc.data();
 
-      const updatedChapters = courseData.chapters.map(chapter => {
+      const updatedChapters = courseData.chapters.map((chapter) => {
         if (chapter.id === selectedChapterId) {
           return {
             ...chapter,
-            lessons: [...(chapter.lessons || []), { id: Date.now().toString(), title: lessonData.title, files: [] }]
+            lessons: [
+              ...(chapter.lessons || []),
+              { id: Date.now().toString(), title: lessonData.title, files: [] },
+            ],
           };
         }
         return chapter;
       });
 
       await updateDoc(courseRef, { chapters: updatedChapters });
-      setCourse(prevCourse => ({ ...prevCourse, chapters: updatedChapters }));
+      setCourse((prevCourse) => ({ ...prevCourse, chapters: updatedChapters }));
 
       toast.success("Đã thêm bài học mới");
       setIsAddLessonModalOpen(false);
@@ -125,14 +145,21 @@ export default function EditCourse({ params }) {
     try {
       const courseRef = doc(db, "courses", id);
       const courseDoc = await getDoc(courseRef);
-      const updatedChapters = courseDoc.data().chapters.map(chapter => 
-        chapter.id === selectedChapterId
-          ? { ...chapter, lessons: chapter.lessons.map(l => l.id === updatedLesson.id ? { ...l, ...updatedLesson } : l) }
-          : chapter
-      );
+      const updatedChapters = courseDoc
+        .data()
+        .chapters.map((chapter) =>
+          chapter.id === selectedChapterId
+            ? {
+                ...chapter,
+                lessons: chapter.lessons.map((l) =>
+                  l.id === updatedLesson.id ? { ...l, ...updatedLesson } : l
+                ),
+              }
+            : chapter
+        );
 
       await updateDoc(courseRef, { chapters: updatedChapters });
-      setCourse(prevCourse => ({ ...prevCourse, chapters: updatedChapters }));
+      setCourse((prevCourse) => ({ ...prevCourse, chapters: updatedChapters }));
       setSelectedLesson(updatedLesson);
       toast.success("Bài học đã được cập nhật");
     } catch (error) {
@@ -155,32 +182,50 @@ export default function EditCourse({ params }) {
     try {
       const courseRef = doc(db, "courses", id);
       const courseDoc = await getDoc(courseRef);
-      const updatedChapters = courseDoc.data().chapters.map(chapter => 
-        chapter.id === selectedLesson.chapterId
-          ? { ...chapter, lessons: chapter.lessons.map(lesson => 
-              lesson.id === selectedLesson.id
-                ? { ...lesson, files: [...(lesson.files || []), fileData] }
-                : lesson
-            )}
-          : chapter
-      );
+      const updatedChapters = courseDoc
+        .data()
+        .chapters.map((chapter) =>
+          chapter.id === selectedLesson.chapterId
+            ? {
+                ...chapter,
+                lessons: chapter.lessons.map((lesson) =>
+                  lesson.id === selectedLesson.id
+                    ? { ...lesson, files: [...(lesson.files || []), fileData] }
+                    : lesson
+                ),
+              }
+            : chapter
+        );
 
       await updateDoc(courseRef, { chapters: updatedChapters });
-      
-      setCourse(prevCourse => ({
+
+      setCourse((prevCourse) => ({
         ...prevCourse,
-        chapters: updatedChapters
+        chapters: updatedChapters,
       }));
-      
-      setSelectedLesson(prevLesson => ({
+
+      setSelectedLesson((prevLesson) => ({
         ...prevLesson,
-        files: [...(prevLesson.files || []), fileData]
+        files: [...(prevLesson.files || []), fileData],
       }));
 
       toast.success("Đã thêm file mới");
     } catch (error) {
       console.error("Lỗi khi thêm file:", error);
       toast.error("Không thể thêm file mới");
+    }
+  };
+
+  const handleAddDescription = async (description) => {
+    try {
+      const courseRef = doc(db, "courses", id);
+      await updateDoc(courseRef, { description });
+      setCourse((prevCourse) => ({ ...prevCourse, description }));
+      toast.success("Đã thêm mô tả khóa học");
+      setIsAddDescriptionModalOpen(false);
+    } catch (error) {
+      console.error("Lỗi khi thêm mô tả khóa học:", error);
+      toast.error("Không thể thêm mô tả khóa học");
     }
   };
 
@@ -201,11 +246,25 @@ export default function EditCourse({ params }) {
         <Header />
         <main className="flex-1 flex overflow-hidden bg-gray-200">
           <div className="w-1/3 overflow-y-auto p-6 bg-white border-r">
-            <h1 className="text-3xl font-semibold text-gray-800 mb-6">{course.title}</h1>
-            <button onClick={() => setIsAddChapterModalOpen(true)} className="mb-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+            <h1 className="text-3xl font-semibold text-gray-800 mb-6">
+              {course.title}
+            </h1>
+            <button
+              onClick={() => setIsAddDescriptionModalOpen(true)}
+              className="mb-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+            >
+              Thêm mô tả khóa học
+            </button>
+            <button
+              onClick={() => setIsAddChapterModalOpen(true)}
+              className="mb-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+            >
               Thêm chương mới
             </button>
-            <button onClick={addFakeDataToCourse} className="mb-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+            <button
+              onClick={addFakeDataToCourse}
+              className="mb-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+            >
               Thêm dữ liệu giả
             </button>
             <ChapterList
@@ -229,7 +288,11 @@ export default function EditCourse({ params }) {
               courseId={id}
               chapterId={selectedChapterId}
               courseName={course?.title}
-              chapterName={course?.chapters?.find(chapter => chapter.id === selectedLesson?.chapterId)?.title}
+              chapterName={
+                course?.chapters?.find(
+                  (chapter) => chapter.id === selectedLesson?.chapterId
+                )?.title
+              }
               onOpenB2UploadModal={(lesson) => {
                 setSelectedLesson(lesson);
                 setIsB2UploadModalOpen(true);
@@ -259,16 +322,29 @@ export default function EditCourse({ params }) {
             chapterId={selectedChapterId}
             lessonId={selectedLesson.id}
             courseName={course?.title}
-            chapterName={course?.chapters?.find(chapter => chapter.id === selectedChapterId)?.title}
+            chapterName={
+              course?.chapters?.find(
+                (chapter) => chapter.id === selectedChapterId
+              )?.title
+            }
             lessonName={selectedLesson.title}
           />
         )}
         {isImportModalOpen && (
           <div className="modal">
             <h2>Chọn thư mục khóa học từ Google Drive</h2>
-            <GoogleDriveFolderSelector onSelect={handleFolderSelect} courseId={id} />
+            <GoogleDriveFolderSelector
+              onSelect={handleFolderSelect}
+              courseId={id}
+            />
             <button onClick={() => setIsImportModalOpen(false)}>Đóng</button>
           </div>
+        )}
+        {isAddDescriptionModalOpen && (
+          <AddDescriptionModal
+            onClose={() => setIsAddDescriptionModalOpen(false)}
+            onAddDescription={handleAddDescription}
+          />
         )}
       </div>
     </div>
