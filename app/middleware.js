@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 export async function middleware(request) {
-  console.log('Middleware được kích hoạt cho đường dẫn:', request.url);
+  console.log('Middleware activated for path:', request.url);
 
   const accessToken = request.cookies.get('googleDriveAccessToken')?.value;
   const tokenExpiration = request.cookies.get('tokenExpiration')?.value;
@@ -10,12 +10,12 @@ export async function middleware(request) {
     const now = Date.now();
     const expirationTime = parseInt(tokenExpiration);
 
-    console.log('Thời gian hiện tại:', now);
-    console.log('Thời gian hết hạn token:', expirationTime);
+    console.log('Current time:', now);
+    console.log('Token expiration time:', expirationTime);
 
-    // Nếu token sắp hết hạn (ví dụ: còn 5 phút)
+    // If the token is about to expire (e.g., within 5 minutes)
     if (expirationTime - now < 5 * 60 * 1000) {
-      console.log('Token sắp hết hạn, đang làm mới...');
+      console.log('Token is about to expire, refreshing...');
       try {
         const response = await fetch('http://localhost:3000/api/auth/refresh-token', {
           method: 'POST',
@@ -29,28 +29,28 @@ export async function middleware(request) {
           const { access_token, expires_in } = await response.json();
           const newExpiration = Date.now() + expires_in * 1000;
 
-          console.log('Token đã được làm mới thành công');
+          console.log('Token refreshed successfully');
 
           const newResponse = NextResponse.next();
           newResponse.cookies.set('googleDriveAccessToken', access_token, {
             maxAge: expires_in,
-            path: '/'
+            path: '/',
           });
           newResponse.cookies.set('tokenExpiration', newExpiration.toString(), {
             maxAge: expires_in,
-            path: '/'
+            path: '/',
           });
 
           return newResponse;
         }
       } catch (error) {
-        console.error('Lỗi khi làm mới token:', error);
+        console.error('Error refreshing token:', error);
       }
     } else {
-      console.log('Token vẫn còn hiệu lực');
+      console.log('Token is still valid');
     }
   } else {
-    console.log('Không tìm thấy token hoặc thời gian hết hạn');
+    console.log('No token found or token expiration missing');
   }
 
   return NextResponse.next();
