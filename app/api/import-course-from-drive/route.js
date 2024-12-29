@@ -13,6 +13,7 @@ import { segmentVideoMultipleResolutions } from "../../utils/videoProcessing";
 import { uploadToR2MultiPart } from "../../utils/r2Upload";
 import { uploadToDrive } from "../../utils/driveUpload";
 import { refreshAccessToken } from '../../utils/auth';
+import { encryptId } from '@/lib/encryption';
 
 const getBandwidth = (resolution) => ({
   "480p": 1400000,
@@ -35,24 +36,6 @@ function removeUndefined(obj) {
     }
   });
   return obj;
-}
-
-async function logFolderStructure(folderId, accessToken, indent = '') {
-  const oauth2Client = new google.auth.OAuth2();
-  oauth2Client.setCredentials({ access_token: accessToken });
-  const drive = google.drive({ version: 'v3', auth: oauth2Client });
-
-  const res = await drive.files.list({
-    q: `'${folderId}' in parents and trashed = false`,
-    fields: 'files(id, name, mimeType)',
-  });
-
-  for (const item of res.data.files) {
-    console.log(`${indent}${item.name} (${item.mimeType})`);
-    if (item.mimeType === 'application/vnd.google-apps.folder') {
-      await logFolderStructure(item.id, accessToken, indent + '  ');
-    }
-  }
 }
 
 async function createNewCourse(name) {
@@ -148,13 +131,7 @@ export async function POST(req) {
   }
 }
 
-async function getCourse(courseId) {
-  const courseDoc = await getDoc(doc(db, 'courses', courseId));
-  if (!courseDoc.exists()) {
-    throw new Error('Không tìm thấy khóa học');
-  }
-  return { id: courseDoc.id, ...courseDoc.data() };
-}
+
 
 async function createChapter(courseId, name) {
   const chapterId = uuidv4();
@@ -186,260 +163,68 @@ async function createLesson(courseId, chapterId, name) {
 
 async function addFileToLesson(courseId, lessonId, file, accessToken, courseName, chapterName, lessonName) {
   console.log(`Bắt đầu thêm file: ${file.name} vào bài học: ${lessonName} (ID: ${lessonId})`);
-  console.log(`CourseId: ${courseId}, ChapterName: ${chapterName}, LessonName: ${lessonName}`);
   
-  let tempDir = "";
   try {
-    console.log('Bắt đầu tải file từ Google Drive');
-    const response = await axios.get(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
-      responseType: 'arraybuffer',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-      },
-    });
-    console.log('Kết thúc tải file từ Google Drive, kích thước:', response.data.byteLength);
+    // Mã hóa Drive file ID
+    const encryptedId = encryptId(file.id);
+    
+    // Generate proxy URL với encrypted ID
+    const proxyUrl = `/api/proxy/files?id=${encryptedId}`;
 
-    tempDir = path.join(os.tmpdir(), uuidv4());
-    await fs.mkdir(tempDir, { recursive: true });
-    const inputPath = path.join(tempDir, file.name);
-    await fs.writeFile(inputPath, Buffer.from(response.data));
+    // Cập nhật Firebase
+    const courseRef = doc(db, "courses", courseId);
+    const courseDoc = await getDoc(courseRef);
+    const courseData = courseDoc.data();
 
-    // Upload to Google Drive
-    const drivePath = `khoa-hoc/${courseName}/${chapterName}/${lessonName}`;
-    const driveResult = await uploadToDrive(
-      new File([response.data], file.name, { type: file.mimeType }),
-      accessToken,
-      (progress) => {
-        console.log(`Tiến trình tải lên Drive: ${progress}%`);
-      },
-      drivePath
-    );
-
-    if (file.mimeType.startsWith('video/')) {
-      // Xử lý video
-      const outputDir = path.join(tempDir, "output");
-      await fs.mkdir(outputDir, { recursive: true });
-
-      const outputPaths = await segmentVideoMultipleResolutions(inputPath, outputDir);
-
-      const baseKey = `khoa-hoc/${courseName}/${chapterName}/${lessonName}`;
-      const resolutionUploads = await Promise.all(
-        outputPaths.map(async (outputPath) => {
-          const resolution = path.basename(path.dirname(outputPath));
-          const playlist = await fs.readFile(outputPath, "utf8");
-          const segments = await fs.readdir(path.dirname(outputPath));
-          const tsSegments = segments.filter((file) => file.endsWith(".ts"));
-
-          await Promise.all(
-            tsSegments.map(async (segment) => {
-              const segmentPath = path.join(path.dirname(outputPath), segment);
-              const segmentContent = await fs.readFile(segmentPath);
-              const segmentKey = `${baseKey}/${resolution}/${segment}`;
-              return uploadToR2MultiPart(
-                segmentContent,
-                segmentKey,
-                courseName,
-                chapterName,
-                lessonName
-              );
-            })
-          );
-
-          const updatedPlaylistContent = playlist
-            .split("\n")
-            .map((line) => {
-              if (!line.startsWith("#") && line.trim() !== "") {
-                const segmentName = line.trim();
-                if (tsSegments.includes(segmentName)) {
-                  const segmentKey = `${baseKey}/${resolution}/${segmentName}`;
-                  return `/api/r2-proxy?key=${encodeURIComponent(segmentKey)}`;
-                }
-              }
-              return line;
-            })
-            .join("\n");
-
-          const playlistKey = `${baseKey}/${resolution}/playlist.m3u8`;
-          const playlistFile = new File([updatedPlaylistContent], playlistKey, {
-            type: "application/x-mpegURL",
-          });
-          const { downloadUrl: playlistUrl } = await uploadToR2Direct(
-            playlistFile,
-            courseName,
-            chapterName,
-            lessonName
-          );
-
-          return { resolution, playlistUrl };
-        })
-      );
-
-      const masterPlaylistContent = resolutionUploads
-        .map(({ resolution, playlistUrl }) => {
-          const encodedKey = encodeURIComponent(
-            `${baseKey}/${resolution}/playlist.m3u8`
-          );
-          return `#EXT-X-STREAM-INF:BANDWIDTH=${getBandwidth(
-            resolution
-          )},RESOLUTION=${getResolution(
-            resolution
-          )}\n/api/r2-proxy?key=${encodedKey}`;
-        })
-        .join("\n");
-
-      const masterPlaylistKey = `${baseKey}/master.m3u8`;
-      const masterPlaylistFile = new File(
-        [masterPlaylistContent],
-        masterPlaylistKey,
-        { type: "application/x-mpegURL" }
-      );
-      const { downloadUrl: masterPlaylistUrl } = await uploadToR2Direct(
-        masterPlaylistFile,
-        courseName,
-        chapterName,
-        lessonName
-      );
-
-      // Khi cập nhật Firebase, tìm chapter và lesson dựa trên tên thay vì ID
-      const courseRef = doc(db, "courses", courseId);
-      const courseDoc = await getDoc(courseRef);
-      const courseData = courseDoc.data();
-
-      if (!courseData) {
-        throw new Error("Không tìm thấy dữ liệu khóa học");
-      }
-
-      const fileData = {
-        name: file.name,
-        r2FileId: `/api/r2-proxy?key=${encodeURIComponent(masterPlaylistKey)}`,
-        driveFileId: driveResult.fileId,
-        driveUrl: driveResult.webViewLink,
-        type: "application/vnd.apple.mpegurl",
-        uploadTime: new Date().toISOString(),
-      };
-
-      let updatedChapters = JSON.parse(JSON.stringify(courseData.chapters));
-      let chapterUpdated = false;
-
-      for (let i = 0; i < updatedChapters.length; i++) {
-        if (updatedChapters[i].title === chapterName) {
-          for (let j = 0; j < updatedChapters[i].lessons.length; j++) {
-            if (updatedChapters[i].lessons[j].title === lessonName) {
-              if (!Array.isArray(updatedChapters[i].lessons[j].files)) {
-                updatedChapters[i].lessons[j].files = [];
-              }
-              updatedChapters[i].lessons[j].files.push(fileData);
-              chapterUpdated = true;
-              break;
-            }
-          }
-          if (chapterUpdated) break;
-        }
-      }
-
-      if (!chapterUpdated) {
-        console.log("Không tìm thấy chapter hoặc lesson. Dữ liệu hiện tại:", JSON.stringify(updatedChapters, null, 2));
-        console.log("ChapterName cần tìm:", chapterName);
-        console.log("LessonName cần tìm:", lessonName);
-        throw new Error("Không tìm thấy chapter hoặc lesson để cập nhật");
-      }
-
-      // Loại bỏ các giá trị undefined
-      const cleanedData = removeUndefined({ chapters: updatedChapters });
-
-      // Log dữ liệu trước khi cập nhật
-      console.log(
-        "Dữ liệu cập nhật (đã làm sạch):",
-        JSON.stringify(cleanedData, null, 2)
-      );
-
-      await updateDoc(courseRef, cleanedData);
-
-      console.log(`Đã thêm file ${file.name} vào bài học ${lessonName}`);
-      return {
-        masterPlaylistKey,
-        masterPlaylistUrl,
-        driveFileId: driveResult.fileId,
-        driveWebViewLink: driveResult.webViewLink,
-      };
-    } else {
-      // Xử lý các loại file khác (không phải video)
-      const { downloadUrl: r2Url } = await uploadToR2Direct(
-        new File([response.data], file.name, { type: file.mimeType }),
-        courseName,
-        chapterName,
-        lessonName
-      );
-
-      // Khi cập nhật Firebase, tìm chapter và lesson dựa trên tên thay vì ID
-      const courseRef = doc(db, "courses", courseId);
-      const courseDoc = await getDoc(courseRef);
-      const courseData = courseDoc.data();
-
-      if (!courseData) {
-        throw new Error("Không tìm thấy dữ liệu khóa học");
-      }
-
-      const fileData = {
-        name: file.name,
-        r2FileId: r2Url,
-        driveFileId: driveResult.fileId,
-        driveUrl: driveResult.webViewLink,
-        type: file.mimeType,
-        uploadTime: new Date().toISOString(),
-      };
-
-      let updatedChapters = JSON.parse(JSON.stringify(courseData.chapters));
-      let chapterUpdated = false;
-
-      for (let i = 0; i < updatedChapters.length; i++) {
-        if (updatedChapters[i].title === chapterName) {
-          for (let j = 0; j < updatedChapters[i].lessons.length; j++) {
-            if (updatedChapters[i].lessons[j].title === lessonName) {
-              if (!Array.isArray(updatedChapters[i].lessons[j].files)) {
-                updatedChapters[i].lessons[j].files = [];
-              }
-              updatedChapters[i].lessons[j].files.push(fileData);
-              chapterUpdated = true;
-              break;
-            }
-          }
-          if (chapterUpdated) break;
-        }
-      }
-
-      if (!chapterUpdated) {
-        console.log("Không tìm thấy chapter hoặc lesson. Dữ liệu hiện tại:", JSON.stringify(updatedChapters, null, 2));
-        console.log("ChapterName cần tìm:", chapterName);
-        console.log("LessonName cần tìm:", lessonName);
-        throw new Error("Không tìm thấy chapter hoặc lesson để cập nhật");
-      }
-
-      // Loại bỏ các giá trị undefined
-      const cleanedData = removeUndefined({ chapters: updatedChapters });
-
-      // Log dữ liệu trước khi cập nhật
-      console.log(
-        "Dữ liệu cập nhật (đã làm sạch):",
-        JSON.stringify(cleanedData, null, 2)
-      );
-
-      await updateDoc(courseRef, cleanedData);
-
-      console.log(`Đã thêm file ${file.name} vào bài học ${lessonName}`);
-      return {
-        r2FileId: r2Url,
-        driveFileId: driveResult.fileId,
-        driveWebViewLink: driveResult.webViewLink,
-      };
+    if (!courseData) {
+      throw new Error("Không tìm thấy dữ liệu khóa học");
     }
+
+    const fileData = {
+      name: file.name,
+      proxyUrl: proxyUrl,        // URL đã được mã hóa
+      driveFileId: file.id,      // Vẫn giữ ID gốc để tracking
+      type: file.mimeType,
+      uploadTime: new Date().toISOString(),
+    };
+
+    let updatedChapters = JSON.parse(JSON.stringify(courseData.chapters));
+    let chapterUpdated = false;
+
+    for (let i = 0; i < updatedChapters.length; i++) {
+      if (updatedChapters[i].title === chapterName) {
+        for (let j = 0; j < updatedChapters[i].lessons.length; j++) {
+          if (updatedChapters[i].lessons[j].title === lessonName) {
+            if (!Array.isArray(updatedChapters[i].lessons[j].files)) {
+              updatedChapters[i].lessons[j].files = [];
+            }
+            updatedChapters[i].lessons[j].files.push(fileData);
+            chapterUpdated = true;
+            break;
+          }
+        }
+        if (chapterUpdated) break;
+      }
+    }
+
+    if (!chapterUpdated) {
+      console.log("Không tìm thấy chapter hoặc lesson. Dữ liệu hiện tại:", JSON.stringify(updatedChapters, null, 2));
+      throw new Error("Không tìm thấy chapter hoặc lesson để cập nhật");
+    }
+
+    // Loại bỏ undefined values
+    const cleanedData = removeUndefined({ chapters: updatedChapters });
+    await updateDoc(courseRef, cleanedData);
+
+    console.log(`Đã thêm file ${file.name} vào bài học ${lessonName}`);
+    return {
+      proxyUrl,
+      driveFileId: file.id
+    };
+
   } catch (error) {
-    console.error('Chi tiết lỗi khi upload:', error);
-    throw new Error(`Lỗi khi upload file: ${error.message}`);
-  } finally {
-    if (tempDir) {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    }
+    console.error('Chi tiết lỗi khi thêm file:', error);
+    throw new Error(`Lỗi khi thêm file: ${error.message}`);
   }
 }
 

@@ -1,58 +1,54 @@
 // lib/proxy.js
 
-import { getFileMetadata, downloadFile, updateFile, deleteFile } from '../../../../lib/drive';
-import { authenticateToken, authorize, getAccessToken } from '../../../../lib/auth';
-import { logRequest, logError } from '../../../../lib/logging';
-import { encryptId, decryptId } from '@/lib/encryption';
+import { getFileMetadata, downloadFile } from '../../../../lib/drive';
+import { getAccessToken } from '../../../../lib/auth';
+import { decryptId } from '@/lib/encryption';
+
+// Cache thời gian dài (7 ngày)
+const CACHE_DURATION = 7 * 24 * 60 * 60;
 
 export async function GET(request) {
-  const { searchParams } = new URL(request.url);
-  const publicId = searchParams.get('id');
-
-  if (!publicId) {
-    return new Response('Missing required parameters', { status: 400 });
-  }
-
   try {
-    // Giải mã public ID để lấy drive ID
+    const { searchParams } = new URL(request.url);
+    const publicId = searchParams.get('id');
+
+    if (!publicId) {
+      return new Response('Missing ID', { status: 400 });
+    }
+
     const driveId = decryptId(publicId);
-    if (!driveId) {
-      return new Response('Invalid ID', { status: 400 });
-    }
-
     const accessToken = await getAccessToken();
-    if (!accessToken) {
-      return new Response('Unauthorized', { status: 401 });
-    }
-
     const metadata = await getFileMetadata(driveId, accessToken);
-    
-    // Thay thế ID gốc bằng public ID trong metadata
-    const publicMetadata = {
-      ...metadata,
-      id: publicId,
-      webViewLink: `/api/proxy/files?id=${publicId}`
-    };
 
-    if (searchParams.get('metadata') === 'true') {
-      return new Response(JSON.stringify({ metadata: publicMetadata }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
+    // Stream video với cache agressive
     const fileStream = await downloadFile(driveId, accessToken);
     return new Response(fileStream, {
       status: 200,
       headers: {
         'Content-Type': metadata.mimeType,
-        'Content-Disposition': `inline; filename="${metadata.name}"`,
-      },
+        'Content-Disposition': 'inline',
+        'Accept-Ranges': 'bytes',
+        
+        // Cache Headers Aggressive
+        'Cache-Control': `public, max-age=${CACHE_DURATION}, immutable`,
+        'CDN-Cache-Control': `public, max-age=${CACHE_DURATION}`,
+        'Cloudflare-CDN-Cache-Control': `public, max-age=${CACHE_DURATION}`,
+        'Surrogate-Control': `max-age=${CACHE_DURATION}`,
+        'Edge-Cache-Tag': `video-${publicId}`,
+        
+        // Prevent revalidation
+        'ETag': `"video-${publicId}"`,
+        'Last-Modified': new Date().toUTCString(),
+        
+        // CORS
+        'Access-Control-Allow-Origin': '*',
+        'Vary': 'Accept-Encoding'
+      }
     });
 
   } catch (error) {
-    console.error('Error:', error);
-    return new Response('Internal Server Error', { status: 500 });
+    console.error('Proxy error:', error);
+    return new Response('Server Error', { status: 500 });
   }
 }
 
