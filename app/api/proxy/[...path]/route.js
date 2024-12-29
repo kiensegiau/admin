@@ -6,48 +6,60 @@ import { decryptId } from '@/lib/encryption';
 
 // Cache thời gian dài (7 ngày)
 const CACHE_DURATION = 7 * 24 * 60 * 60;
+const CHUNK_SIZE = 50 * 1024 * 1024; // 50MB mỗi chunk
 
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const publicId = searchParams.get('id');
-
-    if (!publicId) {
-      return new Response('Missing ID', { status: 400 });
-    }
+    const range = request.headers.get('range');
 
     const driveId = decryptId(publicId);
-    const accessToken = await getAccessToken();
-    const metadata = await getFileMetadata(driveId, accessToken);
+    const metadata = await getFileMetadata(driveId);
 
-    // Stream video với cache agressive
-    const fileStream = await downloadFile(driveId, accessToken);
-    return new Response(fileStream, {
-      status: 200,
+    // Tính toán chunk index
+    const start = range ? parseInt(range.replace(/bytes=/, '').split('-')[0]) : 0;
+    const chunkIndex = Math.floor(start / CHUNK_SIZE);
+    
+    // Tạo unique key cho từng chunk
+    const cacheKey = `video:${publicId}:chunk:${chunkIndex}`;
+
+    // Check cache cho chunk cụ thể
+    const cachedChunk = await getCachedChunk(cacheKey);
+    if (cachedChunk) {
+      return new Response(cachedChunk, {
+        status: 206,
+        headers: {
+          'Content-Type': metadata.mimeType,
+          'Content-Range': `bytes ${start}-${start + CHUNK_SIZE - 1}/${metadata.size}`,
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'public, max-age=604800', // 7 days
+        }
+      });
+    }
+
+    // Nếu không có trong cache, tải chunk từ Drive
+    const accessToken = await getAccessToken();
+    const chunkStream = await downloadFile(driveId, accessToken, {
+      start,
+      end: start + CHUNK_SIZE - 1
+    });
+
+    // Cache chunk mới tải
+    await cacheChunk(cacheKey, chunkStream);
+
+    return new Response(chunkStream, {
+      status: 206,
       headers: {
         'Content-Type': metadata.mimeType,
-        'Content-Disposition': 'inline',
+        'Content-Range': `bytes ${start}-${start + CHUNK_SIZE - 1}/${metadata.size}`,
         'Accept-Ranges': 'bytes',
-        
-        // Cache Headers Aggressive
-        'Cache-Control': `public, max-age=${CACHE_DURATION}, immutable`,
-        'CDN-Cache-Control': `public, max-age=${CACHE_DURATION}`,
-        'Cloudflare-CDN-Cache-Control': `public, max-age=${CACHE_DURATION}`,
-        'Surrogate-Control': `max-age=${CACHE_DURATION}`,
-        'Edge-Cache-Tag': `video-${publicId}`,
-        
-        // Prevent revalidation
-        'ETag': `"video-${publicId}"`,
-        'Last-Modified': new Date().toUTCString(),
-        
-        // CORS
-        'Access-Control-Allow-Origin': '*',
-        'Vary': 'Accept-Encoding'
+        'Cache-Control': 'public, max-age=604800',
       }
     });
 
   } catch (error) {
-    console.error('Proxy error:', error);
+    console.error('Error:', error);
     return new Response('Server Error', { status: 500 });
   }
 }
