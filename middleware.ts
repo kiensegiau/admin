@@ -34,7 +34,7 @@ export async function middleware(request: NextRequest) {
     rateLimits.set(ip, current)
     
     // Giới hạn 60 requests/phút
-    if (current.count > 60) {
+    if (current.count > 600) {
       return new NextResponse('Too Many Requests', { 
         status: 429,
         headers: {
