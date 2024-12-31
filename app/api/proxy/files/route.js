@@ -3,128 +3,108 @@ import { readTokens } from "@/lib/tokenStorage";
 import { google } from "googleapis";
 import { getFileMetadata, downloadFile } from "@/lib/drive";
 
-const PART_SIZE = 150 * 1024 * 1024; // 150MB mỗi part
-const MAX_CACHE_AGE = 7 * 24 * 60 * 60; // 7 ngày
+const CHUNK_SIZE = 16 * 1024 * 1024; // 16MB mỗi chunk
 
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const publicId = searchParams.get("id");
     const part = searchParams.get("part");
+    const range = request.headers.get("range");
 
-    const driveId = decryptId(publicId);
+    console.log("Request:", { publicId, part, range });
 
-    const tokens = readTokens();
-    if (!tokens?.access_token) {
-      return new Response("Unauthorized", { status: 401 });
+    if (!publicId) {
+      return new Response("Missing file ID", { status: 400 });
     }
 
-    // Khởi tạo OAuth2Client với đầy đủ tokens
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      process.env.CALLBACK_URL
-    );
-
-    // Thêm cả refresh_token vào credentials
-    oauth2Client.setCredentials({
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      expiry_date: tokens.expiry_date,
-    });
-
-    const drive = google.drive({ version: "v3", auth: oauth2Client });
+    const driveId = decryptId(publicId);
+    const tokens = readTokens();
     const metadata = await getFileMetadata(driveId, tokens);
 
-    // 1. PDF và documents - Cache toàn bộ
-    if (
-      metadata.mimeType === "application/pdf" ||
-      metadata.mimeType.includes("document")
-    ) {
-      const fileStream = await downloadFile(driveId, {}, tokens);
-      return new Response(fileStream, {
-        status: 200,
+    // Nếu có range header, ưu tiên xử lý range
+    if (range) {
+      const bytes = range.replace('bytes=', '').split('-');
+      const start = parseInt(bytes[0]);
+      const end = bytes[1] ? parseInt(bytes[1]) : Math.min(start + CHUNK_SIZE - 1, metadata.size - 1);
+
+      console.log("Range request:", { start, end });
+
+      const stream = await downloadFile(driveId, { start, end }, tokens);
+      return new Response(stream, {
+        status: 206,
         headers: {
           "Content-Type": metadata.mimeType,
-          "Content-Length": metadata.size,
-          "Content-Disposition": "inline",
-          "Cache-Control": `public, max-age=${MAX_CACHE_AGE}, immutable`,
-          "CDN-Cache-Control": `public, max-age=${MAX_CACHE_AGE}`,
-          "CF-Cache-Tag": `doc-${publicId}`,
-          "Access-Control-Allow-Origin": "*",
-        },
+          "Content-Range": `bytes ${start}-${end}/${metadata.size}`,
+          "Content-Length": (end - start + 1).toString(),
+          "Accept-Ranges": "bytes",
+          "Cache-Control": "public, max-age=86400"
+        }
       });
     }
 
-    // 2. Video files - Cache theo parts
-    if (metadata.mimeType.includes("video")) {
-      // 2.1 File nhỏ - Cache toàn bộ
-      if (metadata.size < 100 * 1024 * 1024) {
-        const fileStream = await downloadFile(driveId, {}, tokens);
-        return new Response(fileStream, {
-          status: 200,
+    // Nếu request part cụ thể
+    if (part !== null) {
+      const partNum = parseInt(part);
+      const start = partNum * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE - 1, metadata.size - 1);
+
+      // Nếu là part 0, trả về thêm một phần nhỏ của part 1 để đảm bảo player có đủ data
+      if (partNum === 0) {
+        const extraSize = 1024 * 1024; // 1MB extra
+        const newEnd = Math.min(end + extraSize, metadata.size - 1);
+        
+        console.log("Streaming first chunk with extra:", { start, end: newEnd });
+        
+        const stream = await downloadFile(driveId, { start, end: newEnd }, tokens);
+        return new Response(stream, {
+          status: 206,
           headers: {
             "Content-Type": metadata.mimeType,
-            "Content-Length": metadata.size,
-            "Cache-Control": `public, max-age=${MAX_CACHE_AGE}, immutable`,
-            "CDN-Cache-Control": `public, max-age=${MAX_CACHE_AGE}`,
-            "CF-Cache-Tag": `video-${publicId}`,
-            "Access-Control-Allow-Origin": "*",
-          },
+            "Content-Range": `bytes ${start}-${newEnd}/${metadata.size}`,
+            "Content-Length": (newEnd - start + 1).toString(),
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=86400"
+          }
         });
       }
 
-      // 2.2 File lớn - Cache từng part
-      if (part) {
-        const start = parseInt(part) * PART_SIZE;
-        const end = Math.min(start + PART_SIZE - 1, metadata.size);
+      console.log("Streaming chunk:", { part: partNum, start, end });
 
-        const partStream = await downloadFile(driveId, { start, end }, tokens);
-        return new Response(partStream, {
-          status: 200,
-          headers: {
-            "Content-Type": metadata.mimeType,
-            "Content-Length": end - start + 1,
-            "Cache-Control": `public, max-age=${MAX_CACHE_AGE}, immutable`,
-            "CDN-Cache-Control": `public, max-age=${MAX_CACHE_AGE}`,
-            "CF-Cache-Tag": `video-${publicId}-part${part}`,
-            "Access-Control-Allow-Origin": "*",
-          },
-        });
-      }
-
-      // 2.3 Default - Trả về metadata
-      return new Response(
-        JSON.stringify({
-          size: metadata.size,
-          mimeType: metadata.mimeType,
-          parts: Math.ceil(metadata.size / PART_SIZE),
-        }),
-        {
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "public, max-age=86400",
-          },
+      const stream = await downloadFile(driveId, { start, end }, tokens);
+      return new Response(stream, {
+        status: 206,
+        headers: {
+          "Content-Type": metadata.mimeType,
+          "Content-Range": `bytes ${start}-${end}/${metadata.size}`,
+          "Content-Length": (end - start + 1).toString(),
+          "Accept-Ranges": "bytes",
+          "Cache-Control": "public, max-age=86400"
         }
-      );
+      });
     }
 
-    // 3. Các file khác - Download trực tiếp
-    const fileStream = await downloadFile(driveId, {}, tokens);
-    return new Response(fileStream, {
-      status: 200,
-      headers: {
-        "Content-Type": metadata.mimeType,
-        "Content-Length": metadata.size,
-        "Content-Disposition": "attachment",
-        "Cache-Control": `public, max-age=${MAX_CACHE_AGE}, immutable`,
-        "CDN-Cache-Control": `public, max-age=${MAX_CACHE_AGE}`,
-        "CF-Cache-Tag": `file-${publicId}`,
-        "Access-Control-Allow-Origin": "*",
-      },
-    });
+    // Trả về metadata
+    return new Response(
+      JSON.stringify({
+        id: publicId,
+        name: metadata.name,
+        size: metadata.size,
+        mimeType: metadata.mimeType,
+        duration: metadata.videoMediaMetadata?.durationMillis || 0,
+        parts: Math.ceil(metadata.size / CHUNK_SIZE),
+        chunkSize: CHUNK_SIZE
+      }),
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "public, max-age=3600"
+        }
+      }
+    );
+
   } catch (error) {
     console.error("Error:", error);
-    return new Response("Server Error", { status: 500 });
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 }
