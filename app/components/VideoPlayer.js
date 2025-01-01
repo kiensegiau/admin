@@ -5,7 +5,7 @@ import "@videojs/http-streaming";
 import "videojs-contrib-quality-levels";
 import "videojs-hls-quality-selector";
 
-export default function VideoPlayer({ fileId, onError, autoPlay = false }) {
+export default function VideoPlayer({ fileId, onError, onEnded, nextLessonId, autoPlay = false }) {
   const videoRef = useRef(null);
   const playerRef = useRef(null);
   const [videoUrl, setVideoUrl] = useState(null);
@@ -87,12 +87,19 @@ export default function VideoPlayer({ fileId, onError, autoPlay = false }) {
       displayCurrentQuality: true,
     });
 
+    playerRef.current.on('ended', () => {
+      console.log('Video ended, nextLessonId:', nextLessonId);
+      if (nextLessonId && onEnded) {
+        onEnded(nextLessonId);
+      }
+    });
+
     return () => {
       if (playerRef.current) {
         playerRef.current.dispose();
       }
     };
-  }, [videoUrl, onError, autoPlay]);
+  }, [videoUrl, onError, autoPlay, nextLessonId, onEnded]);
 
   return (
     <div data-vjs-player>

@@ -1,14 +1,22 @@
-import { useState, useEffect, useCallback } from 'react';
-import { db } from '.././firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import AddFileModal from './AddFileModal';
-import FileViewModal from './FileViewModal';
-import LoadingSpinner from './LoadingSpinner';
-import { toast } from 'sonner';
-import VideoModal from './VideoModal';
-import VideoPlayer from './VideoPlayer';
+import { useState, useEffect, useCallback } from "react";
+import { db } from ".././firebase";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import AddFileModal from "./AddFileModal";
+import FileViewModal from "./FileViewModal";
+import LoadingSpinner from "./LoadingSpinner";
+import { toast } from "sonner";
+import VideoModal from "./VideoModal";
+import VideoPlayer from "./VideoPlayer";
+import { useRouter } from "next/router";
 
-export default function LessonContent({ lesson, courseId, chapterId, courseName, chapterName, onOpenB2UploadModal }) {
+export default function LessonContent({
+  lesson,
+  courseId,
+  chapterId,
+  courseName,
+  chapterName,
+  onOpenB2UploadModal,
+}) {
   const [isAddFileModalOpen, setIsAddFileModalOpen] = useState(false);
   const [isFileViewModalOpen, setIsFileViewModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -17,6 +25,7 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
   const [selectedVideoFile, setSelectedVideoFile] = useState(null);
   const [isVideoPlayerVisible, setIsVideoPlayerVisible] = useState(false);
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
+  const router = useRouter();
 
   const fetchLessonData = useCallback(async () => {
     if (!lesson?.id) {
@@ -26,19 +35,19 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
     }
 
     try {
-      const courseRef = doc(db, 'courses', courseId);
+      const courseRef = doc(db, "courses", courseId);
       const courseDoc = await getDoc(courseRef);
       if (courseDoc.exists()) {
         const courseData = courseDoc.data();
-        const chapter = courseData.chapters.find(ch => ch.id === chapterId);
-        const lessonData = chapter?.lessons.find(l => l.id === lesson.id);
-        setLessonData(lessonData || { title: lesson.title || '', files: [] });
+        const chapter = courseData.chapters.find((ch) => ch.id === chapterId);
+        const lessonData = chapter?.lessons.find((l) => l.id === lesson.id);
+        setLessonData(lessonData || { title: lesson.title || "", files: [] });
       } else {
-        setLessonData({ title: lesson.title || '', files: [] });
+        setLessonData({ title: lesson.title || "", files: [] });
       }
     } catch (error) {
-      console.error('Lỗi khi tải dữ liệu bài học:', error);
-      setLessonData({ title: lesson.title || '', files: [] });
+      console.error("Lỗi khi tải dữ liệu bài học:", error);
+      setLessonData({ title: lesson.title || "", files: [] });
     } finally {
       setIsLoading(false);
     }
@@ -51,61 +60,83 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
   }, [lesson, fetchLessonData]);
 
   const handleFileClick = useCallback((file) => {
-    if (file.type === 'application/vnd.apple.mpegurl' || file.type.startsWith('video/')) {
+    if (
+      file.type === "application/vnd.apple.mpegurl" ||
+      file.type.startsWith("video/")
+    ) {
       setSelectedVideoFile(file);
       setIsVideoModalOpen(true);
     } else if (file.r2FileId) {
       setSelectedFile(file);
       setIsFileViewModalOpen(true);
     } else if (file.driveUrl) {
-      window.open(file.driveUrl, '_blank');
+      window.open(file.driveUrl, "_blank");
     }
   }, []);
 
-  const handleDeleteFile = useCallback(async (fileToDelete) => {
-    if (!lesson?.id) {
-      toast.error('Không thể xóa file: Bài học không hợp lệ');
-      return;
-    }
-
-    if (window.confirm('Bạn có chắc chắn muốn xóa file này?')) {
-      try {
-        const courseRef = doc(db, 'courses', courseId);
-        const courseDoc = await getDoc(courseRef);
-        const courseData = courseDoc.data();
-
-        const updatedChapters = courseData.chapters.map(chapter => 
-          chapter.id === chapterId
-            ? {
-                ...chapter,
-                lessons: chapter.lessons.map(l => 
-                  l.id === lesson.id
-                    ? { ...l, files: l.files.filter(file => file.name !== fileToDelete.name) }
-                    : l
-                )
-              }
-            : chapter
-        );
-
-        await updateDoc(courseRef, { chapters: updatedChapters });
-
-        setLessonData(prevData => ({
-          ...prevData,
-          files: prevData.files.filter(file => file.name !== fileToDelete.name)
-        }));
-        toast.success('Đã xóa file');
-      } catch (error) {
-        console.error('Lỗi khi xóa file:', error);
-        toast.error('Không thể xóa file');
+  const handleDeleteFile = useCallback(
+    async (fileToDelete) => {
+      if (!lesson?.id) {
+        toast.error("Không thể xóa file: Bài học không hợp lệ");
+        return;
       }
-    }
-  }, [lesson, courseId, chapterId]);
+
+      if (window.confirm("Bạn có chắc chắn muốn xóa file này?")) {
+        try {
+          const courseRef = doc(db, "courses", courseId);
+          const courseDoc = await getDoc(courseRef);
+          const courseData = courseDoc.data();
+
+          const updatedChapters = courseData.chapters.map((chapter) =>
+            chapter.id === chapterId
+              ? {
+                  ...chapter,
+                  lessons: chapter.lessons.map((l) =>
+                    l.id === lesson.id
+                      ? {
+                          ...l,
+                          files: l.files.filter(
+                            (file) => file.name !== fileToDelete.name
+                          ),
+                        }
+                      : l
+                  ),
+                }
+              : chapter
+          );
+
+          await updateDoc(courseRef, { chapters: updatedChapters });
+
+          setLessonData((prevData) => ({
+            ...prevData,
+            files: prevData.files.filter(
+              (file) => file.name !== fileToDelete.name
+            ),
+          }));
+          toast.success("Đã xóa file");
+        } catch (error) {
+          console.error("Lỗi khi xóa file:", error);
+          toast.error("Không thể xóa file");
+        }
+      }
+    },
+    [lesson, courseId, chapterId]
+  );
 
   const handleViewVideo = () => {
     if (lessonData?.videoUrl) {
       setIsVideoPlayerVisible(true);
     } else {
-      toast.error('Không có video cho bài học này');
+      toast.error("Không có video cho bài học này");
+    }
+  };
+
+  const handleVideoEnded = async (nextLessonId) => {
+    console.log('Handling video end, navigating to:', nextLessonId);
+    try {
+      await router.push(`/courses/${courseId}/chapters/${chapterId}/lessons/${nextLessonId}`);
+    } catch (error) {
+      console.error('Navigation error:', error);
     }
   };
 
@@ -147,6 +178,9 @@ export default function LessonContent({ lesson, courseId, chapterId, courseName,
               <VideoPlayer
                 fileId={lessonData.videoUrl}
                 onError={(error) => console.error("Video Player Error:", error)}
+                onEnded={handleVideoEnded}
+                nextLessonId={lessonData.nextLessonId}
+                autoPlay={false}
               />
               <button
                 onClick={() => setIsVideoPlayerVisible(false)}
