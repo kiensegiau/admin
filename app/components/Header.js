@@ -1,18 +1,69 @@
+'use client';
+
+import { Layout, Menu, Button, Dropdown, Avatar, Space } from 'antd';
+import { BellOutlined, UserOutlined, LogoutOutlined, SettingOutlined } from '@ant-design/icons';
 import Link from 'next/link';
-import { BellIcon, UserCircleIcon } from '@heroicons/react/24/outline';
+
+const { Header: AntHeader } = Layout;
+
+const userMenuItems = [
+  {
+    key: 'profile',
+    icon: <UserOutlined />,
+    label: 'Hồ sơ',
+  },
+  {
+    key: 'settings',
+    icon: <SettingOutlined />,
+    label: 'Cài đặt',
+  },
+  {
+    type: 'divider',
+  },
+  {
+    key: 'logout',
+    icon: <LogoutOutlined />,
+    label: 'Đăng xuất',
+    danger: true,
+  },
+];
 
 export default function Header() {
+  const handleMenuClick = ({ key }) => {
+    if (key === 'logout') {
+      // Xử lý đăng xuất
+      console.log('Đăng xuất');
+    }
+  };
+
   return (
-    <header className="bg-gray-800 text-white p-4 shadow-md">
-      <div className="container mx-auto flex justify-between items-center">
-        <Link href="/dashboard" className="text-xl font-bold">
-          Admin Dashboard
-        </Link>
-        <div className="flex items-center space-x-4">
-          <BellIcon className="h-6 w-6 text-gray-300 hover:text-white cursor-pointer" />
-          <UserCircleIcon className="h-6 w-6 text-gray-300 hover:text-white cursor-pointer" />
-        </div>
+    <AntHeader className="px-6 bg-white flex items-center justify-between shadow-sm">
+      <div className="flex items-center">
+        <h1 className="text-lg font-medium text-gray-800">
+          Xin chào, Admin
+        </h1>
       </div>
-    </header>
+
+      <Space size={16}>
+        <Button 
+          type="text" 
+          icon={<BellOutlined />}
+          className="flex items-center justify-center"
+        />
+        <Dropdown 
+          menu={{ 
+            items: userMenuItems,
+            onClick: handleMenuClick,
+          }}
+          placement="bottomRight" 
+          trigger={['click']}
+        >
+          <Button type="text" className="flex items-center">
+            <Avatar icon={<UserOutlined />} />
+            <span className="ml-2 hidden md:inline">Admin</span>
+          </Button>
+        </Dropdown>
+      </Space>
+    </AntHeader>
   );
 }

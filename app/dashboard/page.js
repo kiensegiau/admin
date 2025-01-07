@@ -1,29 +1,75 @@
 'use client';
 
-import React, { Suspense, lazy, useEffect } from 'react';
-import Sidebar from '../components/Sidebar';
-import Header from '../components/Header';
-import UserStats from '../components/UserStats';
-import AdminDashboard from '../components/AdminDashboard';
+import { Layout, Card, Row, Col, Statistic } from 'antd';
+import { UserOutlined, BookOutlined, VideoCameraOutlined, DollarOutlined } from '@ant-design/icons';
+import { Suspense } from 'react';
+import RevenueChart from '../components/RevenueChart';
 
-const RevenueChart = lazy(() => import('../components/RevenueChart'));
-const CourseList = lazy(() => import('../components/CourseList'));
+const { Content } = Layout;
+
+const ChartLoading = () => (
+  <div className="w-full h-[400px] flex items-center justify-center">
+    <div className="text-gray-400">Đang tải biểu đồ...</div>
+  </div>
+);
 
 export default function Dashboard() {
-  useEffect(() => {
-    console.log('Dashboard đang render');
-  }, []);
-
   return (
-    <div className="flex h-screen bg-gray-100">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Header />
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-200 p-6">
-          <AdminDashboard />
-          {/* Các phần còn lại của Dashboard */}
-        </main>
+    <Content className="p-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold">Tổng quan</h1>
+        <p className="text-gray-500">Thống kê hoạt động của hệ thống</p>
       </div>
-    </div>
+
+      <Row gutter={[16, 16]}>
+        <Col xs={24} sm={12} lg={6}>
+          <Card>
+            <Statistic
+              title="Tổng số học viên"
+              value={1234}
+              prefix={<UserOutlined />}
+              valueStyle={{ color: '#3f8600' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <Card>
+            <Statistic
+              title="Khóa học"
+              value={48}
+              prefix={<BookOutlined />}
+              valueStyle={{ color: '#1890ff' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <Card>
+            <Statistic
+              title="Video bài giảng"
+              value={156}
+              prefix={<VideoCameraOutlined />}
+              valueStyle={{ color: '#722ed1' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <Card>
+            <Statistic
+              title="Doanh thu tháng"
+              value={125000000}
+              prefix={<DollarOutlined />}
+              valueStyle={{ color: '#cf1322' }}
+              formatter={value => `${value.toLocaleString('vi-VN')} VNĐ`}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      <Card className="mt-6">
+        <Suspense fallback={<ChartLoading />}>
+          <RevenueChart />
+        </Suspense>
+      </Card>
+    </Content>
   );
 }

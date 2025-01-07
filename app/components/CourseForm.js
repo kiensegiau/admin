@@ -1,72 +1,188 @@
 'use client';
-import { useForm } from 'react-hook-form';
-import { yupResolver } from '@hookform/resolvers/yup';
-import * as yup from 'yup';
+
+import { useState } from 'react';
+import { Form, Input, InputNumber, Upload, Select, Button } from 'antd';
+import { UploadOutlined, SaveOutlined } from '@ant-design/icons';
 import { addDoc, collection } from 'firebase/firestore';
 import { db } from '../firebase';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 
-const schema = yup.object().shape({
-  title: yup.string().required('Tiêu đề là bắt buộc'),
-  description: yup.string().required('Mô tả là bắt buộc'),
-  price: yup.number().positive('Giá phải là số dương').required('Giá là bắt buộc'),
+const ReactQuill = dynamic(() => import('react-quill'), {
+  ssr: false,
+  loading: () => <p>Loading editor...</p>,
 });
+import 'react-quill/dist/quill.snow.css';
+
+const SUBJECTS = [
+  { value: 'math', label: 'Toán học' },
+  { value: 'physics', label: 'Vật lý' },
+  { value: 'chemistry', label: 'Hóa học' },
+  { value: 'biology', label: 'Sinh học' },
+  { value: 'literature', label: 'Ngữ văn' },
+  { value: 'english', label: 'Tiếng Anh' },
+  { value: 'history', label: 'Lịch sử' },
+  { value: 'geography', label: 'Địa lý' },
+  { value: 'informatics', label: 'Tin học' },
+];
+
+const GRADES = [
+  { value: 'grade6', label: 'Lớp 6' },
+  { value: 'grade7', label: 'Lớp 7' },
+  { value: 'grade8', label: 'Lớp 8' },
+  { value: 'grade9', label: 'Lớp 9' },
+  { value: 'grade10', label: 'Lớp 10' },
+  { value: 'grade11', label: 'Lớp 11' },
+  { value: 'grade12', label: 'Lớp 12' },
+];
 
 export default function CourseForm() {
-  const { register, handleSubmit, formState: { errors } } = useForm({
-    resolver: yupResolver(schema),
-  });
+  const [form] = Form.useForm();
+  const [description, setDescription] = useState('');
+  const [coverImage, setCoverImage] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
 
-  const onSubmit = async (data) => {
+  const onFinish = async (values) => {
     try {
+      setIsSubmitting(true);
       const courseData = {
-        ...data,
+        ...values,
+        description,
+        coverImage: coverImage || '',
         chapters: [],
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
+
       await addDoc(collection(db, 'courses'), courseData);
       toast.success('Khóa học đã được thêm thành công');
-      router.push('/');
+      router.push('/courses');
     } catch (error) {
+      console.error('Lỗi:', error);
       toast.error('Có lỗi xảy ra khi thêm khóa học');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleImageUpload = async (info) => {
+    if (info.file.status === 'done') {
+      setCoverImage(info.file.response.url);
+      toast.success('Tải ảnh lên thành công');
+    } else if (info.file.status === 'error') {
+      toast.error('Lỗi khi tải ảnh lên');
     }
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <div>
-        <label htmlFor="title" className="block mb-1">Tiêu đề</label>
-        <input
-          id="title"
-          {...register('title')}
-          className="w-full border p-2 rounded"
-        />
-        {errors.title && <p className="text-red-500">{errors.title.message}</p>}
+    <Form
+      form={form}
+      layout="vertical"
+      onFinish={onFinish}
+      className="space-y-6"
+      initialValues={{
+        title: '',
+        price: 0,
+        teacher: '',
+        subject: 'math',
+        grade: 'grade10',
+      }}
+    >
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Form.Item
+          name="title"
+          label="Tiêu đề khóa học"
+          rules={[{ required: true, message: 'Vui lòng nhập tiêu đề khóa học' }]}
+        >
+          <Input placeholder="Nhập tiêu đề khóa học" size="large" />
+        </Form.Item>
+
+        <Form.Item
+          name="teacher"
+          label="Giảng viên"
+          rules={[{ required: true, message: 'Vui lòng nhập tên giảng viên' }]}
+        >
+          <Input placeholder="Tên giảng viên" size="large" />
+        </Form.Item>
+
+        <Form.Item
+          name="price"
+          label="Giá (VNĐ)"
+          rules={[{ required: true, message: 'Vui lòng nhập giá khóa học' }]}
+        >
+          <InputNumber
+            className="w-full"
+            formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+            parser={value => value.replace(/\$\s?|(,*)/g, '')}
+            size="large"
+            min={0}
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="subject"
+          label="Môn học"
+          rules={[{ required: true, message: 'Vui lòng chọn môn học' }]}
+        >
+          <Select options={SUBJECTS} size="large" />
+        </Form.Item>
+
+        <Form.Item
+          name="grade"
+          label="Lớp"
+          rules={[{ required: true, message: 'Vui lòng chọn lớp' }]}
+        >
+          <Select options={GRADES} size="large" />
+        </Form.Item>
+
+        <Form.Item label="Ảnh bìa">
+          <Upload
+            name="file"
+            action="/api/upload-image"
+            onChange={handleImageUpload}
+            maxCount={1}
+            listType="picture"
+            accept="image/*"
+          >
+            <Button icon={<UploadOutlined />}>Tải ảnh lên</Button>
+          </Upload>
+        </Form.Item>
       </div>
-      <div>
-        <label htmlFor="description" className="block mb-1">Mô tả</label>
-        <textarea
-          id="description"
-          {...register('description')}
-          className="w-full border p-2 rounded"
+
+      <Form.Item
+        label="Mô tả chi tiết"
+        rules={[{ required: true, message: 'Vui lòng nhập mô tả khóa học' }]}
+      >
+        <ReactQuill
+          theme="snow"
+          value={description}
+          onChange={setDescription}
+          className="h-48"
+          modules={{
+            toolbar: [
+              [{ 'header': [1, 2, 3, false] }],
+              ['bold', 'italic', 'underline', 'strike'],
+              [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+              ['link', 'image'],
+              ['clean']
+            ],
+          }}
         />
-        {errors.description && <p className="text-red-500">{errors.description.message}</p>}
+      </Form.Item>
+
+      <div className="flex justify-end">
+        <Button
+          type="primary"
+          htmlType="submit"
+          size="large"
+          icon={<SaveOutlined />}
+          loading={isSubmitting}
+        >
+          Tạo khóa học
+        </Button>
       </div>
-      <div>
-        <label htmlFor="price" className="block mb-1">Giá</label>
-        <input
-          id="price"
-          type="number"
-          {...register('price')}
-          className="w-full border p-2 rounded"
-        />
-        {errors.price && <p className="text-red-500">{errors.price.message}</p>}
-      </div>
-      <button type="submit" className="bg-blue-500 text-white px-4 py-2 rounded">
-        Thêm khóa học
-      </button>
-    </form>
+    </Form>
   );
 }

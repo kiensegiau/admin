@@ -1,21 +1,29 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
 import { Bar } from 'react-chartjs-2';
-import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
-
-const data = {
-  labels: ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12'],
-  datasets: [
-    {
-      label: 'Doanh thu',
-      data: [12, 19, 3, 5, 2, 3, 10, 15, 8, 12, 20, 25],
-      backgroundColor: 'rgba(75, 192, 192, 0.6)',
-    },
-  ],
-};
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 const options = {
   responsive: true,
+  maintainAspectRatio: false,
   plugins: {
     legend: {
       position: 'top',
@@ -27,12 +35,37 @@ const options = {
   },
 };
 
+const labels = ['Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6'];
+
+const data = {
+  labels,
+  datasets: [
+    {
+      label: 'Doanh thu (triệu VNĐ)',
+      data: [12, 19, 3, 5, 2, 3].map(value => value * 1000000),
+      backgroundColor: 'rgba(53, 162, 235, 0.5)',
+    },
+  ],
+};
+
 export default function RevenueChart() {
-  return (
-    <div className="w-full md:w-1/2 xl:w-2/3 px-6 py-4">
-      <div className="bg-white rounded-lg shadow-md p-5">
-        <Bar data={data} options={options} />
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <div className="w-full h-[400px] flex items-center justify-center">
+        <div className="text-gray-400">Đang tải biểu đồ...</div>
       </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-[400px]">
+      <Bar options={options} data={data} />
     </div>
   );
 }

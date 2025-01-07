@@ -3,15 +3,18 @@ import { encryptId } from '@/lib/encryption';
 // Hàm trích xuất Drive ID từ URL
 function extractDriveId(url) {
   try {
-    // Xử lý các định dạng URL Google Drive phổ biến
+    console.log('Extracting from URL:', url);
+
     const patterns = [
-      /\/file\/d\/([a-zA-Z0-9_-]+)/, // Format: /file/d/[id]
-      /id=([a-zA-Z0-9_-]+)/, // Format: ?id=[id]
-      /\/d\/([a-zA-Z0-9_-]+)/ // Format: /d/[id]
+      /\/file\/d\/([a-zA-Z0-9_-]+)/,  // Format: /file/d/[id]
+      /id=([a-zA-Z0-9_-]+)/,          // Format: ?id=[id]
+      /\/d\/([a-zA-Z0-9_-]+)/,        // Format: /d/[id]
+      /^([a-zA-Z0-9_-]+)$/            // Format: raw id
     ];
 
     for (const pattern of patterns) {
       const match = url.match(pattern);
+      console.log('Pattern:', pattern, 'Match:', match);
       if (match && match[1]) {
         return match[1];
       }
@@ -29,6 +32,7 @@ function generateProxyUrls(publicId, baseUrl) {
   return {
     proxyUrl,
     streamUrl: proxyUrl,
+    videoUrl: proxyUrl,
     embedHtml: `<video controls width="100%"><source src="${proxyUrl}" type="video/mp4"></video>`
   };
 }
