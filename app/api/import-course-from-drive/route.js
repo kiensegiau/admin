@@ -43,7 +43,7 @@ function removeUndefined(obj) {
 
 async function createNewCourse(name) {
   const courseRef = await addDoc(collection(db, "courses"), {
-    title: `${name} (copy)`,
+    title: `${name} `,
     chapters: [],
   });
   return { id: courseRef.id, name: `${name} (copy)` };

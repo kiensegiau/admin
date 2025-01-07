@@ -7,7 +7,7 @@ import LoadingSpinner from "./LoadingSpinner";
 import { toast } from "sonner";
 import VideoModal from "./VideoModal";
 import VideoPlayer from "./VideoPlayer";
-import { useRouter } from "next/router";
+import { useRouter } from "next/navigation";
 
 export default function LessonContent({
   lesson,
@@ -131,12 +131,10 @@ export default function LessonContent({
     }
   };
 
-  const handleVideoEnded = async (nextLessonId) => {
+  const handleVideoEnded = (nextLessonId) => {
     console.log('Handling video end, navigating to:', nextLessonId);
-    try {
-      await router.push(`/courses/${courseId}/chapters/${chapterId}/lessons/${nextLessonId}`);
-    } catch (error) {
-      console.error('Navigation error:', error);
+    if (nextLessonId) {
+      router.push(`/courses/${courseId}/chapters/${chapterId}/lessons/${nextLessonId}`);
     }
   };
 

@@ -1,12 +1,19 @@
+"use client";
+
 import { useState, useEffect, useRef } from "react";
-import ReactQuill from "react-quill";
-import "react-quill/dist/quill.snow.css";
+import dynamic from "next/dynamic";
+
+const ReactQuill = dynamic(() => import("react-quill"), {
+  ssr: false,
+  loading: () => <p>Loading editor...</p>,
+});
 
 export default function AddDescriptionModal({ onClose, onAddDescription }) {
   const [description, setDescription] = useState("");
   const quillRef = useRef(null);
 
   useEffect(() => {
+    import("react-quill/dist/quill.snow.css");
     if (quillRef.current) {
       quillRef.current.focus();
     }
