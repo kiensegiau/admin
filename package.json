@@ -13,6 +13,7 @@
     "@heroicons/react": "^2.0.18",
     "@hookform/resolvers": "^3.3.2",
     "antd": "^5.12.2",
+    "axios": "^1.7.9",
     "chart.js": "4.4.1",
     "firebase": "^10.7.1",
     "firebase-admin": "^13.0.2",

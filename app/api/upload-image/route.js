@@ -1,47 +1,63 @@
 import { NextResponse } from "next/server";
-import { storage } from "@/app/firebase";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import admin from "firebase-admin";
 
-export async function POST(request) {
+// Khởi tạo Firebase Admin nếu chưa được khởi tạo
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+    }),
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  });
+}
+
+const bucket = admin.storage().bucket();
+
+export async function POST(req) {
   try {
-    const formData = await request.formData();
+    const formData = await req.formData();
     const file = formData.get("file");
 
     if (!file) {
       return NextResponse.json(
-        { error: "No file uploaded" },
+        { error: "Vui lòng chọn file để tải lên" },
         { status: 400 }
       );
     }
 
-    // Convert file to array buffer
-    const buffer = await file.arrayBuffer();
-    const fileName = `course-images/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, "")}`;
-    
-    // Create a reference to Firebase Storage
-    const storageRef = ref(storage, fileName);
-    
-    // Upload the file
-    await uploadBytes(storageRef, buffer, {
-      contentType: file.type,
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+
+    // Tạo tên file ngẫu nhiên
+    const fileExtension = file.type.split("/")[1];
+    const fileName = `course-covers/${Date.now()}-${Math.random()
+      .toString(36)
+      .substring(7)}.${fileExtension}`;
+
+    // Tạo file trong bucket
+    const fileUpload = bucket.file(fileName);
+
+    // Upload file
+    await fileUpload.save(buffer, {
+      metadata: {
+        contentType: file.type,
+      },
     });
 
-    // Get the download URL
-    const url = await getDownloadURL(storageRef);
+    // Tạo URL công khai
+    await fileUpload.makePublic();
 
-    return NextResponse.json({ url });
+    // Lấy URL công khai
+    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
+
+    return NextResponse.json({ url: publicUrl });
   } catch (error) {
-    console.error("Error uploading file:", error);
+    console.error("Lỗi khi tải file lên:", error);
     return NextResponse.json(
-      { error: "Error uploading file" },
+      { error: "Không thể tải file lên" },
       { status: 500 }
     );
   }
 }
-
-export async function GET() {
-  return NextResponse.json(
-    { error: "Method not allowed" },
-    { status: 405 }
-  );
-} 

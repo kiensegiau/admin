@@ -3,31 +3,69 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
-import { Spin } from "antd";
+import { Modal, Spin, Form, Input, InputNumber, Select } from "antd";
 
 const ReactQuill = dynamic(() => import("react-quill"), {
   ssr: false,
   loading: () => <p>Loading editor...</p>,
 });
 
-export default function EditCourseInfoModal({ course, onClose, onUpdateCourse }) {
-  const [formData, setFormData] = useState({
-    title: course?.title || "",
-    teacher: course?.teacher || "",
-    price: course?.price || 0,
-    description: course?.description || "",
-    coverImage: course?.coverImage || "",
-  });
+const SUBJECTS = [
+  { value: "math", label: "Toán học" },
+  { value: "physics", label: "Vật lý" },
+  { value: "chemistry", label: "Hóa học" },
+  { value: "biology", label: "Sinh học" },
+  { value: "literature", label: "Ngữ văn" },
+  { value: "english", label: "Tiếng Anh" },
+  { value: "history", label: "Lịch sử" },
+  { value: "geography", label: "Địa lý" },
+  { value: "informatics", label: "Tin học" },
+];
+
+const GRADES = [
+  { value: "grade6", label: "Lớp 6" },
+  { value: "grade7", label: "Lớp 7" },
+  { value: "grade8", label: "Lớp 8" },
+  { value: "grade9", label: "Lớp 9" },
+  { value: "grade10", label: "Lớp 10" },
+  { value: "grade11", label: "Lớp 11" },
+  { value: "grade12", label: "Lớp 12" },
+];
+
+export default function EditCourseInfoModal({
+  course,
+  onClose,
+  onUpdateCourse,
+  isVisible,
+}) {
+  const [form] = Form.useForm();
   const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     import("react-quill/dist/quill.snow.css");
   }, []);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  useEffect(() => {
+    if (course && isVisible) {
+      form.setFieldsValue({
+        title: course.title || "",
+        teacher: course.teacher || "",
+        price: course.price || 0,
+        description: course.description || "",
+        coverImage: course.coverImage || "",
+        subject: course.subject || "math",
+        grade: course.grade || "grade10",
+      });
+    }
+  }, [course, isVisible, form]);
+
+  const handleSubmit = async () => {
     try {
-      await onUpdateCourse(formData);
+      const values = await form.validateFields();
+      await onUpdateCourse({
+        ...values,
+        updatedAt: new Date().toISOString(),
+      });
       onClose();
     } catch (error) {
       console.error("Lỗi khi cập nhật thông tin khóa học:", error);
@@ -48,19 +86,16 @@ export default function EditCourseInfoModal({ course, onClose, onUpdateCourse })
       setIsUploading(true);
       const formData = new FormData();
       formData.append("file", file);
-      
+
       const response = await fetch("/api/upload-image", {
         method: "POST",
         body: formData,
       });
 
       if (!response.ok) throw new Error("Upload failed");
-      
+
       const data = await response.json();
-      setFormData(prev => ({
-        ...prev,
-        coverImage: data.url
-      }));
+      form.setFieldValue("coverImage", data.url);
       toast.success("Đã tải lên ảnh thành công");
     } catch (error) {
       console.error("Lỗi khi tải lên ảnh:", error);
@@ -71,116 +106,98 @@ export default function EditCourseInfoModal({ course, onClose, onUpdateCourse })
   };
 
   return (
-    <div className="fixed z-10 inset-0 overflow-y-auto">
-      <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-        <div className="fixed inset-0 transition-opacity" aria-hidden="true">
-          <div className="absolute inset-0 bg-gray-500 opacity-75"></div>
-        </div>
-        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-          <form onSubmit={handleSubmit} className="p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Chỉnh sửa thông tin khóa học
-            </h3>
-            
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Tên khóa học
-              </label>
-              <input
-                type="text"
-                value={formData.title}
-                onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                required
-              />
-            </div>
+    <Modal
+      title="Chỉnh sửa thông tin khóa học"
+      open={isVisible}
+      onOk={handleSubmit}
+      onCancel={onClose}
+      width={800}
+      okText="Cập nhật"
+      cancelText="Hủy"
+      confirmLoading={isUploading}
+    >
+      <Form form={form} layout="vertical" initialValues={course}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Form.Item
+            name="title"
+            label="Tên khóa học"
+            rules={[{ required: true, message: "Vui lòng nhập tên khóa học" }]}
+          >
+            <Input />
+          </Form.Item>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Giáo viên
-              </label>
-              <input
-                type="text"
-                value={formData.teacher}
-                onChange={(e) => setFormData(prev => ({ ...prev, teacher: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                required
-              />
-            </div>
+          <Form.Item
+            name="teacher"
+            label="Giáo viên"
+            rules={[{ required: true, message: "Vui lòng nhập tên giáo viên" }]}
+          >
+            <Input />
+          </Form.Item>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Giá (VNĐ)
-              </label>
-              <input
-                type="number"
-                value={formData.price}
-                onChange={(e) => setFormData(prev => ({ ...prev, price: Number(e.target.value) }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                min="0"
-                required
-              />
-            </div>
+          <Form.Item
+            name="price"
+            label="Giá (VNĐ)"
+            rules={[{ required: true, message: "Vui lòng nhập giá khóa học" }]}
+          >
+            <InputNumber
+              className="w-full"
+              formatter={(value) =>
+                `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+              }
+              parser={(value) => value.replace(/\$\s?|(,*)/g, "")}
+              min={0}
+            />
+          </Form.Item>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Ảnh nền
-              </label>
-              <div className="relative">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  className="w-full"
-                  disabled={isUploading}
-                />
-                {isUploading && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-80">
-                    <Spin tip="Đang tải lên..." />
-                  </div>
-                )}
-              </div>
-              {formData.coverImage && (
-                <img 
-                  src={formData.coverImage} 
-                  alt="Cover preview" 
+          <Form.Item
+            name="subject"
+            label="Môn học"
+            rules={[{ required: true, message: "Vui lòng chọn môn học" }]}
+          >
+            <Select options={SUBJECTS} />
+          </Form.Item>
+
+          <Form.Item
+            name="grade"
+            label="Lớp"
+            rules={[{ required: true, message: "Vui lòng chọn lớp" }]}
+          >
+            <Select options={GRADES} />
+          </Form.Item>
+
+          <Form.Item label="Ảnh nền" name="coverImage">
+            <div className="space-y-2">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="w-full"
+                disabled={isUploading}
+              />
+              {isUploading && (
+                <div className="flex items-center justify-center p-4 bg-gray-50 rounded">
+                  <Spin tip="Đang tải lên..." />
+                </div>
+              )}
+              {form.getFieldValue("coverImage") && (
+                <img
+                  src={form.getFieldValue("coverImage")}
+                  alt="Cover preview"
                   className="mt-2 max-h-40 object-cover rounded"
                 />
               )}
             </div>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Mô tả khóa học
-              </label>
-              <ReactQuill
-                value={formData.description}
-                onChange={(value) => setFormData(prev => ({ ...prev, description: value }))}
-                className="h-40 mb-10"
-              />
-            </div>
-
-            <div className="mt-5 sm:mt-6 sm:grid sm:grid-cols-2 sm:gap-3">
-              <button
-                type="submit"
-                className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:text-sm"
-                disabled={isUploading}
-              >
-                Cập nhật
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="mt-3 sm:mt-0 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm"
-                disabled={isUploading}
-              >
-                Hủy
-              </button>
-            </div>
-          </form>
+          </Form.Item>
         </div>
-      </div>
-    </div>
+
+        <Form.Item
+          name="description"
+          label="Mô tả khóa học"
+          rules={[{ required: true, message: "Vui lòng nhập mô tả khóa học" }]}
+        >
+          <ReactQuill theme="snow" className="h-40" />
+        </Form.Item>
+      </Form>
+    </Modal>
   );
-} 
+}
