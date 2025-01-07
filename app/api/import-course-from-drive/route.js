@@ -1,16 +1,8 @@
 import { NextResponse } from "next/server";
-import { google } from "googleapis";
 import { adminDb } from "@/lib/firebase-admin";
 import { v4 as uuidv4 } from "uuid";
 import { readTokens } from "@/lib/tokenStorage";
-import { encryptId } from "@/lib/encryption";
-
-// Khởi tạo Google Drive API client
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.CALLBACK_URL
-);
+import { initializeDriveClient, getFolderInfo, listFolderContents } from "@/app/utils/serverDriveUtils";
 
 // Hàm lấy ID từ Google Drive URL
 function extractDriveId(url) {
@@ -34,6 +26,11 @@ async function createNewCourse(name) {
       chapters: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      teacher: "",
+      subject: "",
+      grade: "",
+      price: 0,
+      description: ""
     });
     console.log("Đã tạo khóa học mới:", courseRef.id);
     return { id: courseRef.id, name };
@@ -47,12 +44,22 @@ async function createChapter(courseId, name) {
   try {
     const chapterId = uuidv4();
     const courseRef = adminDb.collection("courses").doc(courseId);
+    const courseDoc = await courseRef.get();
+    const courseData = courseDoc.data();
+
+    const newChapter = {
+      id: chapterId,
+      title: name,
+      lessons: [],
+      order: (courseData.chapters?.length || 0) + 1
+    };
+
     await courseRef.update({
-      chapters: [...(await courseRef.get()).data().chapters, { id: chapterId, title: name, lessons: [] }]
+      chapters: [...(courseData.chapters || []), newChapter],
+      updatedAt: new Date().toISOString()
     });
-    console.log(
-      `Đã tạo chapter mới: ${name} (ID: ${chapterId}) cho khóa học: ${courseId}`
-    );
+
+    console.log(`Đã tạo chapter mới: ${name} (ID: ${chapterId}) cho khóa học: ${courseId}`);
     return chapterId;
   } catch (error) {
     console.error("Lỗi khi tạo chapter:", error);
@@ -67,20 +74,29 @@ async function createLesson(courseId, chapterId, name) {
     const courseDoc = await courseRef.get();
     const courseData = courseDoc.data();
 
-    const updatedChapters = courseData.chapters.map((chapter) => {
+    const newLesson = {
+      id: lessonId,
+      title: name,
+      files: [],
+      order: 1
+    };
+
+    const updatedChapters = courseData.chapters.map(chapter => {
       if (chapter.id === chapterId) {
         return {
           ...chapter,
-          lessons: [...(chapter.lessons || []), { id: lessonId, title: name, files: [] }],
+          lessons: [...(chapter.lessons || []), newLesson]
         };
       }
       return chapter;
     });
 
-    await courseRef.update({ chapters: updatedChapters });
-    console.log(
-      `Đã tạo lesson mới: ${name} (ID: ${lessonId}) trong chapter: ${chapterId}`
-    );
+    await courseRef.update({
+      chapters: updatedChapters,
+      updatedAt: new Date().toISOString()
+    });
+
+    console.log(`Đã tạo lesson mới: ${name} (ID: ${lessonId}) trong chapter: ${chapterId}`);
     return { lessonId, chapterId };
   } catch (error) {
     console.error("Lỗi khi tạo lesson:", error);
@@ -90,23 +106,12 @@ async function createLesson(courseId, chapterId, name) {
 
 async function addFileToLesson(courseId, chapterId, lessonId, file) {
   try {
-    const encryptedId = encryptId(file.id);
-    const fileType = getFileType(file.mimeType);
-    
     const fileData = {
       name: file.name,
-      originalName: file.name,
-      proxyUrl: `/api/proxy/files?id=${encryptedId}`,
-      driveFileId: encryptedId,
-      type: fileType,
+      type: getFileType(file.mimeType),
       mimeType: file.mimeType,
       size: file.size,
-      uploadTime: new Date().toISOString(),
-      accessControl: {
-        requiresAuth: true,
-        allowedRoles: ['student', 'teacher', 'admin'],
-        expiryTime: null
-      }
+      uploadTime: new Date().toISOString()
     };
 
     const courseRef = adminDb.collection("courses").doc(courseId);
@@ -135,11 +140,10 @@ async function addFileToLesson(courseId, chapterId, lessonId, file) {
 
     await courseRef.update({ 
       chapters: updatedChapters,
-      updatedAt: new Date().toISOString(),
-      hasEncryptedFiles: true
+      updatedAt: new Date().toISOString()
     });
 
-    console.log(`Đã thêm và mã hóa file ${file.name} vào lesson ${lessonId}`);
+    console.log(`Đã thêm file ${file.name} vào lesson ${lessonId}`);
     return fileData;
   } catch (error) {
     console.error("Lỗi khi thêm file:", error);
@@ -165,34 +169,46 @@ function getFileType(mimeType) {
 
 async function processFolder(drive, folderId, courseId, parentType = 'course', parentId = null, lessonId = null) {
   try {
-    const res = await drive.files.list({
-      q: `'${folderId}' in parents and trashed = false`,
-      fields: 'files(id, name, mimeType, size)',
-      orderBy: 'name',
-    });
+    console.log(`\n=== Bắt đầu xử lý thư mục ===`);
+    console.log(`ParentType: ${parentType}`);
+    console.log(`CourseId: ${courseId}`);
+    console.log(`ParentId: ${parentId}`);
+    console.log(`LessonId: ${lessonId}`);
 
-    const files = res.data.files;
+    const files = await listFolderContents(drive, folderId);
+    console.log(`\nDanh sách files trong thư mục:`, files);
+
     const folders = files.filter(f => f.mimeType === 'application/vnd.google-apps.folder');
     const documents = files.filter(f => f.mimeType !== 'application/vnd.google-apps.folder');
 
+    console.log(`\nSố lượng thư mục con: ${folders.length}`);
+    console.log(`Số lượng tài liệu: ${documents.length}`);
+
     // Xử lý các thư mục (chapters hoặc lessons)
     for (const folder of folders) {
+      console.log(`\n-> Xử lý thư mục: ${folder.name}`);
       if (parentType === 'course') {
+        console.log(`Tạo chapter mới: ${folder.name}`);
         const chapterId = await createChapter(courseId, folder.name);
+        console.log(`Đã tạo chapter với ID: ${chapterId}`);
         await processFolder(drive, folder.id, courseId, 'chapter', chapterId);
       } 
       else if (parentType === 'chapter') {
+        console.log(`Tạo lesson mới trong chapter: ${folder.name}`);
         const { lessonId: newLessonId } = await createLesson(courseId, parentId, folder.name);
+        console.log(`Đã tạo lesson với ID: ${newLessonId}`);
         await processFolder(drive, folder.id, courseId, 'lesson', parentId, newLessonId);
       }
     }
 
     // Xử lý các file trong lesson
     if (parentType === 'lesson' && lessonId) {
+      console.log(`\n-> Xử lý files trong lesson ${lessonId}:`);
       for (const file of documents) {
-        // Kiểm tra loại file trước khi thêm
+        console.log(`Xử lý file: ${file.name}`);
         const fileType = getFileType(file.mimeType);
-        if (fileType !== 'other') { // Chỉ thêm các file được hỗ trợ
+        if (fileType !== 'other') {
+          console.log(`Thêm file ${file.name} vào lesson`);
           await addFileToLesson(courseId, parentId, lessonId, file);
         } else {
           console.warn(`Bỏ qua file không được hỗ trợ: ${file.name}`);
@@ -200,6 +216,7 @@ async function processFolder(drive, folderId, courseId, parentType = 'course', p
       }
     }
 
+    console.log(`=== Kết thúc xử lý thư mục ===\n`);
   } catch (error) {
     console.error('Lỗi khi xử lý thư mục:', error);
     throw error;
@@ -208,8 +225,12 @@ async function processFolder(drive, folderId, courseId, parentType = 'course', p
 
 export async function POST(request) {
   try {
+    console.log('\n=== Bắt đầu import khóa học ===');
     const { driveUrl } = await request.json();
+    console.log('URL Drive:', driveUrl);
+
     const folderId = extractDriveId(driveUrl);
+    console.log('Folder ID:', folderId);
 
     if (!folderId) {
       return NextResponse.json(
@@ -223,22 +244,24 @@ export async function POST(request) {
     if (!tokens?.access_token) {
       throw new Error("Không tìm thấy access token");
     }
+    console.log('Đã lấy được access token');
 
     // Khởi tạo Drive API
-    oauth2Client.setCredentials(tokens);
-    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    const drive = await initializeDriveClient(tokens.access_token);
+    console.log('Đã khởi tạo Drive API');
 
     // Lấy thông tin thư mục gốc
-    const folderInfo = await drive.files.get({
-      fileId: folderId,
-      fields: 'name',
-    });
+    const folderInfo = await getFolderInfo(drive, folderId);
+    console.log('Thông tin thư mục gốc:', folderInfo.data);
 
     // Tạo khóa học mới
     const newCourse = await createNewCourse(folderInfo.data.name);
+    console.log('Đã tạo khóa học mới:', newCourse);
 
     // Xử lý cấu trúc thư mục
     await processFolder(drive, folderId, newCourse.id);
+
+    console.log('=== Kết thúc import khóa học ===\n');
 
     return NextResponse.json({
       success: true,
