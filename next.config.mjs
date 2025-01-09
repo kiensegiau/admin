@@ -23,12 +23,29 @@ const nextConfig = {
         crypto: false,
       };
     }
+
+    // Xử lý undici trong @firebase/auth
+    config.module.rules.push({
+      test: /[\\/]node_modules[\\/](@firebase[\\/]auth|undici)[\\/].*\.js$/,
+      use: {
+        loader: 'babel-loader',
+        options: {
+          presets: ['@babel/preset-env'],
+          plugins: [
+            '@babel/plugin-proposal-private-methods',
+            '@babel/plugin-proposal-class-properties'
+          ]
+        }
+      }
+    });
+
     return config;
   },
-  reactStrictMode: true,
   experimental: {
-    scrollRestoration: true,
+    serverActions: true,
+    serverComponentsExternalPackages: ['undici', '@firebase/auth']
   },
+  reactStrictMode: true,
   async headers() {
     return [
       {

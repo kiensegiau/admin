@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import fetchPonyfill from 'fetch-ponyfill'
+
+const { fetch: customFetch } = fetchPonyfill()
 
 // Dùng Map để lưu rate limits
 const rateLimits = new Map<string, { count: number; timestamp: number }>()
@@ -44,7 +47,17 @@ export async function middleware(request: NextRequest) {
       })
     }
 
-    return NextResponse.next()
+    // Override fetch trong request context
+    const context = {
+      fetch: customFetch
+    }
+
+    return NextResponse.next({
+      request: {
+        ...request,
+        context
+      }
+    })
 
   } catch (error) {
     console.error('Middleware error:', error)
