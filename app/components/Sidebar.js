@@ -1,91 +1,69 @@
-'use client';
+"use client";
 
-import { Layout, Menu } from 'antd';
+import { Layout, Menu } from "antd";
 import {
   DashboardOutlined,
   BookOutlined,
   UserOutlined,
-  VideoCameraOutlined,
-  FileTextOutlined,
   SettingOutlined,
-  CloudUploadOutlined,
-} from '@ant-design/icons';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import Image from 'next/image';
+} from "@ant-design/icons";
+import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 const { Sider } = Layout;
 
 const menuItems = [
   {
-    key: 'dashboard',
+    key: "/",
     icon: <DashboardOutlined />,
-    label: <Link href="/dashboard">Tổng quan</Link>,
+    label: "Tổng quan",
   },
   {
-    key: 'courses',
+    key: "/courses",
     icon: <BookOutlined />,
-    label: <Link href="/courses">Khóa học</Link>,
+    label: "Khóa học",
   },
   {
-    key: 'users',
+    key: "/users",
     icon: <UserOutlined />,
-    label: <Link href="/users">Học viên</Link>,
+    label: "Người dùng",
   },
   {
-    key: 'videos',
-    icon: <VideoCameraOutlined />,
-    label: <Link href="/videos">Video</Link>,
-  },
-  {
-    key: 'documents',
-    icon: <FileTextOutlined />,
-    label: <Link href="/documents">Tài liệu</Link>,
-  },
-  {
-    type: 'divider',
-  },
-  {
-    key: 'import',
-    icon: <CloudUploadOutlined />,
-    label: <Link href="/import-from-drive">Import từ Drive</Link>,
-  },
-  {
-    key: 'settings',
+    key: "/settings",
     icon: <SettingOutlined />,
-    label: <Link href="/settings">Cài đặt</Link>,
+    label: "Cài đặt",
   },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const selectedKey = menuItems.find(item => item.key && pathname.startsWith(`/${item.key}`))?.key || 'dashboard';
+  const router = useRouter();
+
+  const handleMenuClick = ({ key }) => {
+    router.push(key);
+  };
 
   return (
     <Sider
-      width={260}
+      width={200}
       theme="light"
       className="min-h-screen border-r border-gray-200"
+      style={{
+        background: "#fff",
+      }}
     >
       <div className="h-16 flex items-center justify-center border-b border-gray-200">
-        <Link href="/" className="flex items-center space-x-2">
-          <Image
-            src="/logo.png"
-            alt="Logo"
-            width={32}
-            height={32}
-            className="w-8 h-8"
-          />
-          <span className="text-xl font-bold text-gray-800">
-            Admin Portal
-          </span>
-        </Link>
+        <span className="text-lg font-bold">ADMIN</span>
       </div>
       <Menu
         mode="inline"
-        selectedKeys={[selectedKey]}
+        selectedKeys={[pathname]}
+        style={{
+          height: "calc(100% - 64px)",
+          borderRight: 0,
+        }}
         items={menuItems}
-        className="border-r-0 py-4"
+        onClick={handleMenuClick}
       />
     </Sider>
   );

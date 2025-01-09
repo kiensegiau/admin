@@ -1,29 +1,34 @@
 import { useState } from "react";
 import { toast } from "sonner";
 
-export default function AddUserModal({ isOpen, onClose, onAddUser }) {
-  const [newUser, setNewUser] = useState({
-    fullName: "",
-    email: "",
-    phoneNumber: "",
-    password: "",
+export default function EditUserModal({ isOpen, onClose, user, onUpdateUser }) {
+  const [formData, setFormData] = useState({
+    fullName: user.fullName,
+    email: user.email,
+    phoneNumber: user.phoneNumber || "",
+    isActive: user.isActive,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleChange = (e) => {
-    setNewUser({ ...newUser, [e.target.name]: e.target.value });
+    const value =
+      e.target.type === "checkbox" ? e.target.checked : e.target.value;
+    setFormData({ ...formData, [e.target.name]: value });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       setIsSubmitting(true);
-      const response = await fetch("/api/users/add", {
-        method: "POST",
+      const response = await fetch("/api/users/update", {
+        method: "PUT",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(newUser),
+        body: JSON.stringify({
+          userId: user.id,
+          ...formData,
+        }),
       });
 
       const data = await response.json();
@@ -31,12 +36,12 @@ export default function AddUserModal({ isOpen, onClose, onAddUser }) {
         throw new Error(data.error || "Có lỗi xảy ra");
       }
 
-      onAddUser(data.user);
-      toast.success("Người dùng mới đã được thêm");
+      onUpdateUser(data.user);
+      toast.success("Cập nhật người dùng thành công");
       onClose();
     } catch (error) {
-      console.error("Lỗi khi thêm người dùng:", error);
-      toast.error(error.message || "Không thể thêm người dùng mới");
+      console.error("Lỗi khi cập nhật người dùng:", error);
+      toast.error(error.message || "Không thể cập nhật người dùng");
     } finally {
       setIsSubmitting(false);
     }
@@ -54,7 +59,7 @@ export default function AddUserModal({ isOpen, onClose, onAddUser }) {
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-lg font-medium leading-6 text-gray-900 mb-4">
-          Thêm người dùng mới
+          Chỉnh sửa người dùng
         </h3>
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
@@ -68,7 +73,7 @@ export default function AddUserModal({ isOpen, onClose, onAddUser }) {
               type="text"
               name="fullName"
               id="fullName"
-              value={newUser.fullName}
+              value={formData.fullName}
               onChange={handleChange}
               className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
               required
@@ -86,7 +91,7 @@ export default function AddUserModal({ isOpen, onClose, onAddUser }) {
               type="email"
               name="email"
               id="email"
-              value={newUser.email}
+              value={formData.email}
               onChange={handleChange}
               className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
               required
@@ -104,29 +109,24 @@ export default function AddUserModal({ isOpen, onClose, onAddUser }) {
               type="tel"
               name="phoneNumber"
               id="phoneNumber"
-              value={newUser.phoneNumber}
+              value={formData.phoneNumber}
               onChange={handleChange}
               className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
               disabled={isSubmitting}
             />
           </div>
           <div className="mb-4">
-            <label
-              className="block text-gray-700 text-sm font-bold mb-2"
-              htmlFor="password"
-            >
-              Mật khẩu
+            <label className="flex items-center">
+              <input
+                type="checkbox"
+                name="isActive"
+                checked={formData.isActive}
+                onChange={handleChange}
+                className="form-checkbox h-4 w-4 text-blue-600"
+                disabled={isSubmitting}
+              />
+              <span className="ml-2 text-gray-700">Hoạt động</span>
             </label>
-            <input
-              type="text"
-              name="password"
-              id="password"
-              value={newUser.password}
-              onChange={handleChange}
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-              required
-              disabled={isSubmitting}
-            />
           </div>
           <div className="flex items-center justify-between">
             <button
@@ -134,7 +134,7 @@ export default function AddUserModal({ isOpen, onClose, onAddUser }) {
               className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
               disabled={isSubmitting}
             >
-              {isSubmitting ? "Đang thêm..." : "Thêm người dùng"}
+              {isSubmitting ? "Đang cập nhật..." : "Cập nhật"}
             </button>
             <button
               type="button"

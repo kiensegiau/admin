@@ -3,8 +3,6 @@
 import { useState } from "react";
 import { Form, Input, InputNumber, Upload, Select, Button } from "antd";
 import { UploadOutlined, SaveOutlined } from "@ant-design/icons";
-import { addDoc, collection } from "firebase/firestore";
-import { db } from "../firebase";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -52,16 +50,27 @@ export default function CourseForm() {
         description,
         coverImage: coverImage || "",
         chapters: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
       };
 
-      await addDoc(collection(db, "courses"), courseData);
+      const response = await fetch("/api/courses/add", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(courseData),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Có lỗi xảy ra");
+      }
+
       toast.success("Khóa học đã được thêm thành công");
       router.push("/courses");
     } catch (error) {
       console.error("Lỗi:", error);
-      toast.error("Có lỗi xảy ra khi thêm khóa học");
+      toast.error(error.message || "Có lỗi xảy ra khi thêm khóa học");
     } finally {
       setIsSubmitting(false);
     }

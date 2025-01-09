@@ -14,8 +14,6 @@ import {
   Tooltip,
   Tag,
 } from "antd";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { db } from "@/app/firebase";
 import {
   PlusOutlined,
   EditOutlined,
@@ -39,13 +37,10 @@ const FILE_TYPES = {
 
 const getFileType = (url) => {
   try {
-    // Lấy phần mở rộng từ URL hoặc tên file
     const extension = url.split(".").pop().toLowerCase();
-
     if (FILE_TYPES.VIDEO.includes(extension)) return "video";
     if (FILE_TYPES.DOCUMENT.includes(extension)) return "document";
     if (FILE_TYPES.IMAGE.includes(extension)) return "image";
-
     return "other";
   } catch (error) {
     return "other";
@@ -55,9 +50,7 @@ const getFileType = (url) => {
 const validateFileUrl = (url) => {
   try {
     const urlObj = new URL(url);
-    // Kiểm tra URL có phải là Google Drive
     if (urlObj.hostname.includes("drive.google.com")) {
-      // Chuyển đổi URL view sang URL download nếu cần
       if (url.includes("view?usp=sharing")) {
         return url.replace("view?usp=sharing", "preview");
       }
@@ -72,17 +65,13 @@ const getViewUrl = (url) => {
   try {
     const urlObj = new URL(url);
     if (urlObj.hostname.includes("drive.google.com")) {
-      // Lấy file ID từ URL
       let fileId = "";
 
       if (url.includes("/file/d/")) {
-        // Format: https://drive.google.com/file/d/[fileId]/view
         fileId = url.split("/file/d/")[1].split("/")[0];
       } else if (url.includes("id=")) {
-        // Format: https://drive.google.com/open?id=[fileId]
         fileId = new URLSearchParams(urlObj.search).get("id");
       } else {
-        // Tìm ID theo pattern
         const match = url.match(/[-\w]{25,}/);
         if (match) {
           fileId = match[0];
@@ -90,7 +79,6 @@ const getViewUrl = (url) => {
       }
 
       if (fileId) {
-        // Tạo direct download URL
         return `https://drive.google.com/uc?export=view&id=${fileId}`;
       }
     }
@@ -118,16 +106,17 @@ export default function EditCoursePage({ params }) {
 
   const fetchCourse = async () => {
     try {
-      const docRef = doc(db, "courses", params.id);
-      const docSnap = await getDoc(docRef);
+      const response = await fetch(`/api/courses/get?id=${params.id}`);
+      const data = await response.json();
 
-      if (docSnap.exists()) {
-        const courseData = { id: docSnap.id, ...docSnap.data() };
-        setCourse(courseData);
+      if (!response.ok) {
+        throw new Error(data.error || "Không thể tải dữ liệu khóa học");
       }
+
+      setCourse(data);
     } catch (error) {
       console.error("Lỗi khi lấy dữ liệu:", error);
-      message.error("Không thể tải dữ liệu khóa học");
+      message.error(error.message || "Không thể tải dữ liệu khóa học");
     } finally {
       setLoading(false);
     }
@@ -150,7 +139,6 @@ export default function EditCoursePage({ params }) {
   const handleModalOk = async () => {
     try {
       const values = await form.validateFields();
-      const docRef = doc(db, "courses", course.id);
       let updatedChapters = [...(course.chapters || [])];
 
       switch (modalType) {
@@ -289,23 +277,22 @@ export default function EditCoursePage({ params }) {
           break;
       }
 
-      await updateDoc(docRef, {
+      await handleUpdateCourse({
         chapters: updatedChapters,
         updatedAt: new Date().toISOString(),
       });
 
-      message.success("Cập nhật thành công");
       setModalVisible(false);
-      fetchCourse();
+      form.resetFields();
+      message.success("Thao tác thành công");
     } catch (error) {
-      console.error("Lỗi khi cập nhật:", error);
-      message.error(error.message || "Không thể cập nhật. Vui lòng thử lại");
+      console.error("Lỗi:", error);
+      message.error(error.message || "Có lỗi xảy ra");
     }
   };
 
   const handleDelete = async (type, chapterId, lessonId = null) => {
     try {
-      const docRef = doc(db, "courses", course.id);
       let updatedChapters = [...course.chapters];
 
       if (type === "chapter") {
@@ -326,66 +313,52 @@ export default function EditCoursePage({ params }) {
         });
       }
 
-      await updateDoc(docRef, {
-        chapters: updatedChapters,
-        updatedAt: new Date().toISOString(),
-      });
-
-      message.success("Xóa thành công");
-      fetchCourse();
+      await handleUpdateCourse({ chapters: updatedChapters });
+      message.success(
+        `Xóa ${type === "chapter" ? "chương" : "bài học"} thành công`
+      );
     } catch (error) {
       console.error("Lỗi khi xóa:", error);
-      message.error("Không thể xóa. Vui lòng thử lại");
+      message.error(
+        `Không thể xóa ${
+          type === "chapter" ? "chương" : "bài học"
+        }. Vui lòng thử lại`
+      );
     }
   };
 
-  const handleDeleteFile = async (chapterId, lessonId, driveFileId) => {
+  const handleDeleteFile = async (chapterId, lessonId, fileId) => {
     try {
-      if (!driveFileId) {
+      if (!fileId) {
         throw new Error("File ID không hợp lệ");
       }
 
-      const docRef = doc(db, "courses", course.id);
       let updatedChapters = [...course.chapters];
-
-      // Tìm chapter
       const chapter = updatedChapters.find((c) => c.id === chapterId);
       if (!chapter) {
         throw new Error("Không tìm thấy chương");
       }
 
-      // Tìm lesson
       const lesson = chapter.lessons.find((l) => l.id === lessonId);
       if (!lesson) {
         throw new Error("Không tìm thấy bài học");
       }
 
-      // Đảm bảo lesson.files là một mảng
       if (!Array.isArray(lesson.files)) {
         lesson.files = [];
       }
 
-      // Kiểm tra file có tồn tại không
-      const fileToDelete = lesson.files.find(
-        (f) => (f.driveFileId || f.key) === driveFileId
-      );
-      if (!fileToDelete) {
-        throw new Error("Không tìm thấy file cần xóa");
-      }
-
-      // Cập nhật chapters
       updatedChapters = updatedChapters.map((c) => {
         if (c.id === chapterId) {
           return {
             ...c,
             lessons: c.lessons.map((l) => {
               if (l.id === lessonId) {
-                const updatedFiles = l.files.filter(
-                  (f) => (f.driveFileId || f.key) !== driveFileId
-                );
                 return {
                   ...l,
-                  files: updatedFiles,
+                  files: l.files.filter(
+                    (f) => (f.driveFileId || f.key) !== fileId
+                  ),
                 };
               }
               return l;
@@ -395,14 +368,12 @@ export default function EditCoursePage({ params }) {
         return c;
       });
 
-      // Cập nhật database
-      await updateDoc(docRef, {
+      await handleUpdateCourse({
         chapters: updatedChapters,
         updatedAt: new Date().toISOString(),
       });
 
       message.success("Xóa file thành công");
-      fetchCourse();
     } catch (error) {
       console.error("Lỗi khi xóa file:", error);
       message.error(error.message || "Không thể xóa file. Vui lòng thử lại");
@@ -556,13 +527,27 @@ export default function EditCoursePage({ params }) {
 
   const handleUpdateCourse = async (updatedData) => {
     try {
-      const docRef = doc(db, "courses", course.id);
-      await updateDoc(docRef, updatedData);
-      setCourse({ ...course, ...updatedData });
-      message.success("Cập nhật thông tin khóa học thành công");
+      const response = await fetch("/api/courses/update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          courseId: course.id,
+          courseData: updatedData,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Có lỗi xảy ra");
+      }
+
+      message.success("Cập nhật thành công");
+      await fetchCourse();
     } catch (error) {
       console.error("Lỗi khi cập nhật:", error);
-      throw error;
+      message.error(error.message || "Không thể cập nhật khóa học");
     }
   };
 

@@ -1,22 +1,22 @@
-'use client';
+"use client";
+import { Typography, Space, Button } from "antd";
+import { UserAddOutlined } from "@ant-design/icons";
+import UserList from "../components/UserList";
 
-import UserList from '../components/UserList';
-import Header from '../components/Header';
-import Sidebar from '../components/Sidebar';
+const { Title } = Typography;
 
 export default function Users() {
   return (
-    <div className="flex h-screen bg-gray-100">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Header />
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-200 p-6">
-          <h1 className="text-3xl font-semibold text-gray-800 mb-6">Quản lý người dùng</h1>
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <UserList />
-          </div>
-        </main>
+    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <div className="flex justify-between items-center">
+        <Title level={2} style={{ margin: 0 }}>
+          Quản lý người dùng
+        </Title>
+        <Button type="primary" icon={<UserAddOutlined />}>
+          Thêm người dùng
+        </Button>
       </div>
-    </div>
+      <UserList />
+    </Space>
   );
 }

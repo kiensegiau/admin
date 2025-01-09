@@ -1,171 +1,261 @@
-'use client';
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../firebase';
-import { toast } from 'sonner';
-import Modal from './Modal';
-import { Spin } from 'antd';
-import AddUserModal from './AddUserModal';
+"use client";
+import { useState, useEffect } from "react";
+import { Table, Space, Button, Tag, Modal, message, InputNumber } from "antd";
+import {
+  EditOutlined,
+  DeleteOutlined,
+  WalletOutlined,
+} from "@ant-design/icons";
+import { toast } from "sonner";
+import AddUserModal from "./AddUserModal";
+import EditUserModal from "./EditUserModal";
 
-const UserList = React.memo(() => {
+export default function UserList() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filter, setFilter] = useState('all');
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [depositAmount, setDepositAmount] = useState(0);
+  const [showDepositModal, setShowDepositModal] = useState(false);
 
-  const fetchUsers = useCallback(async () => {
+  const fetchUsers = async () => {
     try {
-      const usersRef = collection(db, 'users');
-      const querySnapshot = await getDocs(usersRef);
-      const userList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setUsers(userList);
+      const response = await fetch("/api/users");
+      if (!response.ok) {
+        throw new Error("Không thể tải danh sách người dùng");
+      }
+      const data = await response.json();
+      setUsers(data.users);
     } catch (error) {
-      console.error("Lỗi khi lấy danh sách người dùng:", error);
-      toast.error("Không thể tải danh sách người dùng");
+      console.error("Lỗi khi tải danh sách người dùng:", error);
+      toast.error(error.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  };
 
   useEffect(() => {
     fetchUsers();
-  }, [fetchUsers]);
+  }, []);
 
-  const deleteUser = useCallback(async (userId) => {
-    if (window.confirm("Bạn có chắc chắn muốn xóa người dùng này?")) {
-      try {
-        const response = await fetch('/api/deleteUser', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId }),
-        });
+  const handleAddUser = (newUser) => {
+    setUsers([...users, newUser]);
+  };
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Lỗi khi xóa người dùng');
+  const handleEditUser = (updatedUser) => {
+    setUsers(
+      users.map((user) => (user.id === updatedUser.id ? updatedUser : user))
+    );
+  };
+
+  const handleDeleteUser = (userId) => {
+    Modal.confirm({
+      title: "Xác nhận xóa",
+      content: "Bạn có chắc chắn muốn xóa người dùng này?",
+      okText: "Xóa",
+      okType: "danger",
+      cancelText: "Hủy",
+      onOk: async () => {
+        try {
+          const response = await fetch("/api/users/delete", {
+            method: "DELETE",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ userId }),
+          });
+
+          if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || "Không thể xóa người dùng");
+          }
+
+          setUsers(users.filter((user) => user.id !== userId));
+          message.success("Đã xóa người dùng");
+        } catch (error) {
+          console.error("Lỗi khi xóa người dùng:", error);
+          message.error(error.message);
         }
-
-        setUsers(prevUsers => prevUsers.filter(user => user.id !== userId));
-        toast.success("Người dùng đã được xóa");
-      } catch (error) {
-        console.error("Lỗi chi tiết khi xóa người dùng:", error);
-        toast.error("Không thể xóa người dùng: " + error.message);
-      }
-    }
-  }, []);
-
-  const openUserModal = useCallback((user) => {
-    setSelectedUser({...user, phoneNumber: user.phoneNumber || ''});
-    setIsModalOpen(true);
-  }, []);
-
-  const filteredUsers = useMemo(() => {
-    return users.filter(user => {
-      const matchesSearch = (
-        (user.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
-        (user.email?.toLowerCase().includes(searchTerm.toLowerCase()) || false)
-      );
-      if (filter === 'all') return matchesSearch;
-      if (filter === 'active') return matchesSearch && user.isActive === true;
-      if (filter === 'inactive') return matchesSearch && user.isActive === false;
-      return matchesSearch;
+      },
     });
-  }, [users, searchTerm, filter]);
+  };
 
-  const handleAddUser = useCallback((newUser) => {
-    setUsers(prevUsers => [...prevUsers, newUser]);
-  }, []);
+  const handleDeposit = async () => {
+    try {
+      const response = await fetch("/api/users/deposit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: selectedUser.id,
+          amount: depositAmount,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Không thể nạp tiền");
+      }
+
+      const { balance } = await response.json();
+
+      // Cập nhật danh sách users với số dư mới
+      setUsers(
+        users.map((user) =>
+          user.id === selectedUser.id ? { ...user, balance } : user
+        )
+      );
+
+      message.success("Nạp tiền thành công");
+      setShowDepositModal(false);
+      setDepositAmount(0);
+    } catch (error) {
+      console.error("Lỗi khi nạp tiền:", error);
+      message.error(error.message);
+    }
+  };
+
+  const columns = [
+    {
+      title: "Tên",
+      dataIndex: "fullName",
+      key: "fullName",
+      sorter: (a, b) => a.fullName.localeCompare(b.fullName),
+    },
+    {
+      title: "Email",
+      dataIndex: "email",
+      key: "email",
+    },
+    {
+      title: "Số điện thoại",
+      dataIndex: "phoneNumber",
+      key: "phoneNumber",
+      render: (phone) => phone || "N/A",
+    },
+    {
+      title: "Số dư",
+      dataIndex: "balance",
+      key: "balance",
+      render: (balance) => `${balance?.toLocaleString() || 0} VND`,
+    },
+    {
+      title: "Trạng thái",
+      dataIndex: "isActive",
+      key: "isActive",
+      render: (isActive) => (
+        <Tag color={isActive ? "success" : "error"}>
+          {isActive ? "Hoạt động" : "Không hoạt động"}
+        </Tag>
+      ),
+      filters: [
+        { text: "Hoạt động", value: true },
+        { text: "Không hoạt động", value: false },
+      ],
+      onFilter: (value, record) => record.isActive === value,
+    },
+    {
+      title: "Thao tác",
+      key: "action",
+      render: (_, user) => (
+        <Space size="middle">
+          <Button
+            type="primary"
+            icon={<EditOutlined />}
+            onClick={() => {
+              setSelectedUser(user);
+              setShowEditModal(true);
+            }}
+          />
+          <Button
+            icon={<WalletOutlined />}
+            onClick={() => {
+              setSelectedUser(user);
+              setShowDepositModal(true);
+            }}
+          >
+            Nạp tiền
+          </Button>
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => handleDeleteUser(user.id)}
+          />
+        </Space>
+      ),
+    },
+  ];
 
   return (
-    <div>
-      <div className="mb-4 flex justify-between items-center">
-        <div>
-          <input
-            type="text"
-            placeholder="Tìm kiếm người dùng..."
-            className="p-2 border rounded"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <select
-            className="p-2 border rounded ml-2"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          >
-            <option value="all">Tất cả</option>
-            <option value="active">Đang hoạt động</option>
-            <option value="inactive">Đã khóa</option>
-          </select>
-        </div>
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
-        >
-          Thêm người dùng
-        </button>
-      </div>
-      {loading ? (
-        <div className="flex justify-center items-center h-64">
-          <Spin size="large" tip="Đang tải..." />
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full bg-white">
-            <thead>
-              <tr>
-                <th className="px-6 py-3 border-b-2 border-gray-300 text-left text-xs leading-4 font-medium text-gray-500 uppercase tracking-wider">Tên</th>
-                <th className="px-6 py-3 border-b-2 border-gray-300 text-left text-xs leading-4 font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                <th className="px-6 py-3 border-b-2 border-gray-300 text-left text-xs leading-4 font-medium text-gray-500 uppercase tracking-wider">Trạng thái</th>
-                <th className="px-6 py-3 border-b-2 border-gray-300 text-left text-xs leading-4 font-medium text-gray-500 uppercase tracking-wider">Hành động</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredUsers.map(user => (
-                <tr key={user.id}>
-                  <td className="px-6 py-4 whitespace-no-wrap border-b border-gray-500">
-                    <div className="text-sm leading-5 font-medium text-gray-900">{user.fullName}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-no-wrap border-b border-gray-500">
-                    <div className="text-sm leading-5 text-gray-900">{user.email}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-no-wrap border-b border-gray-500">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${user.isActive !== false ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                      {user.isActive !== false ? 'Hoạt động' : 'Đã khóa'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-no-wrap border-b border-gray-500 text-sm leading-5 font-medium">
-                    <button onClick={() => openUserModal(user)} className="text-indigo-600 hover:text-indigo-900">
-                      Xem chi tiết
-                    </button>
-                    <button onClick={() => deleteUser(user.id)} className="text-red-600 hover:text-red-900 ml-4">Xóa</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {isModalOpen && (
-        <Modal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          user={selectedUser}
-          onSave={(updatedUser) => {
-            setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
-            setIsModalOpen(false);
-          }}
+    <>
+      <Table
+        columns={columns}
+        dataSource={users}
+        rowKey="id"
+        loading={loading}
+        pagination={{
+          defaultPageSize: 10,
+          showSizeChanger: true,
+          showTotal: (total) => `Tổng số ${total} người dùng`,
+        }}
+      />
+
+      {showAddModal && (
+        <AddUserModal
+          open={showAddModal}
+          onCancel={() => setShowAddModal(false)}
+          onSuccess={handleAddUser}
         />
       )}
-      <AddUserModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onAddUser={handleAddUser}
-      />
-    </div>
-  );
-});
 
-export default UserList;
+      {showEditModal && selectedUser && (
+        <EditUserModal
+          open={showEditModal}
+          onCancel={() => {
+            setShowEditModal(false);
+            setSelectedUser(null);
+          }}
+          user={selectedUser}
+          onSuccess={handleEditUser}
+        />
+      )}
+
+      <Modal
+        title="Nạp tiền"
+        open={showDepositModal}
+        onCancel={() => {
+          setShowDepositModal(false);
+          setSelectedUser(null);
+          setDepositAmount(0);
+        }}
+        onOk={handleDeposit}
+        okText="Xác nhận"
+        cancelText="Hủy"
+      >
+        <div className="space-y-4">
+          <div>
+            <p>Người dùng: {selectedUser?.fullName}</p>
+            <p>
+              Số dư hiện tại: {selectedUser?.balance?.toLocaleString() || 0} VND
+            </p>
+          </div>
+          <div>
+            <p>Số tiền nạp:</p>
+            <InputNumber
+              style={{ width: "100%" }}
+              min={0}
+              step={10000}
+              formatter={(value) =>
+                `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+              }
+              parser={(value) => value.replace(/\$\s?|(,*)/g, "")}
+              onChange={(value) => setDepositAmount(value)}
+            />
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+}

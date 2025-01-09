@@ -28,37 +28,23 @@ const nextConfig = {
     config.module.rules.push({
       test: /[\\/]node_modules[\\/](@firebase[\\/]auth|undici)[\\/].*\.js$/,
       use: {
-        loader: 'babel-loader',
+        loader: "babel-loader",
         options: {
-          presets: ['@babel/preset-env'],
+          presets: ["@babel/preset-env"],
           plugins: [
-            '@babel/plugin-proposal-private-methods',
-            '@babel/plugin-proposal-class-properties'
-          ]
-        }
-      }
+            "@babel/plugin-proposal-private-methods",
+            "@babel/plugin-proposal-class-properties",
+          ],
+        },
+      },
     });
 
     return config;
   },
   experimental: {
-    serverActions: true,
-    serverComponentsExternalPackages: ['undici', '@firebase/auth']
+    serverComponentsExternalPackages: ["undici", "@firebase/auth"],
   },
   reactStrictMode: true,
-  async headers() {
-    return [
-      {
-        source: '/api/:path*',
-        headers: [
-          { key: 'Access-Control-Allow-Credentials', value: 'true' },
-          { key: 'Access-Control-Allow-Origin', value: '*' },
-          { key: 'Access-Control-Allow-Methods', value: 'GET,OPTIONS,PATCH,DELETE,POST,PUT' },
-          { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version' },
-        ],
-      },
-    ];
-  },
 };
 
 export default nextConfig;
