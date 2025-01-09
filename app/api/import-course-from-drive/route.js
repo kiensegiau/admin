@@ -356,17 +356,48 @@ export async function POST(request) {
     // Xử lý cấu trúc thư mục
     await processFolder(drive, folderId, newCourse.id);
 
+    // Lấy dữ liệu khóa học sau khi đã import xong
+    const courseRef = db.collection("courses").doc(newCourse.id);
+    const courseDoc = await courseRef.get();
+    const courseData = courseDoc.data();
+
+    if (!courseData) {
+      throw new Error("Không thể lấy dữ liệu khóa học sau khi import");
+    }
+
+    // Format dữ liệu theo cấu trúc mà component cần
+    const structure = {
+      name: courseData.title || "",
+      type: "folder",
+      children: (courseData.chapters || []).map((chapter) => ({
+        name: chapter.title || "",
+        type: "folder",
+        children: (chapter.lessons || []).map((lesson) => ({
+          name: lesson.title || "",
+          type: "folder",
+          children: (lesson.files || []).map((file) => ({
+            name: file.name || "",
+            type: "file",
+          })),
+        })),
+      })),
+    };
+
     console.log("=== Kết thúc import khóa học ===\n");
 
     return NextResponse.json({
       success: true,
-      courseId: newCourse.id,
+      title: courseData.title || "",
+      structure: structure,
       message: "Import khóa học thành công",
     });
   } catch (error) {
     console.error("Lỗi khi import khóa học:", error);
     return NextResponse.json(
-      { error: error.message || "Có lỗi xảy ra khi import khóa học" },
+      {
+        success: false,
+        error: error.message || "Có lỗi xảy ra khi import khóa học",
+      },
       { status: 500 }
     );
   }
