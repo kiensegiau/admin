@@ -15,6 +15,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import Link from "next/link";
 
 const { Title } = Typography;
+const { Content } = Layout;
 const { confirm } = Modal;
 
 export default function CoursesPage() {
