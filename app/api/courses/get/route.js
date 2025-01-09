@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebase-admin";
+import { db } from "@/lib/firebase-admin";
 
 export async function GET(request) {
   try {
@@ -13,7 +13,11 @@ export async function GET(request) {
       );
     }
 
-    const courseDoc = await adminDb.collection("courses").doc(courseId).get();
+    if (!db) {
+      throw new Error("Firestore chưa được khởi tạo");
+    }
+
+    const courseDoc = await db.collection("courses").doc(courseId).get();
 
     if (!courseDoc.exists) {
       return NextResponse.json(

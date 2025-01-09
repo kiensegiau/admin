@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebase-admin";
+import { db } from "@/lib/firebase-admin";
 
 export async function POST(request) {
   try {
@@ -19,7 +19,11 @@ export async function POST(request) {
       );
     }
 
-    await adminDb.collection("courses").doc(courseId).update(courseData);
+    if (!db) {
+      throw new Error("Firestore chưa được khởi tạo");
+    }
+
+    await db.collection("courses").doc(courseId).update(courseData);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error updating course:", error);

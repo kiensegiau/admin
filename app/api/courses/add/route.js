@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebase-admin";
+import { db } from "@/lib/firebase-admin";
 
 export async function POST(request) {
   try {
@@ -12,7 +12,11 @@ export async function POST(request) {
       );
     }
 
-    const docRef = await adminDb.collection("courses").add({
+    if (!db) {
+      throw new Error("Firestore chưa được khởi tạo");
+    }
+
+    const docRef = await db.collection("courses").add({
       ...courseData,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

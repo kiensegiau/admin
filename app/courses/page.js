@@ -13,10 +13,7 @@ import {
 } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import Link from "next/link";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "../firebase";
 
-const { Content } = Layout;
 const { Title } = Typography;
 const { confirm } = Modal;
 
@@ -30,13 +27,14 @@ export default function CoursesPage() {
 
   const fetchCourses = async () => {
     try {
-      const coursesCollection = collection(db, "courses");
-      const coursesSnapshot = await getDocs(coursesCollection);
-      const coursesList = coursesSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setCourses(coursesList);
+      const response = await fetch("/api/courses");
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Không thể tải danh sách khóa học");
+      }
+
+      setCourses(data.courses);
     } catch (error) {
       console.error("Error fetching courses:", error);
       message.error("Không thể tải danh sách khóa học");

@@ -106,14 +106,14 @@ export default function EditCoursePage({ params }) {
 
   const fetchCourse = async () => {
     try {
-      const response = await fetch(`/api/courses/get?id=${params.id}`);
+      const response = await fetch(`/api/courses/${params.id}`);
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(data.error || "Không thể tải dữ liệu khóa học");
       }
 
-      setCourse(data);
+      setCourse(data.course);
     } catch (error) {
       console.error("Lỗi khi lấy dữ liệu:", error);
       message.error(error.message || "Không thể tải dữ liệu khóa học");
