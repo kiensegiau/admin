@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/firebase-admin";
 
 export async function middleware(request) {
   const session = request.cookies.get("session")?.value || "";
@@ -7,12 +6,7 @@ export async function middleware(request) {
   // Trả về ngay nếu đang ở trang login
   if (request.nextUrl.pathname === "/login") {
     if (session) {
-      try {
-        await auth.verifySessionCookie(session, true);
-        return NextResponse.redirect(new URL("/", request.url));
-      } catch (error) {
-        return NextResponse.next();
-      }
+      return NextResponse.redirect(new URL("/", request.url));
     }
     return NextResponse.next();
   }
@@ -22,20 +16,20 @@ export async function middleware(request) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  try {
-    await auth.verifySessionCookie(session, true);
-    return NextResponse.next();
-  } catch (error) {
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
+  return NextResponse.next();
 }
 
 export const config = {
   matcher: [
-    "/",
-    "/login",
-    "/users/:path*",
-    "/courses/:path*",
-    "/settings/:path*",
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api/public (API routes that don't require authentication)
+     * - api/auth (authentication endpoints)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public (public files)
+     */
+    '/((?!api/public|api/auth|_next/static|_next/image|favicon.ico|public).*)',
   ],
 };

@@ -1,52 +1,47 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { auth } from '@/lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { useRouter, usePathname } from 'next/navigation';
+import LoadingScreen from '@/app/components/LoadingScreen';
 
-const AuthContext = createContext();
+const AuthContext = createContext({});
+
+export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
-
-  const checkAuth = async () => {
-    try {
-      const response = await fetch('/api/auth/check-auth');
-      const data = await response.json();
-
-      if (response.ok && data.authenticated) {
-        setUser(data.user);
-      } else {
-        setUser(null);
-      }
-    } catch (error) {
-      console.error('Lỗi kiểm tra xác thực:', error);
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const pathname = usePathname();
 
   useEffect(() => {
-    checkAuth();
-  }, []);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setUser(user);
+        if (pathname === '/login') {
+          router.push('/');
+        }
+      } else {
+        setUser(null);
+        if (pathname !== '/login') {
+          router.push('/login');
+        }
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [pathname]);
 
   if (loading) {
-    return <div>Loading...</div>;
+    return <LoadingScreen />;
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, checkAuth }}>
+    <AuthContext.Provider value={{ user, loading }}>
       {children}
     </AuthContext.Provider>
   );
-}
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-}; 
+} 

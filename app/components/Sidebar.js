@@ -45,11 +45,15 @@ export default function Sidebar() {
 
   return (
     <Sider
-      width={200}
+      width={250}
       theme="light"
-      className="min-h-screen border-r border-gray-200"
       style={{
-        background: "#fff",
+        overflow: 'auto',
+        height: '100vh',
+        position: 'fixed',
+        left: 0,
+        top: 0,
+        bottom: 0,
       }}
     >
       <div className="h-16 flex items-center justify-center border-b border-gray-200">
