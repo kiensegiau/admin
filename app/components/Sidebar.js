@@ -45,7 +45,7 @@ export default function Sidebar() {
 
   return (
     <Sider
-      width={250}
+      width={200}
       theme="light"
       style={{
         overflow: 'auto',
@@ -54,6 +54,10 @@ export default function Sidebar() {
         left: 0,
         top: 0,
         bottom: 0,
+        background: '#fff',
+        borderRight: '1px solid #f0f0f0',
+        zIndex: 999,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
       }}
     >
       <div className="h-16 flex items-center justify-center border-b border-gray-200">

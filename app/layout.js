@@ -20,12 +20,26 @@ function RootLayoutContent({ children }) {
   return (
     <div className={inter.className}>
       <Toaster position="top-center" richColors />
-      <Layout style={{ minHeight: "100vh" }}>
+      <Layout hasSider style={{ minHeight: '100vh' }}>
         <Sidebar />
-        <Layout>
-          <div className="p-8">
+        <Layout 
+          style={{ 
+            marginLeft: 200,
+            background: '#f5f5f5'
+          }}
+        >
+          <Layout.Content
+            style={{
+              margin: '24px',
+              padding: '24px',
+              background: '#fff',
+              borderRadius: '8px',
+              minHeight: 'calc(100vh - 48px)',
+              overflow: 'auto'
+            }}
+          >
             {children}
-          </div>
+          </Layout.Content>
         </Layout>
       </Layout>
     </div>
@@ -35,7 +49,11 @@ function RootLayoutContent({ children }) {
 export default function RootLayout({ children }) {
   return (
     <html lang="vi">
-      <body>
+      <body style={{ 
+        margin: 0, 
+        padding: 0,
+        background: '#f5f5f5'
+      }}>
         <AuthProvider>
           <RootLayoutContent>{children}</RootLayoutContent>
         </AuthProvider>
