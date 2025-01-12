@@ -89,6 +89,108 @@ const getViewUrl = (url) => {
   }
 };
 
+const getProxyUrl = (driveUrl) => {
+  try {
+    const urlObj = new URL(driveUrl);
+    if (urlObj.hostname.includes("drive.google.com")) {
+      let fileId = "";
+
+      if (driveUrl.includes("/file/d/")) {
+        fileId = driveUrl.split("/file/d/")[1].split("/")[0];
+      } else if (driveUrl.includes("id=")) {
+        fileId = new URLSearchParams(urlObj.search).get("id");
+      } else {
+        const match = driveUrl.match(/[-\w]{25,}/);
+        if (match) {
+          fileId = match[0];
+        }
+      }
+
+      if (fileId) {
+        // Gọi API để lấy public ID
+        return `/api/proxy/get-public-id?driveId=${fileId}`;
+      }
+    }
+    return driveUrl;
+  } catch (error) {
+    console.error("Lỗi khi xử lý URL:", error);
+    return driveUrl;
+  }
+};
+
+const verifyAndEncryptUrl = async (url) => {
+  try {
+    // Xác minh URL Google Drive
+    const urlObj = new URL(url);
+    if (!urlObj.hostname.includes("drive.google.com")) {
+      throw new Error("URL phải là link Google Drive");
+    }
+
+    let driveId = "";
+    if (url.includes("/file/d/")) {
+      driveId = url.split("/file/d/")[1].split("/")[0];
+    } else if (url.includes("id=")) {
+      driveId = new URLSearchParams(urlObj.search).get("id");
+    } else {
+      const match = url.match(/[-\w]{25,}/);
+      if (match) {
+        driveId = match[0];
+      }
+    }
+
+    if (!driveId) {
+      throw new Error("Không thể lấy Drive ID từ URL");
+    }
+
+    // Mã hóa URL
+    const encryptResponse = await fetch("/api/proxy/encrypt", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url, driveId }),
+    });
+
+    if (!encryptResponse.ok) {
+      throw new Error("Không thể mã hóa URL");
+    }
+
+    const { encryptedUrl } = await encryptResponse.json();
+    return { driveId, encryptedUrl };
+  } catch (error) {
+    throw new Error(error.message || "Lỗi khi xử lý URL");
+  }
+};
+
+const verifyDriveUrl = (url) => {
+  try {
+    const urlObj = new URL(url);
+    if (!urlObj.hostname.includes("drive.google.com")) {
+      throw new Error("URL phải là link Google Drive");
+    }
+
+    let driveId = "";
+    if (url.includes("/file/d/")) {
+      driveId = url.split("/file/d/")[1].split("/")[0];
+    } else if (url.includes("id=")) {
+      driveId = new URLSearchParams(urlObj.search).get("id");
+    } else {
+      const match = url.match(/[-\w]{25,}/);
+      if (match) {
+        driveId = match[0];
+      }
+    }
+
+    if (!driveId) {
+      throw new Error("Không thể lấy Drive ID từ URL");
+    }
+
+    return driveId;
+  } catch (error) {
+    throw new Error(error.message || "URL không hợp lệ");
+  }
+};
+
 export default function EditCoursePage({ params }) {
   const [course, setCourse] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -139,6 +241,22 @@ export default function EditCoursePage({ params }) {
   const handleModalOk = async () => {
     try {
       const values = await form.validateFields();
+
+      if (modalType === "add-file") {
+        await handleAddFile(values, selectedChapter, selectedLesson);
+        return;
+      }
+
+      if (modalType === "edit-file") {
+        await handleEditFile(
+          values,
+          selectedChapter,
+          selectedLesson,
+          selectedFile
+        );
+        return;
+      }
+
       let updatedChapters = [...(course.chapters || [])];
 
       switch (modalType) {
@@ -329,41 +447,117 @@ export default function EditCoursePage({ params }) {
 
   const handleDeleteFile = async (chapterId, lessonId, fileId) => {
     try {
-      if (!fileId) {
-        throw new Error("File ID không hợp lệ");
-      }
-
-      let updatedChapters = [...course.chapters];
-      const chapter = updatedChapters.find((c) => c.id === chapterId);
-      if (!chapter) {
-        throw new Error("Không tìm thấy chương");
-      }
-
-      const lesson = chapter.lessons.find((l) => l.id === lessonId);
-      if (!lesson) {
-        throw new Error("Không tìm thấy bài học");
-      }
-
-      if (!Array.isArray(lesson.files)) {
-        lesson.files = [];
-      }
-
-      updatedChapters = updatedChapters.map((c) => {
-        if (c.id === chapterId) {
-          return {
-            ...c,
-            lessons: c.lessons.map((l) => {
-              if (l.id === lessonId) {
-                return {
-                  ...l,
-                  files: l.files.filter(
-                    (f) => (f.driveFileId || f.key) !== fileId
-                  ),
-                };
+      const updatedChapters = course.chapters.map((chapter) => {
+        if (chapter.id === chapterId) {
+          const updatedLessons = chapter.lessons.map((lesson) => {
+            if (lesson.id === lessonId) {
+              // Tìm file cần xóa để lấy driveId
+              const fileToDelete = lesson.files.find(
+                (file) => file.id === fileId
+              );
+              if (fileToDelete && fileToDelete.driveId) {
+                // TODO: Gọi API để xóa file từ Google Drive nếu cần
+                console.log("Xóa file từ Drive:", fileToDelete.driveId);
               }
-              return l;
-            }),
-          };
+
+              return {
+                ...lesson,
+                files: lesson.files.filter((file) => file.id !== fileId),
+              };
+            }
+            return lesson;
+          });
+          return { ...chapter, lessons: updatedLessons };
+        }
+        return chapter;
+      });
+
+      const response = await fetch(`/api/courses/${params.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...course,
+          chapters: updatedChapters,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Không thể xóa file");
+      }
+
+      setCourse({ ...course, chapters: updatedChapters });
+      message.success("Đã xóa file thành công");
+    } catch (error) {
+      console.error("Lỗi khi xóa file:", error);
+      message.error(error.message || "Không thể xóa file");
+    }
+  };
+
+  const handleEditFile = async (values, chapter, lesson, file) => {
+    try {
+      // Xác minh URL Drive và lấy Drive ID nếu URL thay đổi
+      let driveId = file.driveId;
+      let proxyUrl = file.proxyUrl;
+
+      if (values.url !== file.url) {
+        driveId = verifyDriveUrl(values.url);
+
+        // Mã hóa Drive ID mới
+        const encryptResponse = await fetch("/api/proxy/encrypt", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ fileId: driveId }),
+          cache: "no-store",
+        });
+
+        let responseData;
+        try {
+          responseData = await encryptResponse.json();
+        } catch (e) {
+          const textError = await encryptResponse.text();
+          throw new Error(textError || "Không thể đọc response từ server");
+        }
+
+        if (!encryptResponse.ok) {
+          throw new Error(responseData.error || "Không thể mã hóa URL");
+        }
+
+        if (!responseData.encryptedId) {
+          throw new Error("Không nhận được mã hóa ID từ server");
+        }
+
+        proxyUrl = `/api/proxy/files?id=${responseData.encryptedId}`;
+      }
+
+      const fileType = values.type || getFileType(values.url);
+
+      const updatedChapters = course.chapters.map((c) => {
+        if (c.id === chapter.id) {
+          const updatedLessons = c.lessons.map((l) => {
+            if (l.id === lesson.id) {
+              const updatedFiles = l.files.map((f) => {
+                if (f.id === file.id) {
+                  return {
+                    ...f,
+                    name: values.name,
+                    url: values.url,
+                    proxyUrl,
+                    driveId,
+                    type: fileType,
+                    updateTime: new Date().toISOString(),
+                  };
+                }
+                return f;
+              });
+              return { ...l, files: updatedFiles };
+            }
+            return l;
+          });
+          return { ...c, lessons: updatedLessons };
         }
         return c;
       });
@@ -373,10 +567,12 @@ export default function EditCoursePage({ params }) {
         updatedAt: new Date().toISOString(),
       });
 
-      message.success("Xóa file thành công");
+      message.success("Đã cập nhật file thành công");
+      setModalVisible(false);
+      form.resetFields();
     } catch (error) {
-      console.error("Lỗi khi xóa file:", error);
-      message.error(error.message || "Không thể xóa file. Vui lòng thử lại");
+      console.error("Lỗi khi cập nhật file:", error);
+      message.error(error.message || "Không thể cập nhật file");
     }
   };
 
@@ -386,11 +582,11 @@ export default function EditCoursePage({ params }) {
     setSelectedLesson(lesson);
     setSelectedFile(file);
 
-    if (type === "edit-file") {
+    if (type === "edit-file" && file) {
       form.setFieldsValue({
         name: file.name,
-        url: file.url,
-        type: file.type,
+        url: file.url || "",
+        type: file.type || getFileType(file.url),
       });
     } else {
       form.resetFields();
@@ -403,33 +599,99 @@ export default function EditCoursePage({ params }) {
     window.open(viewUrl, "_blank");
   };
 
-  const renderFileList = (lesson, chapter) => {
-    // Đảm bảo lesson.files là mảng
-    if (!Array.isArray(lesson.files)) {
-      lesson.files = [];
+  const handleAddFile = async (values, chapter, lesson) => {
+    try {
+      // Xác minh URL Drive và lấy Drive ID
+      const driveId = verifyDriveUrl(values.url);
+      const fileType = values.type || getFileType(values.url);
+
+      // Mã hóa Drive ID
+      const encryptResponse = await fetch("/api/proxy/encrypt", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ fileId: driveId }),
+        cache: "no-store",
+      });
+
+      let responseData;
+      try {
+        responseData = await encryptResponse.json();
+      } catch (e) {
+        const textError = await encryptResponse.text();
+        throw new Error(textError || "Không thể đọc response từ server");
+      }
+
+      if (!encryptResponse.ok) {
+        throw new Error(responseData.error || "Không thể mã hóa URL");
+      }
+
+      if (!responseData.encryptedId) {
+        throw new Error("Không nhận được mã hóa ID từ server");
+      }
+
+      const proxyUrl = `/api/proxy/files?id=${responseData.encryptedId}`;
+
+      // Thêm file mới với proxy URL
+      const updatedChapters = course.chapters.map((c) => {
+        if (c.id === chapter.id) {
+          const updatedLessons = c.lessons.map((l) => {
+            if (l.id === lesson.id) {
+              return {
+                ...l,
+                files: [
+                  ...(l.files || []),
+                  {
+                    id: uuidv4(),
+                    name: values.name,
+                    url: values.url,
+                    proxyUrl,
+                    driveId,
+                    type: fileType,
+                    uploadTime: new Date().toISOString(),
+                  },
+                ],
+              };
+            }
+            return l;
+          });
+          return { ...c, lessons: updatedLessons };
+        }
+        return c;
+      });
+
+      await handleUpdateCourse({
+        chapters: updatedChapters,
+        updatedAt: new Date().toISOString(),
+      });
+
+      message.success("Đã thêm file thành công");
+      setModalVisible(false);
+      form.resetFields();
+    } catch (error) {
+      console.error("Lỗi khi thêm file:", error);
+      message.error(error.message || "Không thể thêm file");
     }
+  };
 
-    // Map dữ liệu cho table
-    const dataSource = lesson.files.map((file) => ({
-      key: file.driveFileId || file.key,
-      driveFileId: file.driveFileId || file.key,
-      name: file.name || "Không có tên",
-      url: file.url || "",
-      type: file.type || getFileType(file.url || ""),
-      updateTime:
-        file.updateTime || file.uploadTime || new Date().toISOString(),
-    }));
-
+  const renderFileList = (lesson, chapter) => {
     const columns = [
       {
-        title: "Tên",
+        title: "Tên file",
         dataIndex: "name",
         key: "name",
         render: (text, record) => (
-          <div className="flex items-center gap-2">
-            {record.type === "video" && <PlayCircleOutlined />}
-            {record.type === "document" && <FileOutlined />}
-            {record.type === "image" && <FileImageOutlined />}
+          <div style={{ display: "flex", alignItems: "center" }}>
+            {record.type === "video" && (
+              <PlayCircleOutlined style={{ marginRight: 8 }} />
+            )}
+            {record.type === "document" && (
+              <FileOutlined style={{ marginRight: 8 }} />
+            )}
+            {record.type === "image" && (
+              <FileImageOutlined style={{ marginRight: 8 }} />
+            )}
             {text}
           </div>
         ),
@@ -445,9 +707,7 @@ export default function EditCoursePage({ params }) {
                 ? "blue"
                 : type === "document"
                 ? "green"
-                : type === "image"
-                ? "purple"
-                : "default"
+                : "orange"
             }
           >
             {type.toUpperCase()}
@@ -455,63 +715,71 @@ export default function EditCoursePage({ params }) {
         ),
       },
       {
-        title: "Ngày cập nhật",
-        dataIndex: "updateTime",
-        key: "updateTime",
-        render: (date) => new Date(date).toLocaleDateString("vi-VN"),
+        title: "Link",
+        key: "url",
+        render: (_, record) => (
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button
+              type="link"
+              onClick={() => {
+                navigator.clipboard.writeText(record.proxyUrl || record.url);
+                message.success("Đã sao chép link");
+              }}
+            >
+              Sao chép link
+            </Button>
+            <Button
+              type="link"
+              onClick={() =>
+                window.open(record.proxyUrl || record.url, "_blank")
+              }
+            >
+              Mở link
+            </Button>
+          </div>
+        ),
       },
       {
         title: "Thao tác",
         key: "action",
-        render: (_, file) => {
-          if (!file || !file.driveFileId) {
-            console.error("File không hợp lệ:", file);
-            return null;
-          }
-
-          return (
-            <div className="flex gap-2">
-              <Tooltip title="Xem">
-                <Button
-                  icon={<EyeOutlined />}
-                  onClick={() => handleViewFile(file.url)}
-                  disabled={!file.url}
-                />
-              </Tooltip>
-              <Tooltip title="Sửa">
-                <Button
-                  icon={<EditOutlined />}
-                  onClick={() =>
-                    showFileModal("edit-file", chapter, lesson, file)
-                  }
-                />
-              </Tooltip>
-              <Tooltip title="Xóa">
-                <Popconfirm
-                  title="Bạn có chắc chắn muốn xóa file này?"
-                  onConfirm={() => {
-                    if (!file.driveFileId) {
-                      message.error("Không thể xóa file không có ID");
-                      return;
-                    }
-                    handleDeleteFile(chapter.id, lesson.id, file.driveFileId);
-                  }}
-                  okText="Có"
-                  cancelText="Không"
-                >
-                  <Button danger icon={<DeleteOutlined />} />
-                </Popconfirm>
-              </Tooltip>
-            </div>
-          );
-        },
+        render: (_, record) => (
+          <div style={{ display: "flex", gap: 8 }}>
+            <Tooltip title="Sửa">
+              <Button
+                type="text"
+                icon={<EditOutlined />}
+                onClick={() =>
+                  showFileModal("edit-file", chapter, lesson, record)
+                }
+              />
+            </Tooltip>
+            <Tooltip title="Xóa">
+              <Popconfirm
+                title="Bạn có chắc chắn muốn xóa file này?"
+                onConfirm={() =>
+                  handleDeleteFile(chapter.id, lesson.id, record.id)
+                }
+                okText="Xóa"
+                cancelText="Hủy"
+              >
+                <Button type="text" danger icon={<DeleteOutlined />} />
+              </Popconfirm>
+            </Tooltip>
+          </div>
+        ),
       },
     ];
 
     return (
-      <div className="p-4">
-        <div className="flex justify-between items-center mb-4">
-          <h3>Danh sách file</h3>
+      <div style={{ marginTop: 16 }}>
+        <div
+          style={{
+            marginBottom: 16,
+            display: "flex",
+            justifyContent: "space-between",
+          }}
+        >
+          <h4>Danh sách file</h4>
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -520,7 +788,12 @@ export default function EditCoursePage({ params }) {
             Thêm file
           </Button>
         </div>
-        <Table columns={columns} dataSource={dataSource} pagination={false} />
+        <Table
+          columns={columns}
+          dataSource={lesson.files || []}
+          rowKey="id"
+          pagination={false}
+        />
       </div>
     );
   };
@@ -682,7 +955,10 @@ export default function EditCoursePage({ params }) {
         }
         open={modalVisible}
         onOk={handleModalOk}
-        onCancel={() => setModalVisible(false)}
+        onCancel={() => {
+          setModalVisible(false);
+          form.resetFields();
+        }}
       >
         <Form form={form} layout="vertical">
           {["chapter", "lesson", "edit-chapter", "edit-lesson"].includes(
@@ -706,11 +982,37 @@ export default function EditCoursePage({ params }) {
               </Form.Item>
               <Form.Item
                 name="url"
-                label="Link"
+                label="Link Google Drive"
                 rules={[
                   { required: true, message: "Vui lòng nhập link" },
                   { type: "url", message: "Vui lòng nhập link hợp lệ" },
+                  {
+                    validator: async (_, value) => {
+                      if (value) {
+                        try {
+                          verifyDriveUrl(value);
+                        } catch (error) {
+                          throw new Error(error.message);
+                        }
+                      }
+                    },
+                    message: "URL phải là link Google Drive hợp lệ",
+                  },
                 ]}
+                extra={
+                  modalType === "edit-file" && selectedFile?.proxyUrl ? (
+                    <div style={{ marginTop: 8 }}>
+                      <div>Link proxy hiện tại:</div>
+                      <a
+                        href={selectedFile.proxyUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {selectedFile.proxyUrl}
+                      </a>
+                    </div>
+                  ) : null
+                }
               >
                 <Input prefix={<LinkOutlined />} />
               </Form.Item>
