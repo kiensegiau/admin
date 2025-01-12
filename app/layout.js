@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
 import { AuthProvider } from "./providers/AuthProvider";
+import { TokenRefreshProvider } from "./providers/TokenRefreshProvider";
 import Sidebar from "./components/Sidebar";
 import { usePathname } from "next/navigation";
 import { Layout } from "antd";
@@ -20,22 +21,22 @@ function RootLayoutContent({ children }) {
   return (
     <div className={inter.className}>
       <Toaster position="top-center" richColors />
-      <Layout hasSider style={{ minHeight: '100vh' }}>
+      <Layout hasSider style={{ minHeight: "100vh" }}>
         <Sidebar />
-        <Layout 
-          style={{ 
+        <Layout
+          style={{
             marginLeft: 200,
-            background: '#f5f5f5'
+            background: "#f5f5f5",
           }}
         >
           <Layout.Content
             style={{
-              margin: '24px',
-              padding: '24px',
-              background: '#fff',
-              borderRadius: '8px',
-              minHeight: 'calc(100vh - 48px)',
-              overflow: 'auto'
+              margin: "24px",
+              padding: "24px",
+              background: "#fff",
+              borderRadius: "8px",
+              minHeight: "calc(100vh - 48px)",
+              overflow: "auto",
             }}
           >
             {children}
@@ -49,13 +50,17 @@ function RootLayoutContent({ children }) {
 export default function RootLayout({ children }) {
   return (
     <html lang="vi">
-      <body style={{ 
-        margin: 0, 
-        padding: 0,
-        background: '#f5f5f5'
-      }}>
+      <body
+        style={{
+          margin: 0,
+          padding: 0,
+          background: "#f5f5f5",
+        }}
+      >
         <AuthProvider>
-          <RootLayoutContent>{children}</RootLayoutContent>
+          <TokenRefreshProvider>
+            <RootLayoutContent>{children}</RootLayoutContent>
+          </TokenRefreshProvider>
         </AuthProvider>
       </body>
     </html>
