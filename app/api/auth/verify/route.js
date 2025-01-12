@@ -12,15 +12,12 @@ export async function GET() {
     }
 
     const decodedClaims = await auth.verifySessionCookie(session, true);
-    return NextResponse.json({ 
+    return NextResponse.json({
       email: decodedClaims.email,
-      uid: decodedClaims.uid 
+      uid: decodedClaims.uid,
     });
   } catch (error) {
     console.error("Lỗi verify session:", error);
-    return NextResponse.json(
-      { error: "Invalid session" }, 
-      { status: 401 }
-    );
+    return NextResponse.json({ error: "Invalid session" }, { status: 401 });
   }
-} 
+}

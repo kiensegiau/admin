@@ -34,7 +34,7 @@ export async function POST() {
       expiry_date: credentials.expiry_date,
       scope: credentials.scope || tokens.scope, // Giữ scope cũ nếu không có scope mới
       token_type: credentials.token_type || tokens.token_type, // Giữ token_type cũ nếu không có mới
-      id_token: credentials.id_token || tokens.id_token // Giữ id_token cũ nếu không có mới
+      id_token: credentials.id_token || tokens.id_token, // Giữ id_token cũ nếu không có mới
     };
 
     writeTokens(newTokens);
