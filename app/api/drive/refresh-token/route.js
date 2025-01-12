@@ -27,14 +27,18 @@ export async function POST() {
     // Refresh token
     const { credentials } = await oauth2Client.refreshAccessToken();
 
-    // Lưu token mới
+    // Lưu token mới, giữ lại các thông tin khác từ token cũ
     const newTokens = {
+      ...tokens, // Giữ lại tất cả thông tin cũ
       access_token: credentials.access_token,
-      refresh_token: tokens.refresh_token, // Giữ nguyên refresh token cũ
       expiry_date: credentials.expiry_date,
+      scope: credentials.scope || tokens.scope, // Giữ scope cũ nếu không có scope mới
+      token_type: credentials.token_type || tokens.token_type, // Giữ token_type cũ nếu không có mới
+      id_token: credentials.id_token || tokens.id_token // Giữ id_token cũ nếu không có mới
     };
 
     writeTokens(newTokens);
+    console.log("Đã làm mới và lưu token thành công");
 
     return NextResponse.json({ success: true });
   } catch (error) {
