@@ -9,7 +9,6 @@ const PUBLIC_ROUTES = [
   "/api/auth/signin",
   "/api/auth/signout",
   "/api/auth/check-token",
-  "/api/proxy",
 ];
 
 // Rate limiting
@@ -56,7 +55,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Cho phép truy cập các route công khai
-  if (PUBLIC_ROUTES.includes(pathname)) {
+  if (PUBLIC_ROUTES.includes(pathname) || pathname.startsWith("/api/proxy")) {
     return NextResponse.next();
   }
 
