@@ -1,17 +1,17 @@
-export const dynamic = "force-dynamic";
-
-import { auth } from "@/lib/firebase-admin";
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function POST() {
   try {
-    // Xóa cookie session
+    // Xóa session cookie
     cookies().delete("session");
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Lỗi khi đăng xuất:", error);
-    return NextResponse.json({ error: "Không thể đăng xuất" }, { status: 500 });
+    console.error("Lỗi đăng xuất:", error);
+    return NextResponse.json({ error: "Đăng xuất thất bại" }, { status: 500 });
   }
 }
