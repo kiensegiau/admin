@@ -14,16 +14,27 @@ export default function LoginPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    console.log("1. Bắt đầu quá trình đăng nhập...");
 
     try {
+      console.log("2. Đang đăng nhập với Firebase Auth...");
       // Đăng nhập với Firebase Auth
       const userCredential = await signInWithEmailAndPassword(
         auth,
         email,
         password
       );
-      const idToken = await userCredential.user.getIdToken();
+      console.log(
+        "3. Đăng nhập Firebase thành công:",
+        userCredential.user.email
+      );
 
+      console.log("4. Đang lấy ID token mới...");
+      // Lấy token mới
+      const idToken = await userCredential.user.getIdToken(true);
+      console.log("5. Đã lấy được ID token:", idToken.substring(0, 20) + "...");
+
+      console.log("6. Đang gửi token đến server để tạo session...");
       // Gửi token đến server để tạo session
       const response = await fetch("/api/auth/signin", {
         method: "POST",
@@ -31,17 +42,26 @@ export default function LoginPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ idToken }),
+        credentials: "include", // Cho phép gửi và nhận cookie
       });
 
+      const data = await response.json();
+      console.log("7. Phản hồi từ server:", data);
+
       if (!response.ok) {
-        const data = await response.json();
         throw new Error(data.error || "Có lỗi xảy ra khi đăng nhập");
       }
 
+      console.log("8. Đang đợi cookie được set...");
+      // Đợi 1 giây để đảm bảo cookie đã được set
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      console.log("9. Hoàn tất đợi cookie");
+
+      console.log("10. Chuyển hướng đến trang chủ...");
       router.push("/");
       toast.success("Đăng nhập thành công");
     } catch (error) {
-      console.error("Lỗi khi đăng nhập:", error);
+      console.error("❌ Lỗi trong quá trình đăng nhập:", error);
       let errorMessage = "Không thể đăng nhập";
 
       switch (error.code) {
@@ -61,9 +81,11 @@ export default function LoginPage() {
           errorMessage = error.message;
       }
 
+      console.error("❌ Thông báo lỗi:", errorMessage);
       toast.error(errorMessage);
     } finally {
       setLoading(false);
+      console.log("11. Kết thúc quá trình đăng nhập");
     }
   };
 

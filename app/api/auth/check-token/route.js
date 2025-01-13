@@ -1,24 +1,27 @@
-export const dynamic = "force-dynamic";
-
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/firebase-admin";
+import { cookies } from "next/headers";
 
-export async function GET(request) {
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function GET() {
   try {
-    const authHeader = request.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json(
-        { error: "Token không hợp lệ" },
-        { status: 401 }
-      );
+    const session = cookies().get("session")?.value;
+    if (!session) {
+      return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
     }
 
-    const idToken = authHeader.split("Bearer ")[1];
-    await auth.verifyIdToken(idToken);
-
-    return NextResponse.json({ valid: true });
+    const decodedClaims = await auth.verifySessionCookie(session, true);
+    return NextResponse.json({
+      email: decodedClaims.email,
+      uid: decodedClaims.uid,
+    });
   } catch (error) {
-    console.error("Lỗi xác thực token:", error);
-    return NextResponse.json({ error: "Token không hợp lệ" }, { status: 401 });
+    console.error("Auth error:", error);
+    return NextResponse.json(
+      { error: "Phiên đăng nhập không hợp lệ" },
+      { status: 401 }
+    );
   }
 }
