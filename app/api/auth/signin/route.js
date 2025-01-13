@@ -21,6 +21,10 @@ export async function POST(request) {
       expiresIn,
     });
 
+    // Verify token để lấy thông tin user
+    const decodedToken = await auth.verifyIdToken(idToken);
+    const isAdmin = decodedToken.email === process.env.ADMIN_EMAIL;
+
     // Set cookie với các options phù hợp
     cookies().set("session", sessionCookie, {
       maxAge: expiresIn / 1000, // Convert to seconds
@@ -30,7 +34,7 @@ export async function POST(request) {
       sameSite: "lax",
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, isAdmin });
   } catch (error) {
     console.error("Auth error:", error);
     if (error.code === "auth/invalid-id-token") {

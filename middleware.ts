@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const ADMIN_EMAIL = "phanhuukien2001@gmail.com";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 
 // Các route không cần xác thực
 const PUBLIC_ROUTES = [
@@ -84,12 +84,6 @@ export async function middleware(request: NextRequest) {
         }
       );
       const data = await response.json();
-
-      console.log("Check-token response:", {
-        receivedEmail: data.email,
-        adminEmail: ADMIN_EMAIL,
-        isMatch: data.email === ADMIN_EMAIL,
-      });
 
       if (!data.email || data.email !== ADMIN_EMAIL) {
         if (pathname.startsWith("/api")) {

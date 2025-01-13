@@ -14,27 +14,18 @@ export default function LoginPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    console.log("1. Bắt đầu quá trình đăng nhập...");
 
     try {
-      console.log("2. Đang đăng nhập với Firebase Auth...");
       // Đăng nhập với Firebase Auth
       const userCredential = await signInWithEmailAndPassword(
         auth,
         email,
         password
       );
-      console.log(
-        "3. Đăng nhập Firebase thành công:",
-        userCredential.user.email
-      );
 
-      console.log("4. Đang lấy ID token mới...");
       // Lấy token mới
       const idToken = await userCredential.user.getIdToken(true);
-      console.log("5. Đã lấy được ID token:", idToken.substring(0, 20) + "...");
 
-      console.log("6. Đang gửi token đến server để tạo session...");
       // Gửi token đến server để tạo session
       const response = await fetch("/api/auth/signin", {
         method: "POST",
@@ -46,23 +37,22 @@ export default function LoginPage() {
       });
 
       const data = await response.json();
-      console.log("7. Phản hồi từ server:", data);
 
       if (!response.ok) {
         throw new Error(data.error || "Có lỗi xảy ra khi đăng nhập");
       }
 
-      console.log("8. Đang đợi cookie được set...");
       // Đợi 1 giây để đảm bảo cookie đã được set
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      console.log("9. Hoàn tất đợi cookie");
 
-      console.log("10. Chuyển hướng đến trang chủ...");
       router.refresh();
       await router.replace("/");
-      toast.success("Đăng nhập thành công");
+      if (data.isAdmin) {
+        toast.success("Đăng nhập thành công");
+      } else {
+        toast.error("Tài khoản không có quyền truy cập");
+      }
     } catch (error) {
-      console.error("❌ Lỗi trong quá trình đăng nhập:", error);
       let errorMessage = "Không thể đăng nhập";
 
       switch (error.code) {
@@ -86,7 +76,6 @@ export default function LoginPage() {
       toast.error(errorMessage);
     } finally {
       setLoading(false);
-      console.log("11. Kết thúc quá trình đăng nhập");
     }
   };
 
