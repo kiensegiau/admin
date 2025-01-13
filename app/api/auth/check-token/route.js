@@ -13,7 +13,12 @@ export async function GET() {
     }
 
     const decodedClaims = await auth.verifySessionCookie(session, true);
+    console.log("Decoded claims:", {
+      email: decodedClaims.email,
+      uid: decodedClaims.uid,
+    });
     return NextResponse.json({
+      isAuthenticated: true,
       email: decodedClaims.email,
       uid: decodedClaims.uid,
     });

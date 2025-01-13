@@ -72,8 +72,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Kiểm tra quyền admin cho các route không phải /api/proxy
-  if (!pathname.startsWith("/api/proxy")) {
+  // Kiểm tra quyền admin cho các route không phải /api/proxy và /api/auth
+  if (!pathname.startsWith("/api/proxy") && !pathname.startsWith("/api/auth")) {
     try {
       const response = await fetch(
         new URL("/api/auth/check-token", request.url),
@@ -85,7 +85,13 @@ export async function middleware(request: NextRequest) {
       );
       const data = await response.json();
 
-      if (!data.isAuthenticated || data.email !== ADMIN_EMAIL) {
+      console.log("Check-token response:", {
+        receivedEmail: data.email,
+        adminEmail: ADMIN_EMAIL,
+        isMatch: data.email === ADMIN_EMAIL,
+      });
+
+      if (!data.email || data.email !== ADMIN_EMAIL) {
         if (pathname.startsWith("/api")) {
           return NextResponse.json(
             { error: "Không có quyền truy cập" },

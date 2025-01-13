@@ -58,7 +58,8 @@ export default function LoginPage() {
       console.log("9. Hoàn tất đợi cookie");
 
       console.log("10. Chuyển hướng đến trang chủ...");
-      router.push("/");
+      router.refresh();
+      await router.replace("/");
       toast.success("Đăng nhập thành công");
     } catch (error) {
       console.error("❌ Lỗi trong quá trình đăng nhập:", error);
