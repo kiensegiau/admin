@@ -12,41 +12,101 @@ const PUBLIC_ROUTES = [
 ];
 
 // Rate limiting
-const RATE_LIMIT = 100; // Số request tối đa
+const RATE_LIMIT = 100; // Số request tối đa cho API thường
+const PROXY_RATE_LIMIT = 30; // Số request tối đa cho API proxy
+const LOGIN_RATE_LIMIT = 5; // Số lần thử đăng nhập tối đa
 const RATE_INTERVAL = 60 * 1000; // Thời gian reset (1 phút)
 const ipRequestCount = new Map<string, { count: number; timestamp: number }>();
+const proxyIpRequestCount = new Map<
+  string,
+  { count: number; timestamp: number }
+>();
+const loginIpRequestCount = new Map<
+  string,
+  { count: number; timestamp: number }
+>();
 
-function isRateLimited(ip: string): boolean {
+function isRateLimited(
+  ip: string,
+  type: "normal" | "proxy" | "login"
+): boolean {
   const now = Date.now();
-  const requestData = ipRequestCount.get(ip);
+  let requestMap: Map<string, { count: number; timestamp: number }>;
+  let limit: number;
+
+  switch (type) {
+    case "proxy":
+      requestMap = proxyIpRequestCount;
+      limit = PROXY_RATE_LIMIT;
+      break;
+    case "login":
+      requestMap = loginIpRequestCount;
+      limit = LOGIN_RATE_LIMIT;
+      break;
+    default:
+      requestMap = ipRequestCount;
+      limit = RATE_LIMIT;
+  }
+
+  const requestData = requestMap.get(ip);
 
   if (!requestData) {
-    ipRequestCount.set(ip, { count: 1, timestamp: now });
+    requestMap.set(ip, { count: 1, timestamp: now });
     return false;
   }
 
   if (now - requestData.timestamp > RATE_INTERVAL) {
-    ipRequestCount.set(ip, { count: 1, timestamp: now });
+    requestMap.set(ip, { count: 1, timestamp: now });
     return false;
   }
 
-  if (requestData.count >= RATE_LIMIT) {
+  if (requestData.count >= limit) {
     return true;
   }
 
   requestData.count++;
-  ipRequestCount.set(ip, requestData);
+  requestMap.set(ip, requestData);
   return false;
 }
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const ip = request.ip ?? request.headers.get("x-forwarded-for") ?? "unknown";
 
-  // Rate limiting cho API routes
+  // Rate limiting cho login
+  if (pathname === "/login" || pathname === "/api/auth/signin") {
+    if (isRateLimited(ip, "login")) {
+      if (pathname.startsWith("/api")) {
+        return NextResponse.json(
+          { error: "Quá nhiều lần thử đăng nhập, vui lòng thử lại sau 1 phút" },
+          { status: 429 }
+        );
+      }
+      // Chuyển hướng đến trang thông báo lỗi cho route /login
+      return NextResponse.json(
+        { error: "Quá nhiều lần thử đăng nhập, vui lòng thử lại sau 1 phút" },
+        { status: 429 }
+      );
+    }
+  }
+
+  // Rate limiting cho API proxy
+  if (pathname.startsWith("/api/proxy")) {
+    if (isRateLimited(ip, "proxy")) {
+      return NextResponse.json(
+        {
+          error:
+            "Quá nhiều yêu cầu, vui lòng thử lại sau (giới hạn 30 request/phút)",
+        },
+        { status: 429 }
+      );
+    }
+    return NextResponse.next();
+  }
+
+  // Rate limiting cho các API khác
   if (pathname.startsWith("/api")) {
-    const ip =
-      request.ip ?? request.headers.get("x-forwarded-for") ?? "unknown";
-    if (isRateLimited(ip)) {
+    if (isRateLimited(ip, "normal")) {
       return NextResponse.json(
         { error: "Quá nhiều yêu cầu, vui lòng thử lại sau" },
         { status: 429 }
@@ -55,7 +115,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Cho phép truy cập các route công khai
-  if (PUBLIC_ROUTES.includes(pathname) || pathname.startsWith("/api/proxy")) {
+  if (PUBLIC_ROUTES.includes(pathname)) {
     return NextResponse.next();
   }
 
