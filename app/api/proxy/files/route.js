@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { decryptId } from "@/lib/encryption";
 import { getValidTokens } from "@/lib/tokenStorage";
 import { getFileMetadata, downloadFile } from "@/lib/drive";

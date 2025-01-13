@@ -1,42 +1,40 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/firebase-admin";
 import { cookies } from "next/headers";
 
-export async function POST() {
+export async function POST(request) {
   try {
-    const cookieStore = cookies();
-    const session = cookieStore.get("session")?.value;
+    const { idToken } = await request.json();
 
-    if (!session) {
-      return NextResponse.json({ error: "No session found" }, { status: 401 });
+    if (!idToken) {
+      return NextResponse.json(
+        { error: "No ID token provided" },
+        { status: 400 }
+      );
     }
 
-    // Verify session cookie để lấy thông tin user
-    const decodedClaims = await auth.verifySessionCookie(session);
-
-    // Tạo custom token để làm mới session
-    const customToken = await auth.createCustomToken(decodedClaims.uid);
-
-    // Tạo session cookie mới
+    // Tạo session cookie
     const expiresIn = 60 * 60 * 24 * 5 * 1000; // 5 days
-    const sessionCookie = await auth.createSessionCookie(customToken, {
+    const sessionCookie = await auth.createSessionCookie(idToken, {
       expiresIn,
     });
 
-    // Thiết lập cookie mới
-    cookies().set("session", sessionCookie, {
+    // Thiết lập cookie
+    const response = NextResponse.json({ status: "success" });
+    response.cookies.set("session", sessionCookie, {
       maxAge: expiresIn,
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      path: "/",
       sameSite: "lax",
     });
 
-    return NextResponse.json({ success: true });
+    return response;
   } catch (error) {
-    console.error("Lỗi làm mới token:", error);
+    console.error("Lỗi refresh token:", error);
     return NextResponse.json(
-      { error: "Không thể làm mới token" },
+      { error: "Failed to refresh token" },
       { status: 401 }
     );
   }

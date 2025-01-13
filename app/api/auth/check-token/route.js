@@ -1,33 +1,24 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/firebase-admin";
-import { cookies } from "next/headers";
 
-const TOKEN_EXPIRY_THRESHOLD = 5 * 60 * 1000; // 5 phút
-
-export async function GET() {
+export async function GET(request) {
   try {
-    const cookieStore = cookies();
-    const session = cookieStore.get("session")?.value;
-
-    if (!session) {
-      return NextResponse.json({ error: "No session found" }, { status: 401 });
+    const authHeader = request.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json(
+        { error: "Token không hợp lệ" },
+        { status: 401 }
+      );
     }
 
-    // Verify và decode session cookie
-    const decodedClaims = await auth.verifySessionCookie(session);
+    const idToken = authHeader.split("Bearer ")[1];
+    await auth.verifyIdToken(idToken);
 
-    // Kiểm tra thời gian hết hạn
-    const expirationTime = decodedClaims.exp * 1000; // Convert to milliseconds
-    const now = Date.now();
-    const timeUntilExpiry = expirationTime - now;
-
-    // Trả về shouldRefresh nếu token sắp hết hạn
-    return NextResponse.json({
-      shouldRefresh: timeUntilExpiry < TOKEN_EXPIRY_THRESHOLD,
-      expiresIn: timeUntilExpiry,
-    });
+    return NextResponse.json({ valid: true });
   } catch (error) {
-    console.error("Lỗi kiểm tra token:", error);
-    return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+    console.error("Lỗi xác thực token:", error);
+    return NextResponse.json({ error: "Token không hợp lệ" }, { status: 401 });
   }
 }

@@ -1,40 +1,25 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { db } from "@/lib/firebase-admin";
 
-export async function GET(request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(request.url);
-    const courseId = searchParams.get("id");
+    console.log("Bắt đầu lấy danh sách khóa học");
+    const coursesRef = db.collection("courses");
+    const snapshot = await coursesRef.get();
 
-    if (!courseId) {
-      return NextResponse.json(
-        { error: "Course ID is required" },
-        { status: 400 }
-      );
-    }
-
-    if (!db) {
-      throw new Error("Firestore chưa được khởi tạo");
-    }
-
-    const courseDoc = await db.collection("courses").doc(courseId).get();
-
-    if (!courseDoc.exists) {
-      return NextResponse.json(
-        { error: "Không tìm thấy khóa học" },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({
-      id: courseDoc.id,
-      ...courseDoc.data(),
+    const courses = [];
+    snapshot.forEach((doc) => {
+      courses.push({
+        id: doc.id,
+        ...doc.data(),
+      });
     });
+
+    return NextResponse.json({ courses });
   } catch (error) {
     console.error("Error getting course:", error);
-    return NextResponse.json(
-      { error: "Không thể lấy thông tin khóa học" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

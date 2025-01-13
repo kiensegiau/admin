@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { readTokens, writeTokens } from "@/lib/tokenStorage";
 import { google } from "googleapis";
