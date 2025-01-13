@@ -45,9 +45,9 @@ export default function LoginPage() {
       // Đợi 1 giây để đảm bảo cookie đã được set
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      router.refresh();
-      await router.replace("/");
       if (data.isAdmin) {
+        router.refresh();
+        await router.replace("/");
         toast.success("Đăng nhập thành công");
       } else {
         toast.error("Tài khoản không có quyền truy cập");
