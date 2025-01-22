@@ -33,7 +33,6 @@ export async function GET(request) {
         } catch (error) {
           console.error("Lỗi khi hủy stream:", error);
         }
-        activeRequests.delete(key);
       }
     }
 
@@ -49,56 +48,14 @@ export async function GET(request) {
 
     const driveId = decryptId(publicId);
     const metadata = await getFileMetadata(driveId, tokens);
-    
-    const options = {};
-    let status = 200;
-    const responseHeaders = {
-      "Content-Type": metadata.mimeType,
-      "Accept-Ranges": "bytes",
-      "Cache-Control": "public, max-age=2592000, immutable, stale-while-revalidate=86400",
-      "CDN-Cache-Control": "public, max-age=2592000",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-      "Access-Control-Expose-Headers": "Content-Length, Content-Range, Content-Type",
-      "Vary": "Range"
-    };
 
-    // Xử lý range request
-    if (rangeHeader) {
-      const matches = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-      if (matches) {
-        const start = parseInt(matches[1]);
-        const end = matches[2] ? parseInt(matches[2]) : metadata.size - 1;
-        
-        // Kiểm tra range hợp lệ
-        if (start >= metadata.size || end >= metadata.size || start > end) {
-          return new Response("Range Not Satisfiable", { 
-            status: 416,
-            headers: {
-              "Content-Range": `bytes */${metadata.size}`
-            }
-          });
-        }
-        
-        options.range = `bytes=${start}-${end}`;
-        status = 206;
-        
-        responseHeaders["Content-Range"] = `bytes ${start}-${end}/${metadata.size}`;
-        responseHeaders["Content-Length"] = (end - start + 1).toString();
-      }
-    } else {
-      responseHeaders["Content-Length"] = metadata.size.toString();
-    }
-
-    console.log("Streaming video:", {
+    console.log("Streaming full video:", {
       name: metadata.name,
       size: metadata.size,
       mimeType: metadata.mimeType,
-      range: options.range,
-      status
     });
 
-    const { stream, headers } = await downloadFile(driveId, options, tokens);
+    const stream = await downloadFile(driveId, {}, tokens);
     activeRequests.set(requestKey, stream);
 
     // Cleanup khi stream kết thúc hoặc lỗi
@@ -112,20 +69,24 @@ export async function GET(request) {
       activeRequests.delete(requestKey);
     });
 
-    // Merge headers từ Google Drive nếu cần
-    if (headers["content-type"]) {
-      responseHeaders["Content-Type"] = headers["content-type"];
-    }
+    // Log để xem server đang tải bao nhiêu
+    console.log("Server đang tải:", {
+      fileSize: metadata.size,
+      fileName: metadata.name,
+    });
 
     return new Response(stream, {
-      status,
-      headers: responseHeaders
+      status: 200,
+      headers: {
+        "Content-Type": metadata.mimeType,
+        "Content-Length": metadata.size.toString(),
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=2592000",
+        "CDN-Cache-Control": "public, max-age=2592000",
+      },
     });
   } catch (error) {
     console.error("Error:", error);
-    if (error.message.includes("range")) {
-      return new Response("Range Not Satisfiable", { status: 416 });
-    }
     return new Response(
       JSON.stringify({
         error: error.message,
