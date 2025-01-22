@@ -137,8 +137,8 @@ export async function GET(request) {
           cacheableTags.push(generateCacheKey(publicId, currentChunk + 1));
         }
         
-        // Cache dài hơn cho các chunk đầu video
-        const maxAge = currentChunk <= 4 ? 2592000 : 604800; // 30 ngày cho 5 chunk đầu, 7 ngày cho phần còn lại
+        // Cache tất cả chunks 30 ngày
+        const maxAge = 2592000; // 30 days
         
         responseHeaders["Cache-Control"] = `public, max-age=${maxAge}, stale-while-revalidate=86400, immutable`;
         responseHeaders["CDN-Cache-Control"] = `public, max-age=${maxAge}`;
