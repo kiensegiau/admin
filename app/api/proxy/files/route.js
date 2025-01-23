@@ -9,7 +9,11 @@ let activeRequests = new Map();
 
 // Middleware để xử lý CORS
 async function corsMiddleware(request, handler) {
+  console.log("[CORS] Request method:", request.method);
+  console.log("[CORS] Request headers:", Object.fromEntries(request.headers));
+
   if (request.method === "OPTIONS") {
+    console.log("[CORS] Handling OPTIONS request");
     return new NextResponse(null, {
       status: 204,
       headers: {
@@ -22,40 +26,66 @@ async function corsMiddleware(request, handler) {
   }
 
   const response = await handler(request);
-  const headers = new Headers(response.headers);
-  headers.set("Access-Control-Allow-Origin", "*");
-  headers.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "*");
-  headers.set("Access-Control-Expose-Headers", "*");
+  console.log("[CORS] Response status:", response.status);
+  console.log("[CORS] Response headers:", Object.fromEntries(response.headers));
 
-  return new NextResponse(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+  // Chỉ thêm CORS headers nếu chưa có
+  if (!response.headers.has("Access-Control-Allow-Origin")) {
+    console.log("[CORS] Adding CORS headers to response");
+    const headers = new Headers(response.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+    headers.set("Access-Control-Allow-Headers", "*");
+    headers.set("Access-Control-Expose-Headers", "*");
+
+    return new NextResponse(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
+  console.log("[CORS] Response already has CORS headers");
+  return response;
 }
 
 export async function GET(request) {
+  console.log("[GET] Starting request handling");
+  console.log("[GET] Request URL:", request.url);
   return corsMiddleware(request, async (req) => {
     try {
       const { searchParams } = new URL(req.url);
       const publicId = searchParams.get("id");
       const rangeHeader = req.headers.get("range");
 
+      console.log("[GET] Request params:", {
+        publicId,
+        rangeHeader,
+        method: req.method,
+      });
+
       if (!publicId) {
+        console.log("[GET] Missing file ID");
         return new NextResponse("Missing file ID", { status: 400 });
       }
 
       // Lấy token hợp lệ
       const tokens = await getValidTokens();
       if (!tokens) {
+        console.log("[GET] Invalid token");
         return new NextResponse("Unauthorized - Token invalid", {
           status: 401,
         });
       }
 
       const driveId = decryptId(publicId);
+      console.log("[GET] Decrypted drive ID:", driveId);
+
       const metadata = await getFileMetadata(driveId, tokens);
+      console.log("[GET] File metadata:", {
+        mimeType: metadata.mimeType,
+        size: metadata.size,
+      });
 
       // Kích thước chunk cố định cho toàn bộ video
       const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB mỗi chunk
