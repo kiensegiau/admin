@@ -84,7 +84,7 @@ function getCorsHeaders(request) {
     isOriginAllowed: CORS_CONFIG.ALLOWED_ORIGINS.includes(origin),
   });
 
-  // Đảm bảo origin hợp lệ
+  // Validate origin
   const validOrigin = CORS_CONFIG.ALLOWED_ORIGINS.includes(origin)
     ? origin
     : CORS_CONFIG.ALLOWED_ORIGINS[0];
@@ -143,9 +143,9 @@ async function corsMiddleware(request, handler) {
     const headers = new Headers(corsHeaders);
 
     // Thêm security headers
-    headers.set("X-Content-Type-Options", "nosniff");
-    headers.set("X-Frame-Options", "SAMEORIGIN");
-    headers.set("X-XSS-Protection", "1; mode=block");
+    Object.entries(SECURITY_HEADERS).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
 
     // Log response headers
     console.log(
