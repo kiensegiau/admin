@@ -14,6 +14,55 @@ const logger = createLogger({
   transports: [new transports.Console()],
 });
 
+// Constants for CORS and Cache configuration
+const CORS_CONFIG = {
+  ALLOWED_ORIGINS: [
+    "http://localhost:3000",
+    "https://localhost:3000",
+    "http://admin.khoahoc.live",
+    "https://admin.khoahoc.live",
+    "http://khoahoc.live",
+    "https://khoahoc.live",
+  ],
+  ALLOWED_METHODS: ["GET", "HEAD", "OPTIONS"],
+  ALLOWED_HEADERS: [
+    "Range",
+    "Accept",
+    "Accept-Encoding",
+    "Content-Type",
+    "Content-Length",
+    "Authorization",
+    "X-Requested-With",
+    "Origin",
+    "Cache-Control",
+    "Pragma",
+  ],
+  EXPOSED_HEADERS: [
+    "Content-Length",
+    "Content-Range",
+    "Content-Type",
+    "Accept-Ranges",
+    "Content-Encoding",
+    "Cache-Control",
+    "Expires",
+    "Last-Modified",
+    "CF-Cache-Status",
+    "X-Chunk-Size",
+    "X-Total-Chunks",
+    "X-Current-Chunk",
+    "X-Response-Size",
+    "X-Optimization",
+  ],
+  MAX_AGE: "86400",
+  CREDENTIALS: "true",
+};
+
+const SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "SAMEORIGIN",
+  "X-XSS-Protection": "1; mode=block",
+};
+
 // Thêm hàm helper để log headers
 function logHeaders(prefix, headers) {
   console.log(`${prefix} Headers:`, {
@@ -25,35 +74,29 @@ function logHeaders(prefix, headers) {
 // Hàm tạo CORS headers
 function getCorsHeaders(request) {
   const origin = request.headers.get("origin");
-  const allowedOrigins = [
-    "http://localhost:3000",
-    "https://localhost:3000",
-    "http://admin.khoahoc.live",
-    "https://admin.khoahoc.live",
-    "http://khoahoc.live",
-    "https://khoahoc.live",
-  ];
 
   console.log("[CORS] Request details:", {
     origin,
     method: request.method,
     url: request.url,
-    allowedOrigins,
-    isOriginAllowed: allowedOrigins.includes(origin),
+    headers: Object.fromEntries(request.headers.entries()),
+    allowedOrigins: CORS_CONFIG.ALLOWED_ORIGINS,
+    isOriginAllowed: CORS_CONFIG.ALLOWED_ORIGINS.includes(origin),
   });
 
+  // Đảm bảo origin hợp lệ
+  const validOrigin = CORS_CONFIG.ALLOWED_ORIGINS.includes(origin)
+    ? origin
+    : CORS_CONFIG.ALLOWED_ORIGINS[0];
+
   const corsHeaders = {
-    "Access-Control-Allow-Origin": allowedOrigins.includes(origin)
-      ? origin
-      : allowedOrigins[0],
-    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-    "Access-Control-Allow-Headers":
-      "Range, Accept-Encoding, Content-Type, Authorization, X-Requested-With",
-    "Access-Control-Allow-Credentials": false,
-    "Access-Control-Max-Age": "86400",
-    "Access-Control-Expose-Headers":
-      "Content-Length, Content-Range, Content-Type, Accept-Ranges, CF-Cache-Status",
-    Vary: "Origin",
+    "Access-Control-Allow-Origin": validOrigin,
+    "Access-Control-Allow-Methods": CORS_CONFIG.ALLOWED_METHODS.join(", "),
+    "Access-Control-Allow-Headers": CORS_CONFIG.ALLOWED_HEADERS.join(", "),
+    "Access-Control-Allow-Credentials": CORS_CONFIG.CREDENTIALS,
+    "Access-Control-Max-Age": CORS_CONFIG.MAX_AGE,
+    "Access-Control-Expose-Headers": CORS_CONFIG.EXPOSED_HEADERS.join(", "),
+    Vary: "Origin, Access-Control-Request-Headers, Access-Control-Request-Method",
   };
 
   console.log("[CORS] Generated headers:", corsHeaders);
@@ -65,14 +108,15 @@ function createCorsResponse(body, status = 200, customHeaders = {}, request) {
   const headers = new Headers(customHeaders);
   const corsHeaders = getCorsHeaders(request);
 
+  // Add CORS headers
   Object.entries(corsHeaders).forEach(([key, value]) => {
     headers.set(key, value);
   });
 
-  // Thêm security headers
-  headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("X-Frame-Options", "SAMEORIGIN");
-  headers.set("X-XSS-Protection", "1; mode=block");
+  // Add security headers
+  Object.entries(SECURITY_HEADERS).forEach(([key, value]) => {
+    headers.set(key, value);
+  });
 
   return new Response(body, { status, headers });
 }
@@ -80,50 +124,72 @@ function createCorsResponse(body, status = 200, customHeaders = {}, request) {
 // Middleware để xử lý CORS
 async function corsMiddleware(request, handler) {
   console.log("\n[CORS] ====== New Request ======");
-  console.log("[CORS] Request info:", {
+
+  // Log chi tiết request
+  const requestInfo = {
     method: request.method,
     url: request.url,
     origin: request.headers.get("origin"),
     host: request.headers.get("host"),
-  });
-
-  logHeaders("[CORS] Request", request.headers);
+    requestHeaders: Object.fromEntries(request.headers.entries()),
+  };
+  console.log("[CORS] Request details:", requestInfo);
 
   // Xử lý OPTIONS request
   if (request.method === "OPTIONS") {
-    console.log("[CORS] Handling OPTIONS preflight request");
+    console.log("[CORS] Processing OPTIONS preflight request");
+
     const corsHeaders = getCorsHeaders(request);
-    console.log("[CORS] Preflight response headers:", corsHeaders);
-    return new Response(null, {
-      status: 204,
-      headers: corsHeaders,
-    });
-  }
-
-  try {
-    console.log("[CORS] Processing main request");
-    const response = await handler(request);
-    console.log("[CORS] Handler response:", {
-      status: response.status,
-      statusText: response.statusText,
-      type: response.type,
-    });
-
-    logHeaders("[CORS] Original response", response.headers);
-
-    const headers = new Headers(response.headers);
-    const corsHeaders = getCorsHeaders(request);
-    Object.entries(corsHeaders).forEach(([key, value]) => {
-      console.log(`[CORS] Setting header: ${key} = ${value}`);
-      headers.set(key, value);
-    });
+    const headers = new Headers(corsHeaders);
 
     // Thêm security headers
     headers.set("X-Content-Type-Options", "nosniff");
     headers.set("X-Frame-Options", "SAMEORIGIN");
     headers.set("X-XSS-Protection", "1; mode=block");
 
-    logHeaders("[CORS] Final response", headers);
+    // Log response headers
+    console.log(
+      "[CORS] Preflight response headers:",
+      Object.fromEntries(headers.entries())
+    );
+
+    return new Response(null, {
+      status: 204,
+      headers: headers,
+    });
+  }
+
+  try {
+    console.log("[CORS] Processing main request");
+    const response = await handler(request);
+
+    // Log response details
+    console.log("[CORS] Handler response:", {
+      status: response.status,
+      statusText: response.statusText,
+      type: response.type,
+      responseHeaders: Object.fromEntries(response.headers.entries()),
+    });
+
+    const headers = new Headers(response.headers);
+    const corsHeaders = getCorsHeaders(request);
+
+    // Add CORS headers
+    Object.entries(corsHeaders).forEach(([key, value]) => {
+      console.log(`[CORS] Setting header: ${key} = ${value}`);
+      headers.set(key, value);
+    });
+
+    // Add security headers
+    Object.entries(SECURITY_HEADERS).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+
+    // Log final headers
+    console.log(
+      "[CORS] Final response headers:",
+      Object.fromEntries(headers.entries())
+    );
 
     return new Response(response.body, {
       status: response.status,
