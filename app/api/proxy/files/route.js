@@ -47,10 +47,12 @@ function getCorsHeaders(request) {
       ? origin
       : allowedOrigins[0],
     "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-    "Access-Control-Allow-Headers": "*",
-    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Headers":
+      "Range, Accept-Encoding, Content-Type, Authorization, X-Requested-With",
+    "Access-Control-Allow-Credentials": false,
     "Access-Control-Max-Age": "86400",
-    "Access-Control-Expose-Headers": "*",
+    "Access-Control-Expose-Headers":
+      "Content-Length, Content-Range, Content-Type, Accept-Ranges, CF-Cache-Status",
     Vary: "Origin",
   };
 
