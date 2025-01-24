@@ -4,8 +4,15 @@ import { decryptId } from "@/lib/encryption";
 import { getValidTokens } from "@/lib/tokenStorage";
 import { getFileMetadata, downloadFile } from "@/lib/drive";
 import { NextResponse } from "next/server";
+import { createLogger, format, transports } from "winston";
 
 let activeRequests = new Map();
+
+const logger = createLogger({
+  level: "info",
+  format: format.combine(format.timestamp(), format.json()),
+  transports: [new transports.Console()],
+});
 
 // Hàm tạo CORS headers
 function getCorsHeaders() {
@@ -20,26 +27,10 @@ function getCorsHeaders() {
 
 // Hàm tạo response với CORS headers
 function createCorsResponse(body, status = 200, customHeaders = {}) {
-  // Tạo headers mới từ custom headers
-  const headers = new Headers();
+  // Tạo headers mới
+  const headers = new Headers(customHeaders);
 
-  // Xóa tất cả CORS headers có thể có trong custom headers
-  const corsHeaderKeys = [
-    "access-control-allow-origin",
-    "access-control-allow-methods",
-    "access-control-allow-headers",
-    "access-control-max-age",
-    "access-control-expose-headers",
-  ];
-
-  // Thêm non-CORS headers từ custom headers
-  Object.entries(customHeaders).forEach(([key, value]) => {
-    if (!corsHeaderKeys.includes(key.toLowerCase())) {
-      headers.set(key, value);
-    }
-  });
-
-  // Thêm CORS headers mới
+  // Thêm CORS headers
   const corsHeaders = getCorsHeaders();
   Object.entries(corsHeaders).forEach(([key, value]) => {
     headers.set(key, value);
@@ -63,32 +54,38 @@ async function corsMiddleware(request, handler) {
     const response = await handler(request);
     console.log("[CORS] Response status:", response.status);
 
-    // Tạo response mới với CORS headers, loại bỏ CORS headers cũ
+    // Tạo response mới với CORS headers, giữ nguyên các header khác
     const responseHeaders = Object.fromEntries(response.headers.entries());
     return createCorsResponse(response.body, response.status, responseHeaders);
   } catch (error) {
     console.error("[CORS] Error in handler:", error);
-    return createCorsResponse("Internal Server Error", 500);
+
+    // Tạo response lỗi với CORS headers
+    return createCorsResponse(
+      JSON.stringify({ error: "Internal Server Error" }),
+      500,
+      { "Content-Type": "application/json" }
+    );
   }
 }
 
 export async function GET(request) {
   console.log("[GET] Starting request handling");
-  console.log("[GET] Request URL:", request.url);
+  logger.info("[GET] Request URL:", request.url);
   return corsMiddleware(request, async (req) => {
     try {
       const { searchParams } = new URL(req.url);
       const publicId = searchParams.get("id");
       const rangeHeader = req.headers.get("range");
 
-      console.log("[GET] Request params:", {
+      logger.info("[GET] Request params:", {
         publicId,
         rangeHeader,
         method: req.method,
       });
 
       if (!publicId) {
-        console.log("[GET] Missing file ID");
+        logger.warn("[GET] Missing file ID");
         return createCorsResponse("Missing file ID", 400);
       }
 
@@ -103,7 +100,7 @@ export async function GET(request) {
       console.log("[GET] Decrypted drive ID:", driveId);
 
       const metadata = await getFileMetadata(driveId, tokens);
-      console.log("[GET] File metadata:", {
+      logger.info("[GET] File metadata:", {
         mimeType: metadata.mimeType,
         size: metadata.size,
       });
@@ -190,6 +187,11 @@ export async function GET(request) {
             ? parseInt(matches[2])
             : metadata.size - 1;
 
+          logger.info("[GET] Range request:", {
+            start,
+            requestedEnd,
+          });
+
           // Kiểm tra range hợp lệ
           if (
             start >= metadata.size ||
@@ -210,6 +212,12 @@ export async function GET(request) {
             end: actualEnd,
             includesNextChunk,
           } = getOptimalRange(start, requestedEnd, currentChunk);
+
+          logger.info("[GET] Optimal range:", {
+            actualStart,
+            actualEnd,
+            includesNextChunk,
+          });
 
           // Set range headers
           options.range = `bytes=${actualStart}-${actualEnd}`;
@@ -255,7 +263,7 @@ export async function GET(request) {
             ? "next-chunk-included"
             : "current-chunk-only";
 
-          console.log("Serving chunk:", {
+          logger.info("Serving chunk:", {
             originalRange: `${start}-${requestedEnd}`,
             servingRange: `${actualStart}-${actualEnd}`,
             size: `${((actualEnd - actualStart + 1) / 1024 / 1024).toFixed(
@@ -297,7 +305,7 @@ export async function GET(request) {
         // Set range cho hai chunk đầu tiên
         options.range = `bytes=0-${end}`;
 
-        console.log("Serving initial chunks:", {
+        logger.info("Serving initial chunks:", {
           range: `0-${end}`,
           size: `${((end + 1) / 1024 / 1024).toFixed(1)}MB`,
           chunks: [0, 1],
@@ -316,6 +324,7 @@ export async function GET(request) {
       const { stream } = await downloadFile(driveId, options, tokens);
       return createCorsResponse(stream, status, responseHeaders);
     } catch (error) {
+      logger.error("Error in GET handler:", error);
       if (error.name === "AbortError") {
         return createCorsResponse("Request aborted", 499);
       }
