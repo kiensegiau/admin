@@ -71,13 +71,15 @@ function logHeaders(prefix, headers) {
   });
 }
 
-// Hàm tạo CORS headers
+// Cập nhật hàm getCorsHeaders để xử lý tốt hơn
 function getCorsHeaders(request) {
   const origin = request.headers.get("origin");
+  const method = request.method;
 
+  // Log request details
   console.log("[CORS] Request details:", {
     origin,
-    method: request.method,
+    method,
     url: request.url,
     headers: Object.fromEntries(request.headers.entries()),
     allowedOrigins: CORS_CONFIG.ALLOWED_ORIGINS,
@@ -85,12 +87,35 @@ function getCorsHeaders(request) {
   });
 
   // Validate origin
-  const validOrigin = CORS_CONFIG.ALLOWED_ORIGINS.includes(origin)
-    ? origin
-    : CORS_CONFIG.ALLOWED_ORIGINS[0];
+  if (!origin) {
+    console.warn("[CORS] No origin provided");
+    return {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": CORS_CONFIG.ALLOWED_METHODS.join(", "),
+      "Access-Control-Allow-Headers": CORS_CONFIG.ALLOWED_HEADERS.join(", "),
+      "Access-Control-Allow-Credentials": "false", // Không cho phép credentials khi origin là *
+      "Access-Control-Max-Age": CORS_CONFIG.MAX_AGE,
+      "Access-Control-Expose-Headers": CORS_CONFIG.EXPOSED_HEADERS.join(", "),
+      Vary: "Origin, Access-Control-Request-Headers, Access-Control-Request-Method",
+    };
+  }
 
+  if (!CORS_CONFIG.ALLOWED_ORIGINS.includes(origin)) {
+    console.warn("[CORS] Invalid origin:", origin);
+    return {
+      "Access-Control-Allow-Origin": CORS_CONFIG.ALLOWED_ORIGINS[0],
+      "Access-Control-Allow-Methods": CORS_CONFIG.ALLOWED_METHODS.join(", "),
+      "Access-Control-Allow-Headers": CORS_CONFIG.ALLOWED_HEADERS.join(", "),
+      "Access-Control-Allow-Credentials": CORS_CONFIG.CREDENTIALS,
+      "Access-Control-Max-Age": CORS_CONFIG.MAX_AGE,
+      "Access-Control-Expose-Headers": CORS_CONFIG.EXPOSED_HEADERS.join(", "),
+      Vary: "Origin, Access-Control-Request-Headers, Access-Control-Request-Method",
+    };
+  }
+
+  // Generate headers for valid origin
   const corsHeaders = {
-    "Access-Control-Allow-Origin": validOrigin,
+    "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": CORS_CONFIG.ALLOWED_METHODS.join(", "),
     "Access-Control-Allow-Headers": CORS_CONFIG.ALLOWED_HEADERS.join(", "),
     "Access-Control-Allow-Credentials": CORS_CONFIG.CREDENTIALS,
@@ -99,6 +124,7 @@ function getCorsHeaders(request) {
     Vary: "Origin, Access-Control-Request-Headers, Access-Control-Request-Method",
   };
 
+  // Log generated headers
   console.log("[CORS] Generated headers:", corsHeaders);
   return corsHeaders;
 }
@@ -121,7 +147,7 @@ function createCorsResponse(body, status = 200, customHeaders = {}, request) {
   return new Response(body, { status, headers });
 }
 
-// Middleware để xử lý CORS
+// Cập nhật middleware để xử lý tốt hơn các trường hợp lỗi
 async function corsMiddleware(request, handler) {
   console.log("\n[CORS] ====== New Request ======");
 
@@ -139,29 +165,40 @@ async function corsMiddleware(request, handler) {
   if (request.method === "OPTIONS") {
     console.log("[CORS] Processing OPTIONS preflight request");
 
-    const corsHeaders = getCorsHeaders(request);
-    const headers = new Headers(corsHeaders);
+    try {
+      const corsHeaders = getCorsHeaders(request);
+      const headers = new Headers(corsHeaders);
 
-    // Thêm security headers
-    Object.entries(SECURITY_HEADERS).forEach(([key, value]) => {
-      headers.set(key, value);
-    });
+      // Thêm security headers
+      Object.entries(SECURITY_HEADERS).forEach(([key, value]) => {
+        headers.set(key, value);
+      });
 
-    // Log response headers
-    console.log(
-      "[CORS] Preflight response headers:",
-      Object.fromEntries(headers.entries())
-    );
+      // Log response headers
+      console.log(
+        "[CORS] Preflight response headers:",
+        Object.fromEntries(headers.entries())
+      );
 
-    return new Response(null, {
-      status: 204,
-      headers: headers,
-    });
+      return new Response(null, {
+        status: 204,
+        headers: headers,
+      });
+    } catch (error) {
+      console.error("[CORS] Error in OPTIONS handler:", error);
+      return createErrorResponse("Internal Server Error", 500, request);
+    }
   }
 
   try {
     console.log("[CORS] Processing main request");
     const response = await handler(request);
+
+    // Kiểm tra response
+    if (!response) {
+      console.error("[CORS] Handler returned null/undefined response");
+      return createErrorResponse("Internal Server Error", 500, request);
+    }
 
     // Log response details
     console.log("[CORS] Handler response:", {
@@ -201,6 +238,21 @@ async function corsMiddleware(request, handler) {
       message: error.message,
       stack: error.stack,
     });
+
+    // Xử lý các loại lỗi cụ thể
+    if (error.name === "AbortError") {
+      return createErrorResponse("Request aborted", 499, request);
+    }
+    if (
+      error.name === "TypeError" &&
+      error.message.includes("Failed to fetch")
+    ) {
+      return createErrorResponse("Failed to fetch resource", 503, request);
+    }
+    if (error.name === "NetworkError") {
+      return createErrorResponse("Network error occurred", 503, request);
+    }
+
     return createErrorResponse("Internal Server Error", 500, request);
   }
 }
@@ -491,5 +543,28 @@ export async function GET(request) {
       }
       throw error;
     }
+  });
+}
+
+export async function OPTIONS(request) {
+  console.log("[OPTIONS] Processing preflight request");
+
+  const corsHeaders = getCorsHeaders(request);
+  const headers = new Headers(corsHeaders);
+
+  // Add security headers
+  Object.entries(SECURITY_HEADERS).forEach(([key, value]) => {
+    headers.set(key, value);
+  });
+
+  // Log response headers
+  console.log(
+    "[OPTIONS] Response headers:",
+    Object.fromEntries(headers.entries())
+  );
+
+  return new Response(null, {
+    status: 204,
+    headers: headers,
   });
 }
