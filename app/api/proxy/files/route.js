@@ -15,23 +15,37 @@ const logger = createLogger({
 });
 
 // Hàm tạo CORS headers
-function getCorsHeaders() {
+function getCorsHeaders(request) {
+  const origin = request.headers.get("origin");
+  const allowedOrigins = [
+    "http://localhost:3000",
+    "https://localhost:3000",
+    "http://admin.khoahoc.live",
+    "https://admin.khoahoc.live",
+  ];
+
   return {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": allowedOrigins.includes(origin)
+      ? origin
+      : allowedOrigins[0],
     "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-    "Access-Control-Allow-Headers": "*",
+    "Access-Control-Allow-Headers":
+      "Accept, Accept-Encoding, Range, Content-Type, CF-Cache-Status, Cache-Control, Pragma",
+    "Access-Control-Allow-Credentials": "false",
     "Access-Control-Max-Age": "86400",
-    "Access-Control-Expose-Headers": "*",
+    "Access-Control-Expose-Headers":
+      "Content-Length, Content-Range, Content-Type, Accept-Ranges, X-Chunk-Size, X-Max-Chunk-Size, X-Total-Chunks",
+    Vary: "Origin, Accept-Encoding, Range",
   };
 }
 
 // Hàm tạo response với CORS headers
-function createCorsResponse(body, status = 200, customHeaders = {}) {
+function createCorsResponse(body, status = 200, customHeaders = {}, request) {
   // Tạo headers mới
   const headers = new Headers(customHeaders);
 
   // Thêm CORS headers
-  const corsHeaders = getCorsHeaders();
+  const corsHeaders = getCorsHeaders(request);
   Object.entries(corsHeaders).forEach(([key, value]) => {
     headers.set(key, value);
   });
@@ -39,23 +53,15 @@ function createCorsResponse(body, status = 200, customHeaders = {}) {
   return new NextResponse(body, { status, headers });
 }
 
-// Hàm tạo response lỗi với CORS headers
-function createErrorResponse(errorMessage, errorCode = 500) {
-  return createCorsResponse(
-    JSON.stringify({ error: errorMessage }),
-    errorCode,
-    { "Content-Type": "application/json" }
-  );
-}
-
 // Middleware để xử lý CORS
 async function corsMiddleware(request, handler) {
   console.log("[CORS] Request method:", request.method);
+  console.log("[CORS] Request origin:", request.headers.get("origin"));
 
   // Xử lý OPTIONS request
   if (request.method === "OPTIONS") {
     console.log("[CORS] Handling OPTIONS request");
-    return createCorsResponse(null, 204);
+    return createCorsResponse(null, 204, {}, request);
   }
 
   try {
@@ -65,11 +71,26 @@ async function corsMiddleware(request, handler) {
 
     // Tạo response mới với CORS headers, giữ nguyên các header khác
     const responseHeaders = Object.fromEntries(response.headers.entries());
-    return createCorsResponse(response.body, response.status, responseHeaders);
+    return createCorsResponse(
+      response.body,
+      response.status,
+      responseHeaders,
+      request
+    );
   } catch (error) {
     console.error("[CORS] Error in handler:", error);
-    return createErrorResponse("Internal Server Error");
+    return createErrorResponse("Internal Server Error", 500, request);
   }
+}
+
+// Hàm tạo response lỗi với CORS headers
+function createErrorResponse(errorMessage, errorCode = 500, request) {
+  return createCorsResponse(
+    JSON.stringify({ error: errorMessage }),
+    errorCode,
+    { "Content-Type": "application/json" },
+    request
+  );
 }
 
 export async function GET(request) {
@@ -89,14 +110,14 @@ export async function GET(request) {
 
       if (!publicId) {
         logger.warn("[GET] Missing file ID");
-        return createErrorResponse("Missing file ID", 400);
+        return createErrorResponse("Missing file ID", 400, req);
       }
 
       // Lấy token hợp lệ
       const tokens = await getValidTokens();
       if (!tokens) {
         console.log("[GET] Invalid token");
-        return createErrorResponse("Unauthorized - Token invalid", 401);
+        return createErrorResponse("Unauthorized - Token invalid", 401, req);
       }
 
       const driveId = decryptId(publicId);
@@ -201,11 +222,7 @@ export async function GET(request) {
             requestedEnd >= metadata.size ||
             start > requestedEnd
           ) {
-            return createErrorResponse("Range Not Satisfiable", 416, {
-              "Content-Range": `bytes */${metadata.size}`,
-              "Cache-Control": "no-store, no-cache, must-revalidate",
-              "CDN-Cache-Control": "no-store",
-            });
+            return createErrorResponse("Range Not Satisfiable", 416, req);
           }
 
           // Tính toán chunk hiện tại
@@ -320,16 +337,16 @@ export async function GET(request) {
 
       // Xử lý yêu cầu HEAD
       if (req.method === "HEAD") {
-        return createCorsResponse(null, 200, responseHeaders);
+        return createCorsResponse(null, 200, responseHeaders, req);
       }
 
       // Tải chunk từ Google Drive
       const { stream } = await downloadFile(driveId, options, tokens);
-      return createCorsResponse(stream, status, responseHeaders);
+      return createCorsResponse(stream, status, responseHeaders, req);
     } catch (error) {
       logger.error("Error in GET handler:", error);
       if (error.name === "AbortError") {
-        return createErrorResponse("Request aborted", 499);
+        return createErrorResponse("Request aborted", 499, req);
       }
       throw error;
     }
