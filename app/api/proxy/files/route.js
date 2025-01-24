@@ -150,21 +150,25 @@ export async function GET(request) {
       // Hàm tính toán range tối ưu
       function getOptimalRange(start, requestedEnd, currentChunk) {
         const { end: chunkEnd } = getChunkRange(currentChunk);
-        let actualEnd = Math.min(requestedEnd, chunkEnd);
+        let actualEnd = Math.min(requestedEnd || metadata.size - 1, chunkEnd);
 
-        // Nếu là seek request hoặc gần cuối chunk
-        const remainingInChunk = chunkEnd - start + 1;
-        const isNearChunkBoundary = remainingInChunk < CHUNK_SIZE * 0.2;
-        const isSeekRequest =
-          !requestedEnd || requestedEnd - start > CHUNK_SIZE * 2;
+        // Xử lý seek request
+        const isSeekRequest = !requestedEnd;
+        if (isSeekRequest) {
+          // Trả về chunk hiện tại + một phần chunk tiếp theo để đảm bảo phát mượt
+          const safeBufferSize = 2 * 1024 * 1024; // 2MB buffer
+          actualEnd = Math.min(chunkEnd + safeBufferSize, metadata.size - 1);
+        } else {
+          const remainingInChunk = chunkEnd - start + 1;
+          const isNearChunkBoundary = remainingInChunk < CHUNK_SIZE * 0.2;
 
-        if (isNearChunkBoundary || isSeekRequest) {
-          // Tính toán kích thước tối ưu cho chunk tiếp theo
-          const nextChunkSize = Math.min(
-            MAX_CHUNK_SIZE - remainingInChunk, // Không vượt quá max size
-            CHUNK_SIZE // Hoặc một chunk chuẩn
-          );
-          actualEnd = Math.min(start + nextChunkSize - 1, metadata.size - 1);
+          if (isNearChunkBoundary || requestedEnd - start > CHUNK_SIZE * 2) {
+            const nextChunkSize = Math.min(
+              MAX_CHUNK_SIZE - remainingInChunk,
+              CHUNK_SIZE
+            );
+            actualEnd = Math.min(start + nextChunkSize - 1, metadata.size - 1);
+          }
         }
 
         return {
@@ -224,12 +228,12 @@ export async function GET(request) {
             cacheableTags.push(generateCacheKey(publicId, currentChunk + 1));
           }
 
-          // Cache tất cả chunks 30 ngày
           const maxAge = 2592000; // 30 days
 
+          // Luôn cache mọi request
           responseHeaders[
             "Cache-Control"
-          ] = `public, max-age=${maxAge}, stale-while-revalidate=86400, immutable`;
+          ] = `public, max-age=${maxAge}, stale-while-revalidate=86400`;
           responseHeaders["CDN-Cache-Control"] = `public, max-age=${maxAge}`;
           responseHeaders["CF-Cache-Tags"] = cacheableTags.join(",");
           responseHeaders["CF-Cache-Key"] = generateCacheKey(
