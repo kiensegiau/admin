@@ -14,6 +14,14 @@ const logger = createLogger({
   transports: [new transports.Console()],
 });
 
+// Thêm hàm helper để log headers
+function logHeaders(prefix, headers) {
+  console.log(`${prefix} Headers:`, {
+    ...Object.fromEntries(headers.entries()),
+    raw: headers.raw ? Object.fromEntries(Object.entries(headers.raw())) : null,
+  });
+}
+
 // Hàm tạo CORS headers
 function getCorsHeaders(request) {
   const origin = request.headers.get("origin");
@@ -22,63 +30,109 @@ function getCorsHeaders(request) {
     "https://localhost:3000",
     "http://admin.khoahoc.live",
     "https://admin.khoahoc.live",
+    "http://khoahoc.live",
+    "https://khoahoc.live",
   ];
 
-  return {
+  console.log("[CORS] Request details:", {
+    origin,
+    method: request.method,
+    url: request.url,
+    allowedOrigins,
+    isOriginAllowed: allowedOrigins.includes(origin),
+  });
+
+  const corsHeaders = {
     "Access-Control-Allow-Origin": allowedOrigins.includes(origin)
       ? origin
       : allowedOrigins[0],
     "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-    "Access-Control-Allow-Headers":
-      "Accept, Accept-Encoding, Range, Content-Type, CF-Cache-Status, Cache-Control, Pragma",
-    "Access-Control-Allow-Credentials": "false",
+    "Access-Control-Allow-Headers": "*",
+    "Access-Control-Allow-Credentials": "true",
     "Access-Control-Max-Age": "86400",
-    "Access-Control-Expose-Headers":
-      "Content-Length, Content-Range, Content-Type, Accept-Ranges, X-Chunk-Size, X-Max-Chunk-Size, X-Total-Chunks",
-    Vary: "Origin, Accept-Encoding, Range",
+    "Access-Control-Expose-Headers": "*",
+    Vary: "Origin",
   };
+
+  console.log("[CORS] Generated headers:", corsHeaders);
+  return corsHeaders;
 }
 
 // Hàm tạo response với CORS headers
 function createCorsResponse(body, status = 200, customHeaders = {}, request) {
-  // Tạo headers mới
   const headers = new Headers(customHeaders);
-
-  // Thêm CORS headers
   const corsHeaders = getCorsHeaders(request);
+
   Object.entries(corsHeaders).forEach(([key, value]) => {
     headers.set(key, value);
   });
 
-  return new NextResponse(body, { status, headers });
+  // Thêm security headers
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Frame-Options", "SAMEORIGIN");
+  headers.set("X-XSS-Protection", "1; mode=block");
+
+  return new Response(body, { status, headers });
 }
 
 // Middleware để xử lý CORS
 async function corsMiddleware(request, handler) {
-  console.log("[CORS] Request method:", request.method);
-  console.log("[CORS] Request origin:", request.headers.get("origin"));
+  console.log("\n[CORS] ====== New Request ======");
+  console.log("[CORS] Request info:", {
+    method: request.method,
+    url: request.url,
+    origin: request.headers.get("origin"),
+    host: request.headers.get("host"),
+  });
+
+  logHeaders("[CORS] Request", request.headers);
 
   // Xử lý OPTIONS request
   if (request.method === "OPTIONS") {
-    console.log("[CORS] Handling OPTIONS request");
-    return createCorsResponse(null, 204, {}, request);
+    console.log("[CORS] Handling OPTIONS preflight request");
+    const corsHeaders = getCorsHeaders(request);
+    console.log("[CORS] Preflight response headers:", corsHeaders);
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders,
+    });
   }
 
   try {
-    // Xử lý request chính
+    console.log("[CORS] Processing main request");
     const response = await handler(request);
-    console.log("[CORS] Response status:", response.status);
+    console.log("[CORS] Handler response:", {
+      status: response.status,
+      statusText: response.statusText,
+      type: response.type,
+    });
 
-    // Tạo response mới với CORS headers, giữ nguyên các header khác
-    const responseHeaders = Object.fromEntries(response.headers.entries());
-    return createCorsResponse(
-      response.body,
-      response.status,
-      responseHeaders,
-      request
-    );
+    logHeaders("[CORS] Original response", response.headers);
+
+    const headers = new Headers(response.headers);
+    const corsHeaders = getCorsHeaders(request);
+    Object.entries(corsHeaders).forEach(([key, value]) => {
+      console.log(`[CORS] Setting header: ${key} = ${value}`);
+      headers.set(key, value);
+    });
+
+    // Thêm security headers
+    headers.set("X-Content-Type-Options", "nosniff");
+    headers.set("X-Frame-Options", "SAMEORIGIN");
+    headers.set("X-XSS-Protection", "1; mode=block");
+
+    logHeaders("[CORS] Final response", headers);
+
+    return new Response(response.body, {
+      status: response.status,
+      headers: headers,
+    });
   } catch (error) {
-    console.error("[CORS] Error in handler:", error);
+    console.error("[CORS] Error in handler:", {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    });
     return createErrorResponse("Internal Server Error", 500, request);
   }
 }
@@ -94,36 +148,55 @@ function createErrorResponse(errorMessage, errorCode = 500, request) {
 }
 
 export async function GET(request) {
-  console.log("[GET] Starting request handling");
-  logger.info("[GET] Request URL:", request.url);
+  console.log("\n[GET] ====== Start Request ======");
+  console.log("[GET] Request URL:", request.url);
+  console.log(
+    "[GET] Request headers:",
+    Object.fromEntries(request.headers.entries())
+  );
+
   return corsMiddleware(request, async (req) => {
     try {
       const { searchParams } = new URL(req.url);
       const publicId = searchParams.get("id");
       const rangeHeader = req.headers.get("range");
 
-      logger.info("[GET] Request params:", {
+      console.log("[GET] Request details:", {
         publicId,
         rangeHeader,
         method: req.method,
+        url: req.url,
+        host: req.headers.get("host"),
+        origin: req.headers.get("origin"),
       });
 
       if (!publicId) {
-        logger.warn("[GET] Missing file ID");
+        console.warn("[GET] Missing file ID");
         return createErrorResponse("Missing file ID", 400, req);
       }
 
       // Lấy token hợp lệ
+      console.log("[GET] Getting valid tokens...");
       const tokens = await getValidTokens();
       if (!tokens) {
-        console.log("[GET] Invalid token");
+        console.error("[GET] Token validation failed");
         return createErrorResponse("Unauthorized - Token invalid", 401, req);
       }
+      console.log("[GET] Tokens validated successfully");
 
       const driveId = decryptId(publicId);
       console.log("[GET] Decrypted drive ID:", driveId);
 
+      console.log("[GET] Fetching file metadata...");
       const metadata = await getFileMetadata(driveId, tokens);
+      console.log("[GET] File metadata received:", {
+        mimeType: metadata.mimeType,
+        size: metadata.size,
+        id: driveId,
+        headers: metadata.headers || {},
+        error: metadata.error || null,
+      });
+
       logger.info("[GET] File metadata:", {
         mimeType: metadata.mimeType,
         size: metadata.size,
