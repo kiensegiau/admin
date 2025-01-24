@@ -39,6 +39,15 @@ function createCorsResponse(body, status = 200, customHeaders = {}) {
   return new NextResponse(body, { status, headers });
 }
 
+// Hàm tạo response lỗi với CORS headers
+function createErrorResponse(errorMessage, errorCode = 500) {
+  return createCorsResponse(
+    JSON.stringify({ error: errorMessage }),
+    errorCode,
+    { "Content-Type": "application/json" }
+  );
+}
+
 // Middleware để xử lý CORS
 async function corsMiddleware(request, handler) {
   console.log("[CORS] Request method:", request.method);
@@ -59,13 +68,7 @@ async function corsMiddleware(request, handler) {
     return createCorsResponse(response.body, response.status, responseHeaders);
   } catch (error) {
     console.error("[CORS] Error in handler:", error);
-
-    // Tạo response lỗi với CORS headers
-    return createCorsResponse(
-      JSON.stringify({ error: "Internal Server Error" }),
-      500,
-      { "Content-Type": "application/json" }
-    );
+    return createErrorResponse("Internal Server Error");
   }
 }
 
@@ -86,14 +89,14 @@ export async function GET(request) {
 
       if (!publicId) {
         logger.warn("[GET] Missing file ID");
-        return createCorsResponse("Missing file ID", 400);
+        return createErrorResponse("Missing file ID", 400);
       }
 
       // Lấy token hợp lệ
       const tokens = await getValidTokens();
       if (!tokens) {
         console.log("[GET] Invalid token");
-        return createCorsResponse("Unauthorized - Token invalid", 401);
+        return createErrorResponse("Unauthorized - Token invalid", 401);
       }
 
       const driveId = decryptId(publicId);
@@ -198,7 +201,7 @@ export async function GET(request) {
             requestedEnd >= metadata.size ||
             start > requestedEnd
           ) {
-            return createCorsResponse("Range Not Satisfiable", 416, {
+            return createErrorResponse("Range Not Satisfiable", 416, {
               "Content-Range": `bytes */${metadata.size}`,
               "Cache-Control": "no-store, no-cache, must-revalidate",
               "CDN-Cache-Control": "no-store",
@@ -326,7 +329,7 @@ export async function GET(request) {
     } catch (error) {
       logger.error("Error in GET handler:", error);
       if (error.name === "AbortError") {
-        return createCorsResponse("Request aborted", 499);
+        return createErrorResponse("Request aborted", 499);
       }
       throw error;
     }
