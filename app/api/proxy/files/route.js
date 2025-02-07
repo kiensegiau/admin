@@ -338,7 +338,7 @@ export async function GET(request) {
         ETag: videoETag,
         "Last-Modified": new Date().toUTCString(),
         "CF-Edge-Cache": "cache-all",
-        Vary: "Range, Accept-Encoding",
+        Vary: "Range, Accept-Encoding, Origin",
         "X-Total-Chunks": TOTAL_CHUNKS.toString(),
         "X-Chunk-Size": CHUNK_SIZE.toString(),
         "X-Max-Chunk-Size": MAX_CHUNK_SIZE.toString(),
@@ -363,33 +363,44 @@ export async function GET(request) {
 
       // Hàm tính toán range tối ưu
       function getOptimalRange(start, requestedEnd, currentChunk) {
-        const { end: chunkEnd } = getChunkRange(currentChunk);
-        let actualEnd = Math.min(requestedEnd || metadata.size - 1, chunkEnd);
+        try {
+          const { end: chunkEnd } = getChunkRange(currentChunk);
+          let actualEnd = Math.min(requestedEnd || metadata.size - 1, chunkEnd);
 
-        // Xử lý seek request
-        const isSeekRequest = !requestedEnd;
-        if (isSeekRequest) {
-          // Trả về chunk hiện tại + một phần chunk tiếp theo để đảm bảo phát mượt
-          const safeBufferSize = 2 * 1024 * 1024; // 2MB buffer
-          actualEnd = Math.min(chunkEnd + safeBufferSize, metadata.size - 1);
-        } else {
-          const remainingInChunk = chunkEnd - start + 1;
-          const isNearChunkBoundary = remainingInChunk < CHUNK_SIZE * 0.2;
-
-          if (isNearChunkBoundary || requestedEnd - start > CHUNK_SIZE * 2) {
-            const nextChunkSize = Math.min(
-              MAX_CHUNK_SIZE - remainingInChunk,
-              CHUNK_SIZE
-            );
-            actualEnd = Math.min(start + nextChunkSize - 1, metadata.size - 1);
+          // Validate input
+          if (start < 0 || actualEnd < 0 || start >= metadata.size) {
+            throw new Error("Invalid range parameters");
           }
-        }
 
-        return {
-          start,
-          end: actualEnd,
-          includesNextChunk: actualEnd > chunkEnd,
-        };
+          // Xử lý seek request
+          const isSeekRequest = !requestedEnd;
+          if (isSeekRequest) {
+            const safeBufferSize = 10 * 1024 * 1024; // 10MB buffer
+            actualEnd = Math.min(chunkEnd + safeBufferSize, metadata.size - 1);
+          } else {
+            const remainingInChunk = chunkEnd - start + 1;
+            const isNearChunkBoundary = remainingInChunk < CHUNK_SIZE * 0.2;
+
+            if (isNearChunkBoundary || requestedEnd - start > CHUNK_SIZE * 2) {
+              const nextChunkSize = Math.min(MAX_CHUNK_SIZE - remainingInChunk, CHUNK_SIZE);
+              actualEnd = Math.min(start + nextChunkSize - 1, metadata.size - 1);
+            }
+          }
+
+          // Final validation
+          if (actualEnd < start || actualEnd >= metadata.size) {
+            throw new Error("Invalid optimized range");
+          }
+
+          return {
+            start,
+            end: actualEnd,
+            includesNextChunk: actualEnd > chunkEnd
+          };
+        } catch (error) {
+          logger.error("[getOptimalRange] Error:", error);
+          throw error;
+        }
       }
 
       let status = 200;
@@ -400,100 +411,80 @@ export async function GET(request) {
         const matches = rangeHeader.match(/bytes=(\d+)-(\d*)/);
         if (matches) {
           const start = parseInt(matches[1]);
-          const requestedEnd = matches[2]
-            ? parseInt(matches[2])
-            : metadata.size - 1;
-
-          logger.info("[GET] Range request:", {
-            start,
-            requestedEnd,
-          });
+          const requestedEnd = matches[2] ? parseInt(matches[2]) : metadata.size - 1;
 
           // Kiểm tra range hợp lệ
-          if (
-            start >= metadata.size ||
-            requestedEnd >= metadata.size ||
-            start > requestedEnd
-          ) {
-            return createErrorResponse("Range Not Satisfiable", 416, req);
+          if (start >= metadata.size || (requestedEnd && requestedEnd >= metadata.size) || start > requestedEnd) {
+            logger.warn("[GET] Invalid range request:", { start, requestedEnd, fileSize: metadata.size });
+            return createErrorResponse(
+              "Range Not Satisfiable", 
+              416, 
+              {
+                "Content-Range": `bytes */${metadata.size}`,
+                "Accept-Ranges": "bytes"
+              }, 
+              req
+            );
           }
 
-          // Tính toán chunk hiện tại
+          // Tính toán chunk và range tối ưu
           const currentChunk = getChunkIndexFromPosition(start);
-          const {
-            start: actualStart,
-            end: actualEnd,
-            includesNextChunk,
-          } = getOptimalRange(start, requestedEnd, currentChunk);
+          const { start: actualStart, end: actualEnd, includesNextChunk } = getOptimalRange(start, requestedEnd, currentChunk);
 
-          logger.info("[GET] Optimal range:", {
-            actualStart,
-            actualEnd,
-            includesNextChunk,
-          });
+          // Validate lại range sau khi tối ưu
+          if (actualStart >= metadata.size || actualEnd >= metadata.size || actualStart > actualEnd) {
+            logger.error("[GET] Invalid optimized range:", { actualStart, actualEnd, fileSize: metadata.size });
+            return createErrorResponse("Internal Server Error", 500, req);
+          }
 
-          // Set range headers
-          options.range = `bytes=${actualStart}-${actualEnd}`;
-          responseHeaders[
-            "Content-Range"
-          ] = `bytes ${actualStart}-${actualEnd}/${metadata.size}`;
-          responseHeaders["Content-Length"] = (
-            actualEnd -
-            actualStart +
-            1
-          ).toString();
+          // Set response headers
+          const contentLength = actualEnd - actualStart + 1;
+          responseHeaders["Content-Range"] = `bytes ${actualStart}-${actualEnd}/${metadata.size}`;
+          responseHeaders["Content-Length"] = contentLength.toString();
+          responseHeaders["Accept-Ranges"] = "bytes";
+          responseHeaders["Access-Control-Expose-Headers"] = [
+            ...CORS_CONFIG.EXPOSED_HEADERS,
+            "Content-Range",
+            "Accept-Ranges"
+          ].join(", ");
 
-          // Cache Control headers
+          // Cache Control headers cho range requests
           const cacheableTags = [generateCacheKey(publicId, currentChunk)];
           if (includesNextChunk) {
             cacheableTags.push(generateCacheKey(publicId, currentChunk + 1));
           }
 
-          const maxAge = 2592000; // 30 days
-
-          // Luôn cache mọi request
-          responseHeaders[
-            "Cache-Control"
-          ] = `public, max-age=${maxAge}, stale-while-revalidate=86400`;
-          responseHeaders["CDN-Cache-Control"] = `public, max-age=${maxAge}`;
+          const maxAge = 5184000; // 60 days
+          const rangeKey = `${actualStart}-${actualEnd}`;
+          
+          responseHeaders["Cache-Control"] = `public, max-age=${maxAge}, stale-while-revalidate=86400, must-revalidate`;
+          responseHeaders["CDN-Cache-Control"] = `public, max-age=${maxAge}, must-revalidate`;
           responseHeaders["CF-Cache-Tags"] = cacheableTags.join(",");
-          responseHeaders["CF-Cache-Key"] = generateCacheKey(
-            publicId,
-            currentChunk
-          );
+          responseHeaders["CF-Cache-Key"] = `${generateCacheKey(publicId, currentChunk)}-${rangeKey}`;
           responseHeaders["CF-Edge-Cache-TTL"] = maxAge.toString();
+          responseHeaders["Range-Vary"] = "bytes";
+          responseHeaders["Vary"] = "Range, Accept-Encoding, Origin";
 
           // Debug headers
           responseHeaders["X-Current-Chunk"] = currentChunk.toString();
           responseHeaders["X-Original-Range"] = `${start}-${requestedEnd}`;
           responseHeaders["X-Serving-Range"] = `${actualStart}-${actualEnd}`;
-          responseHeaders["X-Response-Size"] = `${(
-            (actualEnd - actualStart + 1) /
-            1024 /
-            1024
-          ).toFixed(1)}MB`;
-          responseHeaders["X-Optimization"] = includesNextChunk
-            ? "next-chunk-included"
-            : "current-chunk-only";
+          responseHeaders["X-Response-Size"] = `${(contentLength / 1024 / 1024).toFixed(1)}MB`;
+          responseHeaders["X-Optimization"] = includesNextChunk ? "next-chunk-included" : "current-chunk-only";
 
-          logger.info("Serving chunk:", {
+          // Log thông tin chi tiết
+          logger.info("[GET] Serving partial content", {
             originalRange: `${start}-${requestedEnd}`,
-            servingRange: `${actualStart}-${actualEnd}`,
-            size: `${((actualEnd - actualStart + 1) / 1024 / 1024).toFixed(
-              1
-            )}MB`,
+            optimizedRange: `${actualStart}-${actualEnd}`,
+            contentLength,
             chunk: currentChunk,
             includesNextChunk,
-            totalChunks: TOTAL_CHUNKS,
-            cacheKey: responseHeaders["CF-Cache-Key"],
-            progress: `${(((currentChunk + 1) / TOTAL_CHUNKS) * 100).toFixed(
-              1
-            )}%`,
-            optimization: responseHeaders["X-Optimization"],
-            cacheDuration: `${maxAge / 3600}h`,
+            cacheKey: responseHeaders["CF-Cache-Key"]
           });
 
-          status = 206;
+          // Set options cho downloadFile
+          options.range = `bytes=${actualStart}-${actualEnd}`;
+          status = 206; // Partial Content
         }
       } else {
         // Nếu không có range, trả về chunk đầu tiên và chunk thứ hai
