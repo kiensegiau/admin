@@ -334,11 +334,28 @@ export async function POST(request) {
       );
     }
 
-    // Lấy access token
+    // Lấy access token và kiểm tra kỹ hơn
     const tokens = readTokens();
-    if (!tokens?.access_token) {
-      throw new Error("Không tìm thấy access token");
+    if (!tokens) {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: "Chưa có token. Vui lòng đăng nhập Google Drive trước." 
+        },
+        { status: 401 }
+      );
     }
+
+    if (!tokens.access_token) {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: "Token không hợp lệ. Vui lòng đăng nhập lại Google Drive." 
+        },
+        { status: 401 }
+      );
+    }
+
     console.log("Đã lấy được access token");
 
     // Khởi tạo Drive API
