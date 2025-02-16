@@ -145,6 +145,58 @@ function generateVideoHash(did) {
     return hash.substring(0, 12);
 }
 
+async function getVideoId(did) {
+    try {
+        // Đợi 1-2 giây để video được xử lý
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Lấy thông tin video từ response với URL chính xác
+        const response = await axios.get(`https://helvid.com/vod/index/15`, {
+            headers: {
+                'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'accept-language': 'vi,en-US;q=0.9,en;q=0.8,fr-FR;q=0.7,fr;q=0.6',
+                'cache-control': 'no-cache',
+                'pragma': 'no-cache',
+                'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+                'sec-fetch-dest': 'document',
+                'sec-fetch-mode': 'navigate',
+                'sec-fetch-site': 'same-origin',
+                'sec-fetch-user': '?1',
+                'upgrade-insecure-requests': '1',
+                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                'Cookie': this._formatCookies(),
+                'referer': 'https://helvid.com/vod'
+            }
+        });
+
+        // Tìm video ID trong response data
+        const match = response.data.match(new RegExp(`"id":"${did}","vid":"([^"]+)"`));
+        if (match) {
+            return match[1];
+        }
+
+        // Nếu không tìm thấy, thử tìm trong upl_array
+        const uplArrayMatch = response.data.match(/var upl_array=(\[.*?\]);/s);
+        if (uplArrayMatch) {
+            const uplArray = JSON.parse(uplArrayMatch[1]);
+            const video = uplArray.find(v => v.link && v.link.includes('/index/'));
+            if (video) {
+                const vidMatch = video.link.match(/\/index\/([a-f0-9]+)/);
+                if (vidMatch) {
+                    return vidMatch[1];
+                }
+            }
+        }
+
+        throw new Error('Could not find video ID');
+    } catch (error) {
+        console.error('Error getting video ID:', error);
+        throw error;
+    }
+}
+
 export async function POST(request) {
     try {
         const { driveUrl } = await request.json();
@@ -159,17 +211,12 @@ export async function POST(request) {
         const uploader = new HelvidUploader();
         const result = await uploader.upload(driveUrl);
 
-        // Tạo hash ID
-        const videoId = generateVideoHash(result.uploadResponse.did);
+        // Lấy video ID từ response
+        const videoId = await getVideoId.call(uploader, result.uploadResponse.did);
         
-        // Tạo URL với hash ID
         const videoUrl = result.uploadResponse.code === 1 
             ? `https://helvid.net/play/index/${videoId}`
             : null;
-
-        // Log để debug
-        console.log('Original DID:', result.uploadResponse.did);
-        console.log('Generated Hash:', videoId);
 
         return NextResponse.json({
             success: true,
@@ -179,7 +226,7 @@ export async function POST(request) {
                 originalUrl: `https://helvid.com/video/${result.uploadResponse.did}`,
                 debug: {
                     originalDid: result.uploadResponse.did,
-                    generatedHash: videoId
+                    videoId
                 }
             }
         });
