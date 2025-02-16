@@ -4,7 +4,7 @@ import crypto from 'crypto';
 
 export const dynamic = "force-dynamic";
 
-class HelvidUploader {
+export class HelvidUploader {
     constructor() {
         this.client = axios.create({
             headers: {
@@ -108,7 +108,7 @@ class HelvidUploader {
         }
     }
 
-    async upload(driveUrl) {
+    async uploadFromDrive(driveUrl) {
         try {
             console.log('Getting upload key...');
             const uploadKey = await this.getUploadKey();
@@ -119,14 +119,30 @@ class HelvidUploader {
             console.log('Checking status...');
             const status = await this.checkStatus();
 
+            // Lấy video ID từ response
+            const videoId = await getVideoId.call(this, uploadResponse.did);
+            
+            const videoUrl = uploadResponse.code === 1 
+                ? `https://helvid.net/play/index/${videoId}`
+                : null;
+
             return {
-                uploadKey,
-                uploadResponse,
-                status
+                success: true,
+                data: {
+                    videoUrl,
+                    originalUrl: `https://helvid.com/video/${uploadResponse.did}`,
+                    debug: {
+                        originalDid: uploadResponse.did,
+                        videoId
+                    }
+                }
             };
         } catch (error) {
             console.error('Upload process failed:', error.message);
-            throw error;
+            return {
+                success: false,
+                error: error.message || "Upload failed"
+            };
         }
     }
 }
@@ -200,7 +216,6 @@ async function getVideoId(did) {
 export async function POST(request) {
     try {
         const { driveUrl } = await request.json();
-
         if (!driveUrl) {
             return NextResponse.json(
                 { error: "Missing drive URL" },
@@ -209,28 +224,9 @@ export async function POST(request) {
         }
 
         const uploader = new HelvidUploader();
-        const result = await uploader.upload(driveUrl);
+        const result = await uploader.uploadFromDrive(driveUrl);
 
-        // Lấy video ID từ response
-        const videoId = await getVideoId.call(uploader, result.uploadResponse.did);
-        
-        const videoUrl = result.uploadResponse.code === 1 
-            ? `https://helvid.net/play/index/${videoId}`
-            : null;
-
-        return NextResponse.json({
-            success: true,
-            data: {
-                ...result,
-                videoUrl,
-                originalUrl: `https://helvid.com/video/${result.uploadResponse.did}`,
-                debug: {
-                    originalDid: result.uploadResponse.did,
-                    videoId
-                }
-            }
-        });
-
+        return NextResponse.json(result);
     } catch (error) {
         console.error("Upload error:", error);
         return NextResponse.json(
@@ -241,4 +237,4 @@ export async function POST(request) {
             { status: 500 }
         );
     }
-} 
+}

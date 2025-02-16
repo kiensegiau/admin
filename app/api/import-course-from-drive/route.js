@@ -10,6 +10,7 @@ import {
   getFolderInfo,
   listFolderContents,
 } from "@/app/utils/serverDriveUtils";
+import { HelvidUploader } from "@/app/api/helvid-uploader/route";
 
 // Hàm lấy ID từ Google Drive URL
 function extractDriveId(url) {
@@ -162,6 +163,27 @@ async function addFileToLesson(courseId, chapterId, lessonId, file) {
     }
 
     const encryptedId = encryptId(file.id);
+    const fileType = getFileType(file.mimeType);
+
+    let helvidUrl = null;
+    if (fileType === 'video') {
+      try {
+        console.log(`Đang upload video ${file.name} lên Helvid...`);
+        const driveUrl = `https://drive.google.com/file/d/${file.id}/view`;
+        
+        const uploader = new HelvidUploader();
+        const result = await uploader.uploadFromDrive(driveUrl);
+        
+        if (result.success && result.data.videoUrl) {
+          helvidUrl = result.data.videoUrl;
+          console.log(`Upload thành công, URL Helvid: ${helvidUrl}`);
+        } else {
+          console.warn(`Không thể upload video lên Helvid: ${result.error}`);
+        }
+      } catch (error) {
+        console.error(`Lỗi khi upload video lên Helvid:`, error);
+      }
+    }
 
     const fileData = {
       id: uuidv4(),
@@ -170,10 +192,11 @@ async function addFileToLesson(courseId, chapterId, lessonId, file) {
       originalName: file.name,
       proxyUrl: `/api/proxy/files?id=${encryptedId}`,
       size: file.size.toString(),
-      type: getFileType(file.mimeType),
+      type: fileType,
       uploadTime: new Date().toISOString(),
       driveFileId: file.id || null,
       status: "active",
+      helvidUrl: helvidUrl,
     };
 
     const courseRef = db.collection("courses").doc(courseId);
