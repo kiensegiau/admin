@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Video Player</title>
+</head>
+<body>
+    <video id="videoPlayer" controls></video>
+    <script>
+        const video = document.getElementById('videoPlayer');
+        
+        async function initializeVideo(gdriveUrl) {
+            // Lấy thông tin segments từ server
+            const response = await fetch(`/proxy-stream?url=${encodeURIComponent(gdriveUrl)}`);
+            const videoInfo = await response.json();
+            
+            // Tạo MediaSource
+            const mediaSource = new MediaSource();
+            video.src = URL.createObjectURL(mediaSource);
+            
+            mediaSource.addEventListener('sourceopen', async () => {
+                const sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.42E01E,mp4a.40.2"');
+                
+                // Hàm tải và append segment
+                async function loadSegment(segmentUrl) {
+                    const response = await fetch(segmentUrl);
+                    const data = await response.arrayBuffer();
+                    sourceBuffer.appendBuffer(data);
+                }
+                
+                // Load segments khi cần
+                video.addEventListener('timeupdate', () => {
+                    const currentTime = video.currentTime;
+                    const currentSegment = Math.floor(currentTime * videoInfo.segmentSize);
+                    // Load next segment if needed
+                    if (currentSegment < videoInfo.totalSegments - 1) {
+                        loadSegment(videoInfo.segments[currentSegment + 1].url);
+                    }
+                });
+                
+                // Load first segment
+                await loadSegment(videoInfo.segments[0].url);
+            });
+        }
+
+        // Khởi tạo với URL Google Drive
+        initializeVideo('https://drive.google.com/file/d/1MW9lnlWP694fbCIY6DeGphyNJMCAcSP6/view?usp=sharing');
+    </script>
+</body>
+</html> 
