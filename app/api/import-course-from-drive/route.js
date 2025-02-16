@@ -334,13 +334,32 @@ export async function POST(request) {
       );
     }
 
-    // Lấy access token và kiểm tra kỹ hơn
-    const tokens = readTokens();
+    // Thêm await ở đây
+    const tokens = await readTokens();
+    console.log("Tokens read:", {
+      hasTokens: !!tokens,
+      hasAccessToken: !!tokens?.access_token,
+      tokenType: tokens?.token_type,
+      expiryDate: tokens?.expiry_date,
+      currentTime: Date.now()
+    });
+
     if (!tokens) {
       return NextResponse.json(
         { 
           success: false,
           error: "Chưa có token. Vui lòng đăng nhập Google Drive trước." 
+        },
+        { status: 401 }
+      );
+    }
+
+    // Kiểm tra token hết hạn
+    if (tokens.expiry_date && Date.now() >= tokens.expiry_date) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Token đã hết hạn. Vui lòng đăng nhập lại Google Drive."
         },
         { status: 401 }
       );
