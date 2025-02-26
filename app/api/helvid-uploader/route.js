@@ -51,16 +51,25 @@ export class HelvidUploader {
   }
 
   async getUploadKey(forceNew = false) {
-    // Kiểm tra xem có thể sử dụng key cache không
+    const cacheStatus = {
+      hasCache: !!HelvidUploader.uploadKeyCache,
+      currentCount: HelvidUploader.uploadCount,
+      maxUploads: HelvidUploader.MAX_UPLOADS_PER_KEY,
+    };
+    console.log("Cache status:", cacheStatus);
+
     if (
       !forceNew &&
       HelvidUploader.uploadKeyCache &&
-      HelvidUploader.uploadCount < HelvidUploader.MAX_UPLOADS_PER_KEY
+      HelvidUploader.uploadCount < HelvidUploader.MAX_UPLOADS_PER_KEY &&
+      Date.now() - HelvidUploader.uploadKeyTimestamp < 3600000
     ) {
+      console.log("Using cached upload key");
       HelvidUploader.uploadCount++;
       return HelvidUploader.uploadKeyCache;
     }
 
+    console.log("Getting new upload key from server");
     try {
       const response = await this.client.post(
         "https://helvid.com/upload/getkey",
@@ -85,6 +94,7 @@ export class HelvidUploader {
       HelvidUploader.uploadKeyTimestamp = Date.now();
       HelvidUploader.uploadCount = 1;
 
+      console.log("New upload key cached");
       return response.data;
     } catch (error) {
       console.error("Error getting upload key:", error.message);
@@ -93,71 +103,124 @@ export class HelvidUploader {
   }
 
   async uploadFile(driveUrl, uploadKey) {
+    console.log("=== Bắt đầu upload file ===");
+    console.log("Drive URL:", driveUrl);
+    console.log("Upload Key:", uploadKey);
+
     try {
-      // Tạo FormData để gửi dữ liệu
       const formData = new URLSearchParams();
       formData.append("videoUrl", driveUrl);
       formData.append("folder_id", "");
 
-      const response = await this.client.post(
-        `https://remote.helvid.com/upload.php?key=${uploadKey.data}`, // Sử dụng uploadKey.data
-        formData.toString(), // Gửi dữ liệu dưới dạng form urlencoded
-        {
-          headers: {
-            authority: "remote.helvid.com",
-            referer: "https://helvid.com/",
-            "sec-fetch-site": "same-site",
-            cookie: this._formatCookies(),
-            "content-type": "application/x-www-form-urlencoded", // Đảm bảo content-type đúng
-          },
-        }
-      );
+      const uploadUrl = `https://remote.helvid.com/upload.php?key=${uploadKey.data}`;
+      console.log("Request URL:", uploadUrl);
+      console.log("Request Data:", formData.toString());
+      console.log("Request Headers:", {
+        authority: "remote.helvid.com",
+        referer: "https://helvid.com/",
+        "sec-fetch-site": "same-site",
+        cookie: this._formatCookies(),
+        "content-type": "application/x-www-form-urlencoded",
+      });
+
+      const response = await this.client.post(uploadUrl, formData.toString(), {
+        headers: {
+          authority: "remote.helvid.com",
+          referer: "https://helvid.com/",
+          "sec-fetch-site": "same-site",
+          cookie: this._formatCookies(),
+          "content-type": "application/x-www-form-urlencoded",
+        },
+      });
+
+      console.log("=== Response từ server ===");
+      console.log("Status:", response.status);
+      console.log("Headers:", response.headers);
+      console.log("Data:", JSON.stringify(response.data, null, 2));
+
+      if (response.data.did === 0) {
+        console.error(
+          "Server trả về did = 0, có thể có lỗi trong quá trình upload"
+        );
+        console.log("Full response object:", response);
+      }
+
       return response.data;
     } catch (error) {
-      console.error("Error uploading file:", error.message);
+      console.error("Chi tiết lỗi upload:", {
+        message: error.message,
+        response: {
+          data: error.response?.data,
+          status: error.response?.status,
+          headers: error.response?.headers,
+        },
+        request: {
+          url: uploadUrl,
+          data: formData.toString(),
+          headers: error.config?.headers,
+        },
+      });
       throw error;
     }
   }
 
   async getVideoDetails(did) {
+    console.log("=== Bắt đầu lấy thông tin video ===");
+    console.log("DID:", did);
+
     try {
-      const response = await axios.get(
-        `https://helvid.com/api/getvideodetail_by_id/${did}?apikey=F3ziE0vwcNP2W57i6j1bdk4QjbwNX`,
-        {
-          headers: {
-            accept: "application/json",
-          },
-        }
-      );
+      const apiUrl = `https://helvid.com/api/getvideodetail_by_id/${did}?apikey=F3ziE0vwcNP2W57i6j1bdk4QjbwNX`;
+      console.log("URL API:", apiUrl);
+
+      const response = await axios.get(apiUrl, {
+        headers: {
+          accept: "application/json",
+        },
+      });
+
+      console.log("Response data:", JSON.stringify(response.data, null, 2));
 
       if (response.data.status === "success" && response.data.data) {
+        console.log("Thông tin video hợp lệ:", response.data.data);
         return response.data.data;
       }
 
-      throw new Error("Không thể lấy được thông tin video");
+      console.error("Response không hợp lệ:", response.data);
+      throw new Error(
+        `Không thể lấy được thông tin video. Status: ${response.data.status}`
+      );
     } catch (error) {
-      console.error("Error getting video details:", error);
+      console.error("Chi tiết lỗi:", {
+        message: error.message,
+        responseData: error.response?.data,
+        status: error.response?.status,
+        did: did,
+      });
       throw error;
     }
   }
 
   async uploadFromDrive(driveUrl) {
+    console.log("Bắt đầu quá trình upload từ Drive URL:", driveUrl);
     try {
       console.log("Getting upload key...");
       const uploadKey = await this.getUploadKey();
+      console.log("Đã nhận upload key:", uploadKey);
 
       console.log("Uploading file...");
       const uploadResponse = await this.uploadFile(driveUrl, uploadKey);
+      console.log("Kết quả upload:", uploadResponse);
 
       if (uploadResponse.code !== 1) {
-        throw new Error("Upload failed");
+        throw new Error(`Upload failed with code ${uploadResponse.code}`);
       }
 
-      // Lấy thông tin video từ API mới
       console.log("Getting video details...");
       const videoDetails = await this.getVideoDetails(uploadResponse.did);
+      console.log("Chi tiết video:", videoDetails);
 
       const videoUrl = `https://helvid.net/play/index/${videoDetails.vid}`;
+      console.log("URL video cuối cùng:", videoUrl);
 
       return {
         success: true,
@@ -172,7 +235,11 @@ export class HelvidUploader {
         },
       };
     } catch (error) {
-      console.error("Upload process failed:", error.message);
+      console.error("Upload process failed:", {
+        message: error.message,
+        stack: error.stack,
+        driveUrl: driveUrl,
+      });
       return {
         success: false,
         error: error.message || "Upload failed",
