@@ -105,7 +105,6 @@ export class HelvidUploader {
   async uploadFile(driveUrl, uploadKey) {
     console.log("=== Bắt đầu upload file ===");
     console.log("Drive URL:", driveUrl);
-    console.log("Upload Key:", uploadKey);
 
     try {
       const formData = new URLSearchParams();
@@ -113,15 +112,6 @@ export class HelvidUploader {
       formData.append("folder_id", "");
 
       const uploadUrl = `https://remote.helvid.com/upload.php?key=${uploadKey.data}`;
-      console.log("Request URL:", uploadUrl);
-      console.log("Request Data:", formData.toString());
-      console.log("Request Headers:", {
-        authority: "remote.helvid.com",
-        referer: "https://helvid.com/",
-        "sec-fetch-site": "same-site",
-        cookie: this._formatCookies(),
-        "content-type": "application/x-www-form-urlencoded",
-      });
 
       const response = await this.client.post(uploadUrl, formData.toString(), {
         headers: {
@@ -133,35 +123,83 @@ export class HelvidUploader {
         },
       });
 
-      console.log("=== Response từ server ===");
-      console.log("Status:", response.status);
-      console.log("Headers:", response.headers);
-      console.log("Data:", JSON.stringify(response.data, null, 2));
+      console.log("Response data:", JSON.stringify(response.data, null, 2));
 
+      // Nếu did = 0, có nghĩa là video đã tồn tại
       if (response.data.did === 0) {
-        console.error(
-          "Server trả về did = 0, có thể có lỗi trong quá trình upload"
-        );
-        console.log("Full response object:", response);
+        console.log("Video đã tồn tại trên hệ thống, tiếp tục xử lý...");
+        // Vẫn trả về response.data vì code vẫn = 1 (thành công)
+        return response.data;
       }
 
       return response.data;
     } catch (error) {
       console.error("Chi tiết lỗi upload:", {
         message: error.message,
-        response: {
-          data: error.response?.data,
-          status: error.response?.status,
-          headers: error.response?.headers,
-        },
-        request: {
-          url: uploadUrl,
-          data: formData.toString(),
-          headers: error.config?.headers,
-        },
+        response: error.response?.data,
+        status: error.response?.status,
       });
       throw error;
     }
+  }
+
+  // Hàm mới để lấy video ID từ URL đã tồn tại
+  async getVideoIdFromUrl(driveUrl) {
+    try {
+      const response = await this.client.post(
+        "https://helvid.com/api/search",
+        new URLSearchParams({
+          q: driveUrl,
+        }).toString(),
+        {
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            cookie: this._formatCookies(),
+          },
+        }
+      );
+
+      if (
+        response.data &&
+        response.data.data &&
+        response.data.data.length > 0
+      ) {
+        return response.data.data[0].id;
+      }
+      return null;
+    } catch (error) {
+      console.error("Lỗi khi tìm video:", error.message);
+      return null;
+    }
+  }
+
+  // Thêm phương thức mới để upload nhiều file song song
+  async uploadMultipleFiles(driveUrls, maxConcurrent = 5) {
+    console.log(
+      `Bắt đầu upload ${driveUrls.length} files, ${maxConcurrent} files song song`
+    );
+
+    const results = [];
+    for (let i = 0; i < driveUrls.length; i += maxConcurrent) {
+      const batch = driveUrls.slice(i, i + maxConcurrent);
+      console.log(
+        `Đang xử lý batch ${Math.floor(i / maxConcurrent) + 1}, ${
+          batch.length
+        } files`
+      );
+
+      const uploadPromises = batch.map((url) => this.uploadFromDrive(url));
+      const batchResults = await Promise.all(uploadPromises);
+
+      results.push(...batchResults);
+
+      // Đợi một chút giữa các batch để tránh quá tải
+      if (i + maxConcurrent < driveUrls.length) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+
+    return results;
   }
 
   async getVideoDetails(did) {
@@ -205,11 +243,9 @@ export class HelvidUploader {
     try {
       console.log("Getting upload key...");
       const uploadKey = await this.getUploadKey();
-      console.log("Đã nhận upload key:", uploadKey);
 
       console.log("Uploading file...");
       const uploadResponse = await this.uploadFile(driveUrl, uploadKey);
-      console.log("Kết quả upload:", uploadResponse);
 
       if (uploadResponse.code !== 1) {
         throw new Error(`Upload failed with code ${uploadResponse.code}`);
@@ -217,10 +253,8 @@ export class HelvidUploader {
 
       console.log("Getting video details...");
       const videoDetails = await this.getVideoDetails(uploadResponse.did);
-      console.log("Chi tiết video:", videoDetails);
 
       const videoUrl = `https://helvid.net/play/index/${videoDetails.vid}`;
-      console.log("URL video cuối cùng:", videoUrl);
 
       return {
         success: true,
@@ -237,7 +271,6 @@ export class HelvidUploader {
     } catch (error) {
       console.error("Upload process failed:", {
         message: error.message,
-        stack: error.stack,
         driveUrl: driveUrl,
       });
       return {
@@ -250,14 +283,27 @@ export class HelvidUploader {
 
 export async function POST(request) {
   try {
-    const { driveUrl } = await request.json();
+    const body = await request.json();
+    const { driveUrl, driveUrls } = body;
+    const uploader = new HelvidUploader();
+
+    // Xử lý upload nhiều file
+    if (driveUrls && Array.isArray(driveUrls)) {
+      console.log(`Nhận request upload ${driveUrls.length} files`);
+      const results = await uploader.uploadMultipleFiles(driveUrls);
+      return NextResponse.json({
+        success: true,
+        totalFiles: driveUrls.length,
+        results: results,
+      });
+    }
+
+    // Xử lý upload một file
     if (!driveUrl) {
       return NextResponse.json({ error: "Missing drive URL" }, { status: 400 });
     }
 
-    const uploader = new HelvidUploader();
     const result = await uploader.uploadFromDrive(driveUrl);
-
     return NextResponse.json(result);
   } catch (error) {
     console.error("Upload error:", error);

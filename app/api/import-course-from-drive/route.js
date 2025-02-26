@@ -165,25 +165,8 @@ async function addFileToLesson(courseId, chapterId, lessonId, file) {
     const encryptedId = encryptId(file.id);
     const fileType = getFileType(file.mimeType);
 
-    let helvidUrl = null;
-    if (fileType === 'video') {
-      try {
-        console.log(`Đang upload video ${file.name} lên Helvid...`);
-        const driveUrl = `https://drive.google.com/file/d/${file.id}/view`;
-        
-        const uploader = new HelvidUploader();
-        const result = await uploader.uploadFromDrive(driveUrl);
-        
-        if (result.success && result.data.videoUrl) {
-          helvidUrl = result.data.videoUrl;
-          console.log(`Upload thành công, URL Helvid: ${helvidUrl}`);
-        } else {
-          console.warn(`Không thể upload video lên Helvid: ${result.error}`);
-        }
-      } catch (error) {
-        console.error(`Lỗi khi upload video lên Helvid:`, error);
-      }
-    }
+    // Nếu file đã có helvidUrl (đã được upload trước đó), sử dụng luôn
+    let helvidUrl = file.helvidUrl || null;
 
     const fileData = {
       id: uuidv4(),
@@ -274,63 +257,63 @@ async function processFolder(
 ) {
   try {
     console.log(`\n=== Bắt đầu xử lý thư mục ===`);
-    console.log(`ParentType: ${parentType}`);
-    console.log(`CourseId: ${courseId}`);
-    console.log(`ParentId: ${parentId}`);
-    console.log(`LessonId: ${lessonId}`);
+    console.log(`ParentType: ${parentType}, CourseId: ${courseId}`);
 
     const files = await listFolderContents(drive, folderId);
-    console.log(`\nDanh sách files trong thư mục:`, files);
-
-    const folders = files.filter(
-      (f) => f.mimeType === "application/vnd.google-apps.folder"
-    );
-    const documents = files.filter(
-      (f) => f.mimeType !== "application/vnd.google-apps.folder"
-    );
-
-    console.log(`\nSố lượng thư mục con: ${folders.length}`);
-    console.log(`Số lượng tài liệu: ${documents.length}`);
+    const folders = files.filter(f => f.mimeType === "application/vnd.google-apps.folder");
+    const documents = files.filter(f => f.mimeType !== "application/vnd.google-apps.folder");
 
     // Xử lý các thư mục (chapters hoặc lessons)
     for (const folder of folders) {
-      console.log(`\n-> Xử lý thư mục: ${folder.name}`);
       if (parentType === "course") {
-        console.log(`Tạo chapter mới: ${folder.name}`);
         const chapterId = await createChapter(courseId, folder.name);
-        console.log(`Đã tạo chapter với ID: ${chapterId}`);
         await processFolder(drive, folder.id, courseId, "chapter", chapterId);
       } else if (parentType === "chapter") {
-        console.log(`Tạo lesson mới trong chapter: ${folder.name}`);
-        const { lessonId: newLessonId } = await createLesson(
-          courseId,
-          parentId,
-          folder.name
-        );
-        console.log(`Đã tạo lesson với ID: ${newLessonId}`);
-        await processFolder(
-          drive,
-          folder.id,
-          courseId,
-          "lesson",
-          parentId,
-          newLessonId
-        );
+        const { lessonId: newLessonId } = await createLesson(courseId, parentId, folder.name);
+        await processFolder(drive, folder.id, courseId, "lesson", parentId, newLessonId);
       }
     }
 
     // Xử lý các file trong lesson
     if (parentType === "lesson" && lessonId) {
-      console.log(`\n-> Xử lý files trong lesson ${lessonId}:`);
-      for (const file of documents) {
-        console.log(`Xử lý file: ${file.name}`);
-        const fileType = getFileType(file.mimeType);
-        if (fileType !== "other") {
-          console.log(`Thêm file ${file.name} vào lesson`);
-          await addFileToLesson(courseId, parentId, lessonId, file);
-        } else {
-          console.warn(`Bỏ qua file không được hỗ trợ: ${file.name}`);
+      // Tách video và các file khác
+      const videos = documents.filter(file => getFileType(file.mimeType) === "video");
+      const otherFiles = documents.filter(file => {
+        const type = getFileType(file.mimeType);
+        return type !== "video" && type !== "other";
+      });
+
+      // Upload videos song song
+      if (videos.length > 0) {
+        console.log(`\n=== Bắt đầu upload ${videos.length} videos song song ===`);
+        const uploader = new HelvidUploader();
+        const videoUrls = videos.map(file => `https://drive.google.com/file/d/${file.id}/view`);
+        
+        const uploadResults = await uploader.uploadMultipleFiles(videoUrls);
+        console.log(`Kết quả upload videos:`, uploadResults);
+
+        // Thêm videos vào lesson
+        for (let i = 0; i < videos.length; i++) {
+          const file = videos[i];
+          const uploadResult = uploadResults[i];
+          
+          if (uploadResult.success && uploadResult.data.videoUrl) {
+            console.log(`Video ${file.name} upload thành công: ${uploadResult.data.videoUrl}`);
+            await addFileToLesson(courseId, parentId, lessonId, {
+              ...file,
+              helvidUrl: uploadResult.data.videoUrl
+            });
+          } else {
+            console.warn(`Lỗi upload video ${file.name}:`, uploadResult.error);
+            // Vẫn thêm file nhưng không có helvidUrl
+            await addFileToLesson(courseId, parentId, lessonId, file);
+          }
         }
+      }
+
+      // Xử lý các file không phải video
+      for (const file of otherFiles) {
+        await addFileToLesson(courseId, parentId, lessonId, file);
       }
     }
 
