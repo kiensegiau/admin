@@ -10,7 +10,13 @@ import {
   getFolderInfo,
   listFolderContents,
 } from "@/app/utils/serverDriveUtils";
+import { downloadVideo, uploadToHelvid } from "@/app/api/upload-to-helvid/route";
 import { HelvidUploader } from "@/app/api/helvid-uploader/route";
+import path from "path";
+import os from "os";
+import fs from "fs";
+import axios from "axios";
+import { pipeline } from "stream/promises";
 
 // Hàm lấy ID từ Google Drive URL
 function extractDriveId(url) {
@@ -285,28 +291,37 @@ async function processFolder(
 
       // Upload videos song song
       if (videos.length > 0) {
-        console.log(`\n=== Bắt đầu upload ${videos.length} videos song song ===`);
-        const uploader = new HelvidUploader();
-        const videoUrls = videos.map(file => `https://drive.google.com/file/d/${file.id}/view`);
+        console.log(`\n=== Bắt đầu xử lý ${videos.length} videos ===`);
         
-        const uploadResults = await uploader.uploadMultipleFiles(videoUrls);
-        console.log(`Kết quả upload videos:`, uploadResults);
+        for (const video of videos) {
+          try {
+            console.log(`\nĐang xử lý video: ${video.name}`);
+            const videoUrl = `https://drive.google.com/file/d/${video.id}/view`;
+            
+            // Tải video từ Drive
+            console.log("Bắt đầu tải video từ Drive...");
+            const tempFilePath = await downloadVideo(videoUrl);
+            console.log("Đã tải xong video từ Drive");
 
-        // Thêm videos vào lesson
-        for (let i = 0; i < videos.length; i++) {
-          const file = videos[i];
-          const uploadResult = uploadResults[i];
-          
-          if (uploadResult.success && uploadResult.data.videoUrl) {
-            console.log(`Video ${file.name} upload thành công: ${uploadResult.data.videoUrl}`);
-            await addFileToLesson(courseId, parentId, lessonId, {
-              ...file,
-              helvidUrl: uploadResult.data.videoUrl
-            });
-          } else {
-            console.warn(`Lỗi upload video ${file.name}:`, uploadResult.error);
-            // Vẫn thêm file nhưng không có helvidUrl
-            await addFileToLesson(courseId, parentId, lessonId, file);
+            // Upload lên Helvid
+            console.log("Bắt đầu upload lên Helvid...");
+            const uploadResult = await uploadToHelvid(tempFilePath);
+
+            if (uploadResult && uploadResult.status === 'success') {
+              console.log(`Video ${video.name} upload thành công`);
+              await addFileToLesson(courseId, parentId, lessonId, {
+                ...video,
+                helvidUrl: `https://helvid.net/play/index/${uploadResult.vid}`
+              });
+            } else {
+              console.warn(`Upload thất bại cho video ${video.name}:`, uploadResult);
+              // Vẫn thêm file nhưng không có helvidUrl
+              await addFileToLesson(courseId, parentId, lessonId, video);
+            }
+          } catch (error) {
+            console.error(`Lỗi khi xử lý video ${video.name}:`, error);
+            // Vẫn thêm file dù có lỗi
+            await addFileToLesson(courseId, parentId, lessonId, video);
           }
         }
       }

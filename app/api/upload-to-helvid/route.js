@@ -11,7 +11,7 @@ import axios from "axios";
 
 export const dynamic = "force-dynamic";
 
-async function downloadVideo(url) {
+export async function downloadVideo(url) {
   try {
     console.log("Bắt đầu xử lý URL Drive:", url);
     
@@ -62,7 +62,7 @@ async function downloadVideo(url) {
   }
 }
 
-async function uploadToHelvid(filePath) {
+export async function uploadToHelvid(filePath) {
   try {
     console.log("Bắt đầu upload file lên Helvid:", filePath);
     
