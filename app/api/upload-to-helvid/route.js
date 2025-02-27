@@ -11,6 +11,10 @@ import axios from "axios";
 
 export const dynamic = "force-dynamic";
 
+const UPLOAD_TIMEOUT = 30 * 60 * 1000; // 30 phút
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 5000; // 5 giây
+
 export async function downloadVideo(url) {
   try {
     console.log("Bắt đầu xử lý URL Drive:", url);
@@ -62,21 +66,32 @@ export async function downloadVideo(url) {
   }
 }
 
-export async function uploadToHelvid(filePath) {
+export async function uploadToHelvid(filePath, retryCount = 0) {
   try {
-    console.log("Bắt đầu upload file lên Helvid:", filePath);
+    console.log(`Bắt đầu upload file lên Helvid (lần thử ${retryCount + 1}):`, filePath);
     
-    // Tạo form data
+    // Kiểm tra file có tồn tại
+    if (!fs.existsSync(filePath)) {
+      throw new Error("File không tồn tại");
+    }
+
+    const stats = fs.statSync(filePath);
+    console.log(`Kích thước file upload: ${(stats.size / (1024 * 1024)).toFixed(2)} MB`);
+
+    // Tạo form data với stream
     const formData = new FormData();
-    formData.append("video", fs.createReadStream(filePath));
+    formData.append("video", fs.createReadStream(filePath), {
+      filename: path.basename(filePath),
+      knownLength: stats.size
+    });
     formData.append("apikey", "kYVXi1CZkTgJJhHYHs57rawJ4LU0z");
-    formData.append("cid", "15");     // cid: 15
-    formData.append("fid", "22");     // fid: 22 
-    formData.append("mycid", "0");    // mycid: 0
+    formData.append("cid", "15");
+    formData.append("fid", "22");
+    formData.append("mycid", "0");
 
     const uploadUrl = "https://helvid.com/api/upload";
 
-    // Upload file
+    // Upload với timeout
     const response = await axios.post(uploadUrl, formData, {
       headers: {
         ...formData.getHeaders(),
@@ -86,29 +101,43 @@ export async function uploadToHelvid(filePath) {
         "Accept": "application/json"
       },
       maxContentLength: Infinity,
-      maxBodyLength: Infinity
+      maxBodyLength: Infinity,
+      timeout: UPLOAD_TIMEOUT,
+      onUploadProgress: (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        process.stdout.write(`\rUploading: ${percentCompleted}%`);
+      }
     });
 
-    console.log("Upload response:", response.data);
+    console.log("\nUpload response:", response.data);
 
-    // Kiểm tra response - sửa lại điều kiện
     if (!response.data || response.data.status !== 'success') {
       throw new Error(`Upload thất bại: ${response.data?.msg || 'Lỗi không xác định'}`);
     }
 
     return response.data;
   } catch (error) {
-    console.error("Lỗi khi upload lên Helvid:", error);
-    throw new Error(`Không thể upload lên Helvid: ${error.message}`);
+    console.error(`Lỗi khi upload lên Helvid (lần ${retryCount + 1}):`, error.message);
+
+    // Retry logic
+    if (retryCount < MAX_RETRIES) {
+      console.log(`Thử lại sau ${RETRY_DELAY/1000} giây...`);
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      return uploadToHelvid(filePath, retryCount + 1);
+    }
+
+    throw new Error(`Không thể upload lên Helvid sau ${MAX_RETRIES} lần thử: ${error.message}`);
   } finally {
-    // Xóa file tạm sau khi upload xong
-    try {
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        console.log("Đã xóa file tạm:", filePath);
+    // Chỉ xóa file khi đã upload xong hoặc đã hết số lần thử
+    if (retryCount >= MAX_RETRIES) {
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          console.log("Đã xóa file tạm:", filePath);
+        }
+      } catch (error) {
+        console.error("Lỗi khi xóa file tạm:", error);
       }
-    } catch (error) {
-      console.error("Lỗi khi xóa file tạm:", error);
     }
   }
 }
