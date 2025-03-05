@@ -80,9 +80,16 @@ export async function uploadToHelvid(filePath, retryCount = 0) {
     }
 
     const stats = fs.statSync(filePath);
-    console.log(
-      `Kích thước file upload: ${(stats.size / (1024 * 1024)).toFixed(2)} MB`
-    );
+    const fileSizeMB = (stats.size / (1024 * 1024)).toFixed(2);
+    console.log(`Kích thước file upload: ${fileSizeMB} MB`);
+
+    // Kiểm tra kích thước file
+    if (stats.size > 500 * 1024 * 1024) {
+      // Giới hạn 500MB
+      throw new Error(
+        `File quá lớn (${fileSizeMB} MB). Helvid có thể giới hạn kích thước upload.`
+      );
+    }
 
     // Tạo form data với stream
     const formData = new FormData();
@@ -90,14 +97,14 @@ export async function uploadToHelvid(filePath, retryCount = 0) {
       filename: path.basename(filePath),
       knownLength: stats.size,
     });
-    formData.append("apikey", "kYVXi1CZkTgJJhHYHs57rawJ4LU0z");
+    formData.append("apikey", "F3ziE0vwcNP2W57i6j1bdk4QjbwNX"); // Sử dụng API key mới
     formData.append("cid", "15");
-    formData.append("fid", "22");
-    formData.append("mycid", "0");
+    formData.append("fid", "18"); // Sử dụng fid=18 như trong ví dụ
+    formData.append("mycid", "17"); // Sử dụng mycid=17 như trong ví dụ
 
     const uploadUrl = "https://helvid.com/api/upload";
 
-    // Upload với timeout
+    // Upload với timeout và cấu hình tốt hơn
     const response = await axios.post(uploadUrl, formData, {
       headers: {
         ...formData.getHeaders(),
@@ -109,6 +116,7 @@ export async function uploadToHelvid(filePath, retryCount = 0) {
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
       timeout: UPLOAD_TIMEOUT,
+      decompress: true, // Cho phép giải nén response
       onUploadProgress: (progressEvent) => {
         const percentCompleted = Math.round(
           (progressEvent.loaded * 100) / progressEvent.total
@@ -131,6 +139,16 @@ export async function uploadToHelvid(filePath, retryCount = 0) {
       `Lỗi khi upload lên Helvid (lần ${retryCount + 1}):`,
       error.message
     );
+
+    // Kiểm tra lỗi 413
+    if (error.response && error.response.status === 413) {
+      console.error(
+        "Lỗi 413: Request Entity Too Large - File quá lớn cho server"
+      );
+      throw new Error(
+        "Lỗi 413: File quá lớn cho server Helvid. Vui lòng thử file nhỏ hơn hoặc sử dụng phương thức upload khác."
+      );
+    }
 
     // Retry logic
     if (retryCount < MAX_RETRIES) {
@@ -157,10 +175,57 @@ export async function uploadToHelvid(filePath, retryCount = 0) {
   }
 }
 
+// Thêm phương thức upload thay thế sử dụng HelvidUploader
+export async function uploadToHelvidAlternative(driveUrl, retryCount = 0) {
+  try {
+    console.log(
+      `Bắt đầu upload file lên Helvid qua phương thức thay thế (lần thử ${
+        retryCount + 1
+      }):`,
+      driveUrl
+    );
+
+    const uploader = new HelvidUploader();
+    const result = await uploader.uploadFromDrive(driveUrl);
+
+    if (!result.success) {
+      throw new Error(
+        `Upload thất bại: ${result.error || "Lỗi không xác định"}`
+      );
+    }
+
+    // Chuyển đổi kết quả để phù hợp với định dạng trả về của uploadToHelvid
+    return {
+      status: "success",
+      msg: "Video upload complete",
+      did: result.data.debug.originalDid,
+      vid: result.data.debug.videoDetails.vid,
+    };
+  } catch (error) {
+    console.error(
+      `Lỗi khi upload lên Helvid qua phương thức thay thế (lần ${
+        retryCount + 1
+      }):`,
+      error.message
+    );
+
+    // Retry logic
+    if (retryCount < MAX_RETRIES) {
+      console.log(`Thử lại sau ${RETRY_DELAY / 1000} giây...`);
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
+      return uploadToHelvidAlternative(driveUrl, retryCount + 1);
+    }
+
+    throw new Error(
+      `Không thể upload lên Helvid sau ${MAX_RETRIES} lần thử: ${error.message}`
+    );
+  }
+}
+
 export async function POST(request) {
   try {
     console.log("\n=== Bắt đầu xử lý upload video ===");
-    const { videoUrl } = await request.json();
+    const { videoUrl, useAlternativeMethod } = await request.json();
 
     if (!videoUrl) {
       return NextResponse.json(
@@ -171,35 +236,50 @@ export async function POST(request) {
 
     console.log("Video URL:", videoUrl);
 
-    // Tải video về máy chủ
-    const downloadedFilePath = await downloadVideo(videoUrl);
+    let result;
 
-    // Upload lên Helvid
-    const uploadResult = await uploadToHelvid(downloadedFilePath);
+    // Sử dụng HelvidUploader trực tiếp
+    if (useAlternativeMethod) {
+      console.log("Sử dụng phương thức upload bằng URL...");
+      const uploader = new HelvidUploader();
+      result = await uploader.uploadFromDrive(videoUrl);
 
-    // Sửa điều kiện kiểm tra theo status
-    if (!uploadResult || uploadResult.status !== "success") {
-      throw new Error(
-        "Upload thất bại: " + (uploadResult?.msg || "Lỗi không xác định")
-      );
-    }
+      if (!result.success) {
+        throw new Error(
+          "Upload thất bại: " + (result.error || "Lỗi không xác định")
+        );
+      }
 
-    const result = {
-      success: true,
-      data: {
-        url: `https://helvid.net/play/index/${uploadResult.vid}`,
-        debug: {
-          did: uploadResult.did,
-          vid: uploadResult.vid,
-          message: uploadResult.msg,
+      return NextResponse.json(result);
+    } else {
+      // Phương thức thông thường: tải về máy chủ rồi upload
+      console.log("Sử dụng phương thức upload thông thường...");
+      const downloadedFilePath = await downloadVideo(videoUrl);
+      const uploadResult = await uploadToHelvid(downloadedFilePath);
+
+      if (!uploadResult || uploadResult.status !== "success") {
+        throw new Error(
+          "Upload thất bại: " + (uploadResult?.msg || "Lỗi không xác định")
+        );
+      }
+
+      result = {
+        success: true,
+        data: {
+          videoUrl: `https://helvid.net/play/index/${uploadResult.vid}`,
+          debug: {
+            did: uploadResult.did,
+            vid: uploadResult.vid,
+            message: uploadResult.msg,
+          },
         },
-      },
-    };
+      };
 
-    console.log("Upload thành công:", result);
-    console.log("=== Kết thúc xử lý upload video ===\n");
+      console.log("Upload thành công:", result);
+      console.log("=== Kết thúc xử lý upload video ===\n");
 
-    return NextResponse.json(result);
+      return NextResponse.json(result);
+    }
   } catch (error) {
     console.error("Lỗi trong quá trình xử lý:", error);
     return NextResponse.json(

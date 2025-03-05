@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { db } from "@/lib/firebase-admin";
@@ -10,7 +10,6 @@ import {
   getFolderInfo,
   listFolderContents,
 } from "@/app/utils/serverDriveUtils";
-import { downloadVideo, uploadToHelvid } from "@/app/api/upload-to-helvid/route";
 import { HelvidUploader } from "@/app/api/helvid-uploader/route";
 import path from "path";
 import os from "os";
@@ -266,8 +265,12 @@ async function processFolder(
     console.log(`ParentType: ${parentType}, CourseId: ${courseId}`);
 
     const files = await listFolderContents(drive, folderId);
-    const folders = files.filter(f => f.mimeType === "application/vnd.google-apps.folder");
-    const documents = files.filter(f => f.mimeType !== "application/vnd.google-apps.folder");
+    const folders = files.filter(
+      (f) => f.mimeType === "application/vnd.google-apps.folder"
+    );
+    const documents = files.filter(
+      (f) => f.mimeType !== "application/vnd.google-apps.folder"
+    );
 
     // Xử lý các thư mục (chapters hoặc lessons)
     for (const folder of folders) {
@@ -275,16 +278,29 @@ async function processFolder(
         const chapterId = await createChapter(courseId, folder.name);
         await processFolder(drive, folder.id, courseId, "chapter", chapterId);
       } else if (parentType === "chapter") {
-        const { lessonId: newLessonId } = await createLesson(courseId, parentId, folder.name);
-        await processFolder(drive, folder.id, courseId, "lesson", parentId, newLessonId);
+        const { lessonId: newLessonId } = await createLesson(
+          courseId,
+          parentId,
+          folder.name
+        );
+        await processFolder(
+          drive,
+          folder.id,
+          courseId,
+          "lesson",
+          parentId,
+          newLessonId
+        );
       }
     }
 
     // Xử lý các file trong lesson
     if (parentType === "lesson" && lessonId) {
       // Tách video và các file khác
-      const videos = documents.filter(file => getFileType(file.mimeType) === "video");
-      const otherFiles = documents.filter(file => {
+      const videos = documents.filter(
+        (file) => getFileType(file.mimeType) === "video"
+      );
+      const otherFiles = documents.filter((file) => {
         const type = getFileType(file.mimeType);
         return type !== "video" && type !== "other";
       });
@@ -292,29 +308,28 @@ async function processFolder(
       // Upload videos song song
       if (videos.length > 0) {
         console.log(`\n=== Bắt đầu xử lý ${videos.length} videos ===`);
-        
+        const uploader = new HelvidUploader();
+
         for (const video of videos) {
           try {
             console.log(`\nĐang xử lý video: ${video.name}`);
             const videoUrl = `https://drive.google.com/file/d/${video.id}/view`;
-            
-            // Tải video từ Drive
-            console.log("Bắt đầu tải video từ Drive...");
-            const tempFilePath = await downloadVideo(videoUrl);
-            console.log("Đã tải xong video từ Drive");
 
-            // Upload lên Helvid
-            console.log("Bắt đầu upload lên Helvid...");
-            const uploadResult = await uploadToHelvid(tempFilePath);
+            // Upload trực tiếp từ URL Drive lên Helvid sử dụng HelvidUploader
+            console.log("Bắt đầu upload lên Helvid bằng URL...");
+            const result = await uploader.uploadFromDrive(videoUrl);
 
-            if (uploadResult && uploadResult.status === 'success') {
+            if (result.success) {
               console.log(`Video ${video.name} upload thành công`);
               await addFileToLesson(courseId, parentId, lessonId, {
                 ...video,
-                helvidUrl: `https://helvid.net/play/index/${uploadResult.vid}`
+                helvidUrl: result.data.videoUrl,
               });
             } else {
-              console.warn(`Upload thất bại cho video ${video.name}:`, uploadResult);
+              console.warn(
+                `Upload thất bại cho video ${video.name}:`,
+                result.error
+              );
               // Vẫn thêm file nhưng không có helvidUrl
               await addFileToLesson(courseId, parentId, lessonId, video);
             }
@@ -362,14 +377,14 @@ export async function POST(request) {
       hasAccessToken: !!tokens?.access_token,
       tokenType: tokens?.token_type,
       expiryDate: tokens?.expiry_date,
-      currentTime: Date.now()
+      currentTime: Date.now(),
     });
 
     if (!tokens) {
       return NextResponse.json(
-        { 
+        {
           success: false,
-          error: "Chưa có token. Vui lòng đăng nhập Google Drive trước." 
+          error: "Chưa có token. Vui lòng đăng nhập Google Drive trước.",
         },
         { status: 401 }
       );
@@ -380,7 +395,7 @@ export async function POST(request) {
       return NextResponse.json(
         {
           success: false,
-          error: "Token đã hết hạn. Vui lòng đăng nhập lại Google Drive."
+          error: "Token đã hết hạn. Vui lòng đăng nhập lại Google Drive.",
         },
         { status: 401 }
       );
@@ -388,9 +403,9 @@ export async function POST(request) {
 
     if (!tokens.access_token) {
       return NextResponse.json(
-        { 
+        {
           success: false,
-          error: "Token không hợp lệ. Vui lòng đăng nhập lại Google Drive." 
+          error: "Token không hợp lệ. Vui lòng đăng nhập lại Google Drive.",
         },
         { status: 401 }
       );

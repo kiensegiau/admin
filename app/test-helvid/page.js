@@ -33,11 +33,195 @@ export default function TestHelvid() {
           >
             Upload To Helvid
           </button>
+          <button
+            className={`py-2 px-4 font-medium ${
+              activeTab === "my-videos"
+                ? "text-blue-600 border-b-2 border-blue-600"
+                : "text-gray-500 hover:text-blue-500"
+            }`}
+            onClick={() => setActiveTab("my-videos")}
+          >
+            Danh sách Video
+          </button>
         </div>
       </div>
 
       {activeTab === "uploader" && <HelvidUploaderTest />}
       {activeTab === "upload-to-helvid" && <UploadToHelvidTest />}
+      {activeTab === "my-videos" && <MyVideosTest />}
+    </div>
+  );
+}
+
+function MyVideosTest() {
+  const [videos, setVideos] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filters, setFilters] = useState({
+    per_page: 10,
+    cid: "15",
+    mycid: "17",
+    fid: "18",
+    sort_field: "addtime",
+    sort_by: "desc",
+  });
+
+  const fetchVideos = async (pageNum = page, search = searchTerm) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/helvid-uploader", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "getMyVideos",
+          options: {
+            ...filters,
+            page: pageNum,
+            search: search,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || "Không thể lấy danh sách video");
+      }
+
+      setVideos(data.data.data || []);
+      setTotalPages(data.data.total_page || 1);
+      setPage(pageNum);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    fetchVideos(1, searchTerm);
+  };
+
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      fetchVideos(newPage, searchTerm);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="p-4 bg-purple-50 border border-purple-200 rounded-md">
+        <p className="text-purple-800">
+          API <code>/api/helvid-uploader</code> với action{" "}
+          <code>getMyVideos</code> để lấy danh sách video từ Helvid.
+        </p>
+      </div>
+
+      <div className="flex justify-between items-center">
+        <form onSubmit={handleSearch} className="flex space-x-2">
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="p-2 border rounded"
+            placeholder="Tìm kiếm video..."
+          />
+          <button
+            type="submit"
+            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          >
+            Tìm kiếm
+          </button>
+        </form>
+
+        <button
+          onClick={() => fetchVideos()}
+          className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+          disabled={loading}
+        >
+          {loading ? "Đang tải..." : "Tải danh sách"}
+        </button>
+      </div>
+
+      {error && (
+        <div className="p-4 bg-red-100 text-red-700 rounded">Lỗi: {error}</div>
+      )}
+
+      {videos.length > 0 ? (
+        <div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full bg-white border border-gray-200">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="py-2 px-4 border-b text-left">ID</th>
+                  <th className="py-2 px-4 border-b text-left">Tên</th>
+                  <th className="py-2 px-4 border-b text-left">Thời lượng</th>
+                  <th className="py-2 px-4 border-b text-left">Kích thước</th>
+                  <th className="py-2 px-4 border-b text-left">Ngày tạo</th>
+                  <th className="py-2 px-4 border-b text-left">Hành động</th>
+                </tr>
+              </thead>
+              <tbody>
+                {videos.map((video) => (
+                  <tr key={video.id} className="hover:bg-gray-50">
+                    <td className="py-2 px-4 border-b">{video.id}</td>
+                    <td className="py-2 px-4 border-b">{video.name}</td>
+                    <td className="py-2 px-4 border-b">{video.duration}</td>
+                    <td className="py-2 px-4 border-b">{video.size}</td>
+                    <td className="py-2 px-4 border-b">{video.addtime}</td>
+                    <td className="py-2 px-4 border-b">
+                      <a
+                        href={`https://helvid.net/play/index/${video.vid}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-500 hover:underline"
+                      >
+                        Xem
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-4 flex justify-between items-center">
+            <div>
+              Trang {page} / {totalPages}
+            </div>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => handlePageChange(page - 1)}
+                disabled={page === 1}
+                className="px-3 py-1 border rounded disabled:opacity-50"
+              >
+                Trước
+              </button>
+              <button
+                onClick={() => handlePageChange(page + 1)}
+                disabled={page === totalPages}
+                className="px-3 py-1 border rounded disabled:opacity-50"
+              >
+                Sau
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        !loading && (
+          <div className="p-4 text-center text-gray-500">
+            Không có video nào. Hãy nhấn "Tải danh sách" để bắt đầu.
+          </div>
+        )
+      )}
     </div>
   );
 }
