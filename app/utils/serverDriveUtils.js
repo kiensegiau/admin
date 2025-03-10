@@ -13,11 +13,19 @@ export async function initializeDriveClient(accessToken) {
 }
 
 export async function getFolderInfo(drive, folderId) {
-  const response = await drive.files.get({
-    fileId: folderId,
-    fields: "name,id,mimeType",
-  });
-  return response.data;
+  try {
+    const response = await drive.files.get({
+      fileId: folderId,
+      fields: "name,id,mimeType",
+    });
+
+    // Trả về trực tiếp data từ response
+    return response.data;
+  } catch (error) {
+    console.error(`Lỗi khi lấy thông tin folder ${folderId}:`, error.message);
+    // Trả về null thay vì throw error để caller có thể xử lý
+    return null;
+  }
 }
 
 export async function listFolderContents(drive, folderId) {

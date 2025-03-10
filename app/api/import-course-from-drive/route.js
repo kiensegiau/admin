@@ -10,12 +10,26 @@ import {
   getFolderInfo,
   listFolderContents,
 } from "@/app/utils/serverDriveUtils";
-import { HelvidUploader } from "@/app/api/helvid-uploader/route";
 import path from "path";
 import os from "os";
 import fs from "fs";
 import axios from "axios";
 import { pipeline } from "stream/promises";
+// Import AWS SDK S3
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+
+// Khởi tạo Wasabi client
+const s3Client = new S3Client({
+  region: process.env.WASABI_REGION || "ap-southeast-1", // Singapore region
+  endpoint:
+    process.env.WASABI_ENDPOINT || "https://s3.ap-southeast-1.wasabisys.com",
+  credentials: {
+    accessKeyId: process.env.WASABI_ACCESS_KEY_ID,
+    secretAccessKey: process.env.WASABI_SECRET_ACCESS_KEY,
+  },
+});
+
+const BUCKET_NAME = process.env.WASABI_BUCKET_NAME || "hocmai";
 
 // Hàm lấy ID từ Google Drive URL
 function extractDriveId(url) {
@@ -30,6 +44,65 @@ function extractDriveId(url) {
     if (match) return match[1];
   }
   return null;
+}
+
+// Hàm upload file từ Google Drive lên Wasabi
+async function uploadToWasabi(drive, fileId, fileName, mimeType) {
+  console.log(`Đang tải file từ Drive: ${fileName}`);
+
+  try {
+    // Tạo thư mục tạm để lưu file
+    const tempDir = path.join(os.tmpdir(), "drive-downloads");
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    // Tải file từ Google Drive
+    const tempFilePath = path.join(tempDir, fileName);
+    const response = await drive.files.get(
+      { fileId: fileId, alt: "media" },
+      { responseType: "stream" }
+    );
+
+    const writer = fs.createWriteStream(tempFilePath);
+    await pipeline(response.data, writer);
+
+    console.log(`File đã được tải về: ${tempFilePath}`);
+
+    // Đọc file để upload lên Wasabi
+    const fileBuffer = fs.readFileSync(tempFilePath);
+
+    // Tạo key cho file trên Wasabi
+    const timestamp = Date.now();
+    const key = `videos/${timestamp}-${fileName}`;
+
+    // Upload lên Wasabi
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: fileBuffer,
+      ContentType: mimeType,
+    });
+
+    await s3Client.send(command);
+    console.log(`File đã được upload lên Wasabi: ${key}`);
+
+    // Xóa file tạm
+    fs.unlinkSync(tempFilePath);
+
+    // Trả về key để lưu trong database
+    return {
+      success: true,
+      key: key,
+      size: fileBuffer.length,
+    };
+  } catch (error) {
+    console.error("Lỗi khi upload file lên Wasabi:", error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
 }
 
 async function createNewCourse(name) {
@@ -167,25 +240,34 @@ async function addFileToLesson(courseId, chapterId, lessonId, file) {
       throw new Error("Thiếu thông tin cần thiết để thêm file");
     }
 
-    const encryptedId = encryptId(file.id);
     const fileType = getFileType(file.mimeType);
 
-    // Nếu file đã có helvidUrl (đã được upload trước đó), sử dụng luôn
-    let helvidUrl = file.helvidUrl || null;
-
+    // File data với cấu trúc mới, chỉ lưu key cho tất cả file
     const fileData = {
       id: uuidv4(),
       mimeType: file.mimeType,
       name: file.name,
       originalName: file.name,
-      proxyUrl: `/api/proxy/files?id=${encryptedId}`,
-      size: file.size.toString(),
       type: fileType,
       uploadTime: new Date().toISOString(),
       driveFileId: file.id || null,
       status: "active",
-      helvidUrl: helvidUrl,
+      size: file.size?.toString() || "0",
     };
+
+    // Nếu file có storage key từ Wasabi, lưu key vào database
+    if (file.wasabi) {
+      fileData.storage = {
+        provider: "wasabi",
+        key: file.wasabi.key,
+        size: file.wasabi.size,
+      };
+    } else {
+      // Fallback nếu không upload được lên Wasabi
+      // Lưu URL proxy để vẫn có thể truy cập qua Google Drive
+      const encryptedId = encryptId(file.id);
+      fileData.proxyUrl = `/api/proxy/files?id=${encryptedId}`;
+    }
 
     const courseRef = db.collection("courses").doc(courseId);
     const courseDoc = await courseRef.get();
@@ -296,54 +378,56 @@ async function processFolder(
 
     // Xử lý các file trong lesson
     if (parentType === "lesson" && lessonId) {
-      // Tách video và các file khác
-      const videos = documents.filter(
-        (file) => getFileType(file.mimeType) === "video"
-      );
-      const otherFiles = documents.filter((file) => {
+      // Lọc những file có mime type hợp lệ để lưu
+      const validFiles = documents.filter((file) => {
         const type = getFileType(file.mimeType);
-        return type !== "video" && type !== "other";
+        return type !== "other"; // Bỏ qua những file không được hỗ trợ
       });
 
-      // Upload videos song song
-      if (videos.length > 0) {
-        console.log(`\n=== Bắt đầu xử lý ${videos.length} videos ===`);
-        const uploader = new HelvidUploader();
+      if (validFiles.length > 0) {
+        console.log(
+          `\n=== Bắt đầu xử lý ${validFiles.length} files lên Wasabi ===`
+        );
 
-        for (const video of videos) {
+        for (const file of validFiles) {
           try {
-            console.log(`\nĐang xử lý video: ${video.name}`);
-            const videoUrl = `https://drive.google.com/file/d/${video.id}/view`;
+            console.log(`\nĐang xử lý file: ${file.name} (${file.mimeType})`);
 
-            // Upload trực tiếp từ URL Drive lên Helvid sử dụng HelvidUploader
-            console.log("Bắt đầu upload lên Helvid bằng URL...");
-            const result = await uploader.uploadFromDrive(videoUrl);
+            // Upload file lên Wasabi
+            const uploadResult = await uploadToWasabi(
+              drive,
+              file.id,
+              file.name,
+              file.mimeType
+            );
 
-            if (result.success) {
-              console.log(`Video ${video.name} upload thành công`);
+            if (uploadResult.success) {
+              console.log(
+                `File ${file.name} upload thành công lên Wasabi, key: ${uploadResult.key}`
+              );
+
+              // Thêm file vào lesson với thông tin Wasabi
               await addFileToLesson(courseId, parentId, lessonId, {
-                ...video,
-                helvidUrl: result.data.videoUrl,
+                ...file,
+                wasabi: {
+                  key: uploadResult.key,
+                  size: uploadResult.size,
+                },
               });
             } else {
               console.warn(
-                `Upload thất bại cho video ${video.name}:`,
-                result.error
+                `Upload thất bại cho file ${file.name}:`,
+                uploadResult.error
               );
-              // Vẫn thêm file nhưng không có helvidUrl
-              await addFileToLesson(courseId, parentId, lessonId, video);
+              // Vẫn thêm file nhưng không có key Wasabi, sẽ dùng proxy URL
+              await addFileToLesson(courseId, parentId, lessonId, file);
             }
           } catch (error) {
-            console.error(`Lỗi khi xử lý video ${video.name}:`, error);
-            // Vẫn thêm file dù có lỗi
-            await addFileToLesson(courseId, parentId, lessonId, video);
+            console.error(`Lỗi khi xử lý file ${file.name}:`, error);
+            // Vẫn thêm file dù có lỗi, sẽ dùng proxy URL
+            await addFileToLesson(courseId, parentId, lessonId, file);
           }
         }
-      }
-
-      // Xử lý các file không phải video
-      for (const file of otherFiles) {
-        await addFileToLesson(courseId, parentId, lessonId, file);
       }
     }
 
@@ -418,51 +502,73 @@ export async function POST(request) {
     console.log("Đã khởi tạo Drive API");
 
     // Lấy thông tin thư mục gốc
-    const folderInfo = await getFolderInfo(drive, folderId);
-    console.log("Thông tin thư mục gốc:", folderInfo.data);
+    try {
+      const folderInfo = await getFolderInfo(drive, folderId);
+      console.log("Thông tin thư mục gốc:", folderInfo);
 
-    // Tạo khóa học mới
-    const newCourse = await createNewCourse(folderInfo.data.name);
-    console.log("Đã tạo khóa học mới:", newCourse);
+      if (!folderInfo || !folderInfo.name) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Không thể lấy thông tin thư mục hoặc không có quyền truy cập.",
+          },
+          { status: 403 }
+        );
+      }
 
-    // Xử lý cấu trúc thư mục
-    await processFolder(drive, folderId, newCourse.id);
+      // Tạo khóa học mới
+      const newCourse = await createNewCourse(folderInfo.name);
+      console.log("Đã tạo khóa học mới:", newCourse);
 
-    // Lấy dữ liệu khóa học sau khi đã import xong
-    const courseRef = db.collection("courses").doc(newCourse.id);
-    const courseDoc = await courseRef.get();
-    const courseData = courseDoc.data();
+      // Xử lý cấu trúc thư mục
+      await processFolder(drive, folderId, newCourse.id);
 
-    if (!courseData) {
-      throw new Error("Không thể lấy dữ liệu khóa học sau khi import");
-    }
+      // Lấy dữ liệu khóa học sau khi đã import xong
+      const courseRef = db.collection("courses").doc(newCourse.id);
+      const courseDoc = await courseRef.get();
+      const courseData = courseDoc.data();
 
-    // Format dữ liệu theo cấu trúc mà component cần
-    const structure = {
-      name: courseData.title || "",
-      type: "folder",
-      children: (courseData.chapters || []).map((chapter) => ({
-        name: chapter.title || "",
+      if (!courseData) {
+        throw new Error("Không thể lấy dữ liệu khóa học sau khi import");
+      }
+
+      // Format dữ liệu theo cấu trúc mà component cần
+      const structure = {
+        name: courseData.title || "",
         type: "folder",
-        children: (chapter.lessons || []).map((lesson) => ({
-          name: lesson.title || "",
+        children: (courseData.chapters || []).map((chapter) => ({
+          name: chapter.title || "",
           type: "folder",
-          children: (lesson.files || []).map((file) => ({
-            name: file.name || "",
-            type: "file",
+          children: (chapter.lessons || []).map((lesson) => ({
+            name: lesson.title || "",
+            type: "folder",
+            children: (lesson.files || []).map((file) => ({
+              name: file.name || "",
+              type: "file",
+            })),
           })),
         })),
-      })),
-    };
+      };
 
-    console.log("=== Kết thúc import khóa học ===\n");
+      console.log("=== Kết thúc import khóa học ===\n");
 
-    return NextResponse.json({
-      success: true,
-      title: courseData.title || "",
-      structure: structure,
-      message: "Import khóa học thành công",
-    });
+      return NextResponse.json({
+        success: true,
+        title: courseData.title || "",
+        structure: structure,
+        message: "Import khóa học thành công",
+      });
+    } catch (error) {
+      console.error("Lỗi khi lấy thông tin thư mục:", error);
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Lỗi khi lấy thông tin thư mục: ${error.message}`,
+        },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error("Lỗi khi import khóa học:", error);
     return NextResponse.json(
