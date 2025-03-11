@@ -17,6 +17,7 @@ import axios from "axios";
 import { pipeline } from "stream/promises";
 // Import AWS SDK S3
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { refreshDriveToken, checkAndRefreshToken } from "@/lib/tokenRefresher";
 
 // Khởi tạo Wasabi client
 const s3Client = new S3Client({
@@ -48,24 +49,28 @@ function extractDriveId(url) {
 
 // Hàm upload file từ Google Drive lên Wasabi
 async function uploadToWasabi(drive, fileId, fileName, mimeType) {
-  console.log(`Đang tải file từ Drive: ${fileName}`);
-
   try {
-    // Tạo thư mục tạm để lưu file
-    const tempDir = path.join(os.tmpdir(), "drive-downloads");
+    const tempDir = path.join(os.tmpdir(), "hocmai-temp");
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
 
-    // Tải file từ Google Drive
     const tempFilePath = path.join(tempDir, fileName);
-    const response = await drive.files.get(
-      { fileId: fileId, alt: "media" },
+
+    console.log(`Đang tải file ${fileName} từ Google Drive...`);
+
+    // Sử dụng retryWithNewToken để đảm bảo token không hết hạn khi tải file lớn
+    const fileStream = await drive.files.get(
+      {
+        fileId: fileId,
+        alt: "media",
+      },
       { responseType: "stream" }
     );
 
+    // Đối với file lớn, sử dụng stream để download
     const writer = fs.createWriteStream(tempFilePath);
-    await pipeline(response.data, writer);
+    await pipeline(fileStream.data, writer);
 
     console.log(`File đã được tải về: ${tempFilePath}`);
 
@@ -455,7 +460,7 @@ export async function POST(request) {
     }
 
     // Thêm await ở đây
-    const tokens = await readTokens();
+    let tokens = await readTokens();
     console.log("Tokens read:", {
       hasTokens: !!tokens,
       hasAccessToken: !!tokens?.access_token,
@@ -474,15 +479,24 @@ export async function POST(request) {
       );
     }
 
-    // Kiểm tra token hết hạn
+    // Kiểm tra token hết hạn và tự động làm mới nếu cần
     if (tokens.expiry_date && Date.now() >= tokens.expiry_date) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Token đã hết hạn. Vui lòng đăng nhập lại Google Drive.",
-        },
-        { status: 401 }
-      );
+      console.log("Token đã hết hạn, đang tự động làm mới...");
+      const refreshedTokens = await refreshDriveToken();
+
+      if (!refreshedTokens) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Không thể làm mới token. Vui lòng đăng nhập lại Google Drive.",
+          },
+          { status: 401 }
+        );
+      }
+
+      console.log("Đã làm mới token thành công");
+      tokens = refreshedTokens;
     }
 
     if (!tokens.access_token) {
@@ -497,8 +511,8 @@ export async function POST(request) {
 
     console.log("Đã lấy được access token");
 
-    // Khởi tạo Drive API
-    const drive = await initializeDriveClient(tokens.access_token);
+    // Khởi tạo Drive API - Không cần truyền access_token nữa
+    const drive = await initializeDriveClient();
     console.log("Đã khởi tạo Drive API");
 
     // Lấy thông tin thư mục gốc

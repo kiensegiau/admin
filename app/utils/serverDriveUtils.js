@@ -1,4 +1,6 @@
 import { google } from "googleapis";
+import { checkAndRefreshToken, refreshDriveToken } from "@/lib/tokenRefresher";
+import { readTokens } from "@/lib/tokenStorage";
 
 // Khởi tạo Google Drive API client
 const oauth2Client = new google.auth.OAuth2(
@@ -7,20 +9,83 @@ const oauth2Client = new google.auth.OAuth2(
   process.env.CALLBACK_URL
 );
 
+// Hàm kiểm tra và làm mới token trước khi gọi API
+export async function ensureValidToken() {
+  try {
+    // Đọc token hiện tại
+    let tokens = await readTokens();
+    if (!tokens) {
+      throw new Error("Không tìm thấy token");
+    }
+
+    // Kiểm tra và làm mới token nếu cần
+    if (
+      tokens.expiry_date &&
+      Date.now() >= tokens.expiry_date - 5 * 60 * 1000
+    ) {
+      console.log("Token sắp hết hạn hoặc đã hết hạn, đang làm mới...");
+      const refreshedTokens = await refreshDriveToken();
+      if (!refreshedTokens) {
+        throw new Error("Không thể làm mới token");
+      }
+      tokens = refreshedTokens;
+      console.log("Đã làm mới token thành công");
+    }
+
+    return tokens.access_token;
+  } catch (error) {
+    console.error("Lỗi khi kiểm tra token:", error);
+    throw error;
+  }
+}
+
+// Khởi tạo Drive client với token mới
 export async function initializeDriveClient(accessToken) {
-  oauth2Client.setCredentials({ access_token: accessToken });
-  return google.drive({ version: "v3", auth: oauth2Client });
+  try {
+    // Nếu không cung cấp access token, lấy và kiểm tra token tự động
+    if (!accessToken) {
+      accessToken = await ensureValidToken();
+    }
+
+    oauth2Client.setCredentials({ access_token: accessToken });
+    return google.drive({ version: "v3", auth: oauth2Client });
+  } catch (error) {
+    console.error("Lỗi khi khởi tạo Drive client:", error);
+    throw error;
+  }
+}
+
+// Thêm hàm retry cho các cuộc gọi API
+async function retryWithNewToken(apiCall) {
+  try {
+    return await apiCall();
+  } catch (error) {
+    // Nếu lỗi là Invalid Credentials, thử làm mới token và gọi lại
+    if (
+      error.message.includes("Invalid Credentials") ||
+      error.message.includes("invalid_grant") ||
+      error.code === 401
+    ) {
+      console.log(
+        "Token không hợp lệ hoặc hết hạn, đang làm mới và thử lại..."
+      );
+      const newAccessToken = await ensureValidToken();
+      oauth2Client.setCredentials({ access_token: newAccessToken });
+      return await apiCall();
+    }
+    throw error;
+  }
 }
 
 export async function getFolderInfo(drive, folderId) {
   try {
-    const response = await drive.files.get({
-      fileId: folderId,
-      fields: "name,id,mimeType",
+    return await retryWithNewToken(async () => {
+      const response = await drive.files.get({
+        fileId: folderId,
+        fields: "name,id,mimeType",
+      });
+      return response.data;
     });
-
-    // Trả về trực tiếp data từ response
-    return response.data;
   } catch (error) {
     console.error(`Lỗi khi lấy thông tin folder ${folderId}:`, error.message);
     // Trả về null thay vì throw error để caller có thể xử lý
@@ -29,13 +94,23 @@ export async function getFolderInfo(drive, folderId) {
 }
 
 export async function listFolderContents(drive, folderId) {
-  const res = await drive.files.list({
-    q: `'${folderId}' in parents and trashed = false`,
-    fields: "files(id, name, mimeType, size)",
-    orderBy: "name",
-    pageSize: 1000,
-  });
-  return res.data.files;
+  try {
+    return await retryWithNewToken(async () => {
+      const res = await drive.files.list({
+        q: `'${folderId}' in parents and trashed = false`,
+        fields: "files(id, name, mimeType, size)",
+        orderBy: "name",
+        pageSize: 1000,
+      });
+      return res.data.files;
+    });
+  } catch (error) {
+    console.error(
+      `Lỗi khi liệt kê nội dung folder ${folderId}:`,
+      error.message
+    );
+    return [];
+  }
 }
 
 /**
