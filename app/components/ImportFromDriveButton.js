@@ -1,58 +1,60 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { Button, Modal, Input, message } from 'antd';
-import { CloudUploadOutlined } from '@ant-design/icons';
+import { useState } from "react";
+import { Button, Modal, Input, message } from "antd";
+import { CloudUploadOutlined } from "@ant-design/icons";
 
 export default function ImportFromDriveButton({ onImportSuccess }) {
   const [isModalVisible, setIsModalVisible] = useState(false);
-  const [driveUrl, setDriveUrl] = useState('');
+  const [driveUrl, setDriveUrl] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const showModal = () => setIsModalVisible(true);
   const handleCancel = () => {
     setIsModalVisible(false);
-    setDriveUrl('');
+    setDriveUrl("");
   };
 
   const handleImport = async () => {
     if (!driveUrl) {
-      message.warning('Vui lòng nhập link Google Drive');
+      message.warning("Vui lòng nhập link Google Drive");
       return;
     }
 
     setIsLoading(true);
     try {
-      const response = await fetch('/api/import-course-from-drive', {
-        method: 'POST',
+      const response = await fetch("/api/import-course-from-drive", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({ driveUrl }),
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Lỗi khi import khóa học');
+        throw new Error(error.error || "Lỗi khi import khóa học");
       }
 
       const data = await response.json();
-      
+
       // Xử lý dữ liệu trả về
       const courseData = {
         title: data.title,
-        description: `Khóa học được import từ Google Drive\n\nCấu trúc khóa học:\n${formatStructure(data.structure)}`,
+        description: `Khóa học được import từ Google Drive\n\nCấu trúc khóa học:\n${formatStructure(
+          data.structure
+        )}`,
         // Các trường khác có thể thêm tùy theo yêu cầu
       };
 
-      message.success('Import khóa học thành công!');
+      message.success("Import khóa học thành công!");
       handleCancel();
       if (onImportSuccess) {
         onImportSuccess(courseData);
       }
     } catch (error) {
-      console.error('Lỗi:', error);
-      message.error(error.message || 'Có lỗi xảy ra khi import khóa học');
+      console.error("Lỗi:", error);
+      message.error(error.message || "Có lỗi xảy ra khi import khóa học");
     } finally {
       setIsLoading(false);
     }
@@ -60,12 +62,12 @@ export default function ImportFromDriveButton({ onImportSuccess }) {
 
   // Hàm format cấu trúc thư mục thành text
   const formatStructure = (structure, level = 0) => {
-    const indent = '  '.repeat(level);
+    const indent = "  ".repeat(level);
     let result = `${indent}${structure.name}\n`;
 
     if (structure.children) {
-      structure.children.forEach(child => {
-        if (child.type === 'folder') {
+      structure.children.forEach((child) => {
+        if (child.type === "folder") {
           result += formatStructure(child, level + 1);
         } else {
           result += `${indent}  - ${child.name}\n`;
@@ -78,8 +80,8 @@ export default function ImportFromDriveButton({ onImportSuccess }) {
 
   return (
     <>
-      <Button 
-        type="primary" 
+      <Button
+        type="primary"
         icon={<CloudUploadOutlined />}
         onClick={showModal}
         className="mb-4"
@@ -116,4 +118,4 @@ export default function ImportFromDriveButton({ onImportSuccess }) {
       </Modal>
     </>
   );
-} 
+}

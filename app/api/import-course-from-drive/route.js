@@ -206,6 +206,7 @@ async function createLesson(courseId, chapterId, name) {
       id: lessonId,
       title: name,
       files: [],
+      subfolders: [],
       order: (chapter.lessons?.length || 0) + 1,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -239,7 +240,84 @@ async function createLesson(courseId, chapterId, name) {
   }
 }
 
-async function addFileToLesson(courseId, chapterId, lessonId, file) {
+async function getOrCreateSubfolder(courseId, chapterId, lessonId, folderName) {
+  try {
+    if (!courseId || !chapterId || !lessonId || !folderName) {
+      throw new Error("Thiếu thông tin cần thiết để tạo subfolder");
+    }
+
+    const courseRef = db.collection("courses").doc(courseId);
+    const courseDoc = await courseRef.get();
+
+    if (!courseDoc.exists) {
+      throw new Error("Không tìm thấy khóa học");
+    }
+
+    const courseData = courseDoc.data();
+    const chapter = courseData.chapters.find((c) => c.id === chapterId);
+
+    if (!chapter) {
+      throw new Error("Không tìm thấy chapter");
+    }
+
+    const lesson = chapter.lessons.find((l) => l.id === lessonId);
+
+    if (!lesson) {
+      throw new Error("Không tìm thấy lesson");
+    }
+
+    let subfolder = lesson.subfolders?.find((s) => s.name === folderName);
+
+    if (!subfolder) {
+      subfolder = {
+        id: uuidv4(),
+        name: folderName,
+        files: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const updatedChapters = courseData.chapters.map((c) => {
+        if (c.id === chapterId) {
+          const updatedLessons = c.lessons.map((l) => {
+            if (l.id === lessonId) {
+              return {
+                ...l,
+                subfolders: [...(l.subfolders || []), subfolder],
+                updatedAt: new Date().toISOString(),
+              };
+            }
+            return l;
+          });
+          return { ...c, lessons: updatedLessons };
+        }
+        return c;
+      });
+
+      await courseRef.update({
+        chapters: updatedChapters,
+        updatedAt: new Date().toISOString(),
+      });
+
+      console.log(
+        `Đã tạo subfolder mới: ${folderName} trong lesson: ${lessonId}`
+      );
+    }
+
+    return subfolder.id;
+  } catch (error) {
+    console.error("Lỗi khi tạo/lấy subfolder:", error);
+    throw error;
+  }
+}
+
+async function addFileToLesson(
+  courseId,
+  chapterId,
+  lessonId,
+  file,
+  subfolderId = null
+) {
   try {
     if (!courseId || !chapterId || !lessonId || !file) {
       throw new Error("Thiếu thông tin cần thiết để thêm file");
@@ -247,7 +325,6 @@ async function addFileToLesson(courseId, chapterId, lessonId, file) {
 
     const fileType = getFileType(file.mimeType);
 
-    // File data với cấu trúc mới, chỉ lưu key cho tất cả file
     const fileData = {
       id: uuidv4(),
       mimeType: file.mimeType,
@@ -260,7 +337,6 @@ async function addFileToLesson(courseId, chapterId, lessonId, file) {
       size: file.size?.toString() || "0",
     };
 
-    // Nếu file có storage key từ Wasabi, lưu key vào database
     if (file.wasabi) {
       fileData.storage = {
         provider: "wasabi",
@@ -268,8 +344,6 @@ async function addFileToLesson(courseId, chapterId, lessonId, file) {
         size: file.wasabi.size,
       };
     } else {
-      // Fallback nếu không upload được lên Wasabi
-      // Lưu URL proxy để vẫn có thể truy cập qua Google Drive
       const encryptedId = encryptId(file.id);
       fileData.proxyUrl = `/api/proxy/files?id=${encryptedId}`;
     }
@@ -294,21 +368,40 @@ async function addFileToLesson(courseId, chapterId, lessonId, file) {
       throw new Error("Không tìm thấy lesson");
     }
 
-    const updatedChapters = courseData.chapters.map((chapter) => {
-      if (chapter.id === chapterId) {
-        const updatedLessons = chapter.lessons.map((lesson) => {
-          if (lesson.id === lessonId) {
-            return {
-              ...lesson,
-              files: [...(lesson.files || []), fileData],
-              updatedAt: new Date().toISOString(),
-            };
+    const updatedChapters = courseData.chapters.map((c) => {
+      if (c.id === chapterId) {
+        const updatedLessons = c.lessons.map((l) => {
+          if (l.id === lessonId) {
+            if (subfolderId) {
+              const updatedSubfolders = (l.subfolders || []).map((sf) => {
+                if (sf.id === subfolderId) {
+                  return {
+                    ...sf,
+                    files: [...(sf.files || []), fileData],
+                    updatedAt: new Date().toISOString(),
+                  };
+                }
+                return sf;
+              });
+
+              return {
+                ...l,
+                subfolders: updatedSubfolders,
+                updatedAt: new Date().toISOString(),
+              };
+            } else {
+              return {
+                ...l,
+                files: [...(l.files || []), fileData],
+                updatedAt: new Date().toISOString(),
+              };
+            }
           }
-          return lesson;
+          return l;
         });
-        return { ...chapter, lessons: updatedLessons };
+        return { ...c, lessons: updatedLessons };
       }
-      return chapter;
+      return c;
     });
 
     await courseRef.update({
@@ -316,7 +409,10 @@ async function addFileToLesson(courseId, chapterId, lessonId, file) {
       updatedAt: new Date().toISOString(),
     });
 
-    console.log(`Đã thêm file ${file.name} vào lesson ${lessonId}`);
+    const location = subfolderId ? "subfolder" : "lesson";
+    console.log(
+      `Đã thêm file ${file.name} vào ${location} ${subfolderId || lessonId}`
+    );
     return fileData;
   } catch (error) {
     console.error("Lỗi khi thêm file:", error);
@@ -345,10 +441,11 @@ async function processFolder(
   courseId,
   parentType = "course",
   parentId = null,
-  lessonId = null
+  lessonId = null,
+  parentPath = ""
 ) {
   try {
-    console.log(`\n=== Bắt đầu xử lý thư mục ===`);
+    console.log(`\n=== Bắt đầu xử lý thư mục ${parentPath} ===`);
     console.log(`ParentType: ${parentType}, CourseId: ${courseId}`);
 
     const files = await listFolderContents(drive, folderId);
@@ -359,11 +456,20 @@ async function processFolder(
       (f) => f.mimeType !== "application/vnd.google-apps.folder"
     );
 
-    // Xử lý các thư mục (chapters hoặc lessons)
     for (const folder of folders) {
+      const newPath = parentPath ? `${parentPath}/${folder.name}` : folder.name;
+
       if (parentType === "course") {
         const chapterId = await createChapter(courseId, folder.name);
-        await processFolder(drive, folder.id, courseId, "chapter", chapterId);
+        await processFolder(
+          drive,
+          folder.id,
+          courseId,
+          "chapter",
+          chapterId,
+          null,
+          newPath
+        );
       } else if (parentType === "chapter") {
         const { lessonId: newLessonId } = await createLesson(
           courseId,
@@ -376,29 +482,48 @@ async function processFolder(
           courseId,
           "lesson",
           parentId,
-          newLessonId
+          newLessonId,
+          newPath
+        );
+      } else if (parentType === "lesson" || parentType === "subfolder") {
+        const subfolderName = folder.name;
+        const subfolderId = await getOrCreateSubfolder(
+          courseId,
+          parentId,
+          lessonId,
+          subfolderName
+        );
+
+        await processFolder(
+          drive,
+          folder.id,
+          courseId,
+          "subfolder",
+          parentId,
+          lessonId,
+          newPath,
+          subfolderId
         );
       }
     }
 
-    // Xử lý các file trong lesson
-    if (parentType === "lesson" && lessonId) {
-      // Lọc những file có mime type hợp lệ để lưu
+    if ((parentType === "lesson" || parentType === "subfolder") && lessonId) {
       const validFiles = documents.filter((file) => {
         const type = getFileType(file.mimeType);
-        return type !== "other"; // Bỏ qua những file không được hỗ trợ
+        return type !== "other";
       });
 
       if (validFiles.length > 0) {
         console.log(
-          `\n=== Bắt đầu xử lý ${validFiles.length} files lên Wasabi ===`
+          `\n=== Bắt đầu xử lý ${validFiles.length} files lên Wasabi từ ${
+            parentPath || "thư mục gốc"
+          } ===`
         );
 
         for (const file of validFiles) {
           try {
             console.log(`\nĐang xử lý file: ${file.name} (${file.mimeType})`);
 
-            // Upload file lên Wasabi
             const uploadResult = await uploadToWasabi(
               drive,
               file.id,
@@ -406,39 +531,78 @@ async function processFolder(
               file.mimeType
             );
 
+            const isSubfolder = parentType === "subfolder";
+            let subfolderId = null;
+
+            if (isSubfolder && parentPath) {
+              const subfolderName = parentPath.split("/").pop();
+              subfolderId = await getOrCreateSubfolder(
+                courseId,
+                parentId,
+                lessonId,
+                subfolderName
+              );
+            }
+
             if (uploadResult.success) {
               console.log(
                 `File ${file.name} upload thành công lên Wasabi, key: ${uploadResult.key}`
               );
 
-              // Thêm file vào lesson với thông tin Wasabi
-              await addFileToLesson(courseId, parentId, lessonId, {
+              const fileWithWasabi = {
                 ...file,
                 wasabi: {
                   key: uploadResult.key,
                   size: uploadResult.size,
                 },
-              });
+              };
+
+              await addFileToLesson(
+                courseId,
+                parentId,
+                lessonId,
+                fileWithWasabi,
+                subfolderId
+              );
             } else {
               console.warn(
                 `Upload thất bại cho file ${file.name}:`,
                 uploadResult.error
               );
-              // Vẫn thêm file nhưng không có key Wasabi, sẽ dùng proxy URL
-              await addFileToLesson(courseId, parentId, lessonId, file);
+              await addFileToLesson(
+                courseId,
+                parentId,
+                lessonId,
+                file,
+                subfolderId
+              );
             }
           } catch (error) {
             console.error(`Lỗi khi xử lý file ${file.name}:`, error);
-            // Vẫn thêm file dù có lỗi, sẽ dùng proxy URL
-            await addFileToLesson(courseId, parentId, lessonId, file);
+            const subfolderId =
+              parentType === "subfolder" && parentPath
+                ? await getOrCreateSubfolder(
+                    courseId,
+                    parentId,
+                    lessonId,
+                    parentPath.split("/").pop()
+                  )
+                : null;
+            await addFileToLesson(
+              courseId,
+              parentId,
+              lessonId,
+              file,
+              subfolderId
+            );
           }
         }
       }
     }
 
-    console.log(`=== Kết thúc xử lý thư mục ===\n`);
+    console.log(`=== Kết thúc xử lý thư mục ${parentPath || "gốc"} ===\n`);
   } catch (error) {
-    console.error("Lỗi khi xử lý thư mục:", error);
+    console.error(`Lỗi khi xử lý thư mục ${parentPath || "gốc"}:`, error);
     throw error;
   }
 }
@@ -459,7 +623,6 @@ export async function POST(request) {
       );
     }
 
-    // Thêm await ở đây
     let tokens = await readTokens();
     console.log("Tokens read:", {
       hasTokens: !!tokens,
@@ -479,7 +642,6 @@ export async function POST(request) {
       );
     }
 
-    // Kiểm tra token hết hạn và tự động làm mới nếu cần
     if (tokens.expiry_date && Date.now() >= tokens.expiry_date) {
       console.log("Token đã hết hạn, đang tự động làm mới...");
       const refreshedTokens = await refreshDriveToken();
@@ -511,11 +673,9 @@ export async function POST(request) {
 
     console.log("Đã lấy được access token");
 
-    // Khởi tạo Drive API - Không cần truyền access_token nữa
     const drive = await initializeDriveClient();
     console.log("Đã khởi tạo Drive API");
 
-    // Lấy thông tin thư mục gốc
     try {
       const folderInfo = await getFolderInfo(drive, folderId);
       console.log("Thông tin thư mục gốc:", folderInfo);
@@ -531,14 +691,11 @@ export async function POST(request) {
         );
       }
 
-      // Tạo khóa học mới
       const newCourse = await createNewCourse(folderInfo.name);
       console.log("Đã tạo khóa học mới:", newCourse);
 
-      // Xử lý cấu trúc thư mục
       await processFolder(drive, folderId, newCourse.id);
 
-      // Lấy dữ liệu khóa học sau khi đã import xong
       const courseRef = db.collection("courses").doc(newCourse.id);
       const courseDoc = await courseRef.get();
       const courseData = courseDoc.data();
@@ -547,21 +704,44 @@ export async function POST(request) {
         throw new Error("Không thể lấy dữ liệu khóa học sau khi import");
       }
 
-      // Format dữ liệu theo cấu trúc mà component cần
       const structure = {
         name: courseData.title || "",
         type: "folder",
         children: (courseData.chapters || []).map((chapter) => ({
           name: chapter.title || "",
           type: "folder",
-          children: (chapter.lessons || []).map((lesson) => ({
-            name: lesson.title || "",
-            type: "folder",
-            children: (lesson.files || []).map((file) => ({
+          children: (chapter.lessons || []).map((lesson) => {
+            // Tạo danh sách các file trong thư mục gốc của bài học
+            const rootFiles = (lesson.files || []).map((file) => ({
               name: file.name || "",
               type: "file",
-            })),
-          })),
+              id: file.id,
+              fileType: file.type,
+            }));
+
+            // Tạo danh sách các thư mục con và file trong đó
+            const subfolderNodes = (lesson.subfolders || []).map(
+              (subfolder) => ({
+                name: subfolder.name || "",
+                type: "folder",
+                id: subfolder.id,
+                children: (subfolder.files || []).map((file) => ({
+                  name: file.name || "",
+                  type: "file",
+                  id: file.id,
+                  fileType: file.type,
+                })),
+              })
+            );
+
+            return {
+              name: lesson.title || "",
+              type: "folder",
+              id: lesson.id,
+              // Gộp files gốc và subfolders vào danh sách children
+              children: [...rootFiles, ...subfolderNodes],
+            };
+          }),
         })),
       };
 
