@@ -1143,6 +1143,11 @@ async function synchronizeDeletedItems(courseId) {
   }
 }
 
+// Thêm export mặc định cho route handler
+export async function GET(request) {
+  return NextResponse.json({ message: "API is working" });
+}
+
 // Sửa lại hàm chính để sử dụng getOrCreateCourse
 export async function POST(request) {
   try {
