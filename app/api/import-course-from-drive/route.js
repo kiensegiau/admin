@@ -110,12 +110,27 @@ async function uploadToWasabi(drive, fileId, fileName, mimeType) {
   }
 }
 
-async function createNewCourse(name) {
+// Thêm hàm kiểm tra và trả về khóa học nếu đã tồn tại hoặc tạo mới nếu chưa có
+async function getOrCreateCourse(name) {
   try {
     if (!name || typeof name !== "string") {
       throw new Error("Tên khóa học không hợp lệ");
     }
 
+    // Kiểm tra xem khóa học đã tồn tại chưa
+    console.log(`Kiểm tra khóa học có tên "${name}" đã tồn tại chưa`);
+    const coursesRef = db.collection("courses");
+    const snapshot = await coursesRef.where("title", "==", name).get();
+
+    if (!snapshot.empty) {
+      // Khóa học đã tồn tại, trả về khóa học đầu tiên tìm thấy
+      const courseDoc = snapshot.docs[0];
+      const courseData = courseDoc.data();
+      console.log(`Đã tìm thấy khóa học: ${courseDoc.id}`);
+      return { id: courseDoc.id, ...courseData, isExisting: true };
+    }
+
+    // Khóa học chưa tồn tại, tạo mới
     const courseData = {
       title: name,
       chapters: [],
@@ -133,10 +148,139 @@ async function createNewCourse(name) {
 
     const courseRef = await db.collection("courses").add(courseData);
     console.log("Đã tạo khóa học mới:", courseRef.id);
-    return { id: courseRef.id, ...courseData };
+    return { id: courseRef.id, ...courseData, isExisting: false };
   } catch (error) {
-    console.error("Lỗi khi tạo khóa học:", error);
-    throw new Error("Không thể tạo khóa học mới: " + error.message);
+    console.error("Lỗi khi kiểm tra/tạo khóa học:", error);
+    throw new Error("Không thể kiểm tra/tạo khóa học: " + error.message);
+  }
+}
+
+// Thêm hàm kiểm tra và trả về chương nếu đã tồn tại hoặc tạo mới nếu chưa có
+async function getOrCreateChapter(courseId, name) {
+  try {
+    if (!courseId || !name) {
+      throw new Error("CourseId và tên chapter không được để trống");
+    }
+
+    const courseRef = db.collection("courses").doc(courseId);
+    const courseDoc = await courseRef.get();
+
+    if (!courseDoc.exists) {
+      throw new Error("Không tìm thấy khóa học");
+    }
+
+    const courseData = courseDoc.data();
+
+    // Kiểm tra xem chương đã tồn tại chưa
+    console.log(`Kiểm tra chương có tên "${name}" trong khóa học ${courseId}`);
+    const existingChapter = courseData.chapters.find(
+      (chapter) => chapter.title === name
+    );
+
+    if (existingChapter) {
+      // Chương đã tồn tại, trả về
+      console.log(`Đã tìm thấy chương: ${existingChapter.id}`);
+      return { ...existingChapter, isExisting: true };
+    }
+
+    // Chương chưa tồn tại, tạo mới
+    const chapterId = uuidv4();
+    const newChapter = {
+      id: chapterId,
+      title: name,
+      lessons: [],
+      order: (courseData.chapters?.length || 0) + 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      totalLessons: 0,
+    };
+
+    await courseRef.update({
+      chapters: [...(courseData.chapters || []), newChapter],
+      updatedAt: new Date().toISOString(),
+      totalChapters: (courseData.chapters?.length || 0) + 1,
+    });
+
+    console.log(
+      `Đã tạo chương mới: ${name} (ID: ${chapterId}) cho khóa học: ${courseId}`
+    );
+    return { ...newChapter, isExisting: false };
+  } catch (error) {
+    console.error("Lỗi khi kiểm tra/tạo chương:", error);
+    throw new Error("Không thể kiểm tra/tạo chương: " + error.message);
+  }
+}
+
+// Thêm hàm kiểm tra và trả về bài học nếu đã tồn tại hoặc tạo mới nếu chưa có
+async function getOrCreateLesson(courseId, chapterId, name) {
+  try {
+    if (!courseId || !chapterId || !name) {
+      throw new Error("CourseId, ChapterId và tên lesson không được để trống");
+    }
+
+    const courseRef = db.collection("courses").doc(courseId);
+    const courseDoc = await courseRef.get();
+
+    if (!courseDoc.exists) {
+      throw new Error("Không tìm thấy khóa học");
+    }
+
+    const courseData = courseDoc.data();
+    const chapter = courseData.chapters.find((c) => c.id === chapterId);
+
+    if (!chapter) {
+      throw new Error("Không tìm thấy chapter");
+    }
+
+    // Kiểm tra xem bài học đã tồn tại chưa
+    console.log(`Kiểm tra bài học có tên "${name}" trong chương ${chapterId}`);
+    const existingLesson = chapter.lessons.find(
+      (lesson) => lesson.title === name
+    );
+
+    if (existingLesson) {
+      // Bài học đã tồn tại, trả về
+      console.log(`Đã tìm thấy bài học: ${existingLesson.id}`);
+      return { lessonId: existingLesson.id, chapterId, isExisting: true };
+    }
+
+    // Bài học chưa tồn tại, tạo mới
+    const lessonId = uuidv4();
+    const newLesson = {
+      id: lessonId,
+      title: name,
+      files: [],
+      subfolders: [],
+      order: (chapter.lessons?.length || 0) + 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const updatedChapters = courseData.chapters.map((chapter) => {
+      if (chapter.id === chapterId) {
+        return {
+          ...chapter,
+          lessons: [...(chapter.lessons || []), newLesson],
+          totalLessons: (chapter.lessons?.length || 0) + 1,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return chapter;
+    });
+
+    await courseRef.update({
+      chapters: updatedChapters,
+      updatedAt: new Date().toISOString(),
+      totalLessons: courseData.totalLessons + 1,
+    });
+
+    console.log(
+      `Đã tạo bài học mới: ${name} (ID: ${lessonId}) trong chương: ${chapterId}`
+    );
+    return { lessonId, chapterId, isExisting: false };
+  } catch (error) {
+    console.error("Lỗi khi kiểm tra/tạo bài học:", error);
+    throw new Error("Không thể kiểm tra/tạo bài học: " + error.message);
   }
 }
 
@@ -435,6 +579,7 @@ function getFileType(mimeType) {
   return "other";
 }
 
+// Sửa lại hàm xử lý đệ quy cho các thư mục
 async function processFolder(
   drive,
   folderId,
@@ -456,22 +601,25 @@ async function processFolder(
       (f) => f.mimeType !== "application/vnd.google-apps.folder"
     );
 
+    // Xử lý các thư mục con
     for (const folder of folders) {
       const newPath = parentPath ? `${parentPath}/${folder.name}` : folder.name;
 
       if (parentType === "course") {
-        const chapterId = await createChapter(courseId, folder.name);
+        // Kiểm tra và tạo/tái sử dụng chương
+        const chapter = await getOrCreateChapter(courseId, folder.name);
         await processFolder(
           drive,
           folder.id,
           courseId,
           "chapter",
-          chapterId,
+          chapter.id,
           null,
           newPath
         );
       } else if (parentType === "chapter") {
-        const { lessonId: newLessonId } = await createLesson(
+        // Kiểm tra và tạo/tái sử dụng bài học
+        const { lessonId: newLessonId } = await getOrCreateLesson(
           courseId,
           parentId,
           folder.name
@@ -486,6 +634,7 @@ async function processFolder(
           newPath
         );
       } else if (parentType === "lesson" || parentType === "subfolder") {
+        // Kiểm tra và tạo/tái sử dụng thư mục con
         const subfolderName = folder.name;
         const subfolderId = await getOrCreateSubfolder(
           courseId,
@@ -507,6 +656,7 @@ async function processFolder(
       }
     }
 
+    // Xử lý các file
     if ((parentType === "lesson" || parentType === "subfolder") && lessonId) {
       const validFiles = documents.filter((file) => {
         const type = getFileType(file.mimeType);
@@ -522,6 +672,20 @@ async function processFolder(
 
         for (const file of validFiles) {
           try {
+            // Kiểm tra xem file đã tồn tại chưa (dựa vào tên file)
+            const isExistingFile = await checkFileExists(
+              courseId,
+              parentId,
+              lessonId,
+              file.name,
+              parentType === "subfolder"
+            );
+
+            if (isExistingFile) {
+              console.log(`File ${file.name} đã tồn tại, bỏ qua.`);
+              continue;
+            }
+
             console.log(`\nĐang xử lý file: ${file.name} (${file.mimeType})`);
 
             const uploadResult = await uploadToWasabi(
@@ -607,6 +771,60 @@ async function processFolder(
   }
 }
 
+// Thêm hàm kiểm tra file đã tồn tại chưa
+async function checkFileExists(
+  courseId,
+  chapterId,
+  lessonId,
+  fileName,
+  isSubfolder
+) {
+  try {
+    const courseRef = db.collection("courses").doc(courseId);
+    const courseDoc = await courseRef.get();
+
+    if (!courseDoc.exists) {
+      return false;
+    }
+
+    const courseData = courseDoc.data();
+    const chapter = courseData.chapters.find((c) => c.id === chapterId);
+
+    if (!chapter) {
+      return false;
+    }
+
+    const lesson = chapter.lessons.find((l) => l.id === lessonId);
+
+    if (!lesson) {
+      return false;
+    }
+
+    if (isSubfolder) {
+      // Kiểm tra file trong các subfolder
+      if (!lesson.subfolders || lesson.subfolders.length === 0) {
+        return false;
+      }
+
+      for (const subfolder of lesson.subfolders) {
+        const fileExists = subfolder.files?.some(
+          (file) => file.name === fileName
+        );
+        if (fileExists) return true;
+      }
+
+      return false;
+    } else {
+      // Kiểm tra file trực tiếp trong lesson
+      return lesson.files?.some((file) => file.name === fileName) || false;
+    }
+  } catch (error) {
+    console.error("Lỗi khi kiểm tra file tồn tại:", error);
+    return false;
+  }
+}
+
+// Sửa lại hàm chính để sử dụng getOrCreateCourse
 export async function POST(request) {
   try {
     console.log("\n=== Bắt đầu import khóa học ===");
@@ -691,12 +909,17 @@ export async function POST(request) {
         );
       }
 
-      const newCourse = await createNewCourse(folderInfo.name);
-      console.log("Đã tạo khóa học mới:", newCourse);
+      // Thay đổi từ createNewCourse sang getOrCreateCourse
+      const course = await getOrCreateCourse(folderInfo.name);
+      console.log(
+        course.isExisting
+          ? `Đã tìm thấy khóa học: ${course.id}`
+          : `Đã tạo khóa học mới: ${course.id}`
+      );
 
-      await processFolder(drive, folderId, newCourse.id);
+      await processFolder(drive, folderId, course.id);
 
-      const courseRef = db.collection("courses").doc(newCourse.id);
+      const courseRef = db.collection("courses").doc(course.id);
       const courseDoc = await courseRef.get();
       const courseData = courseDoc.data();
 
@@ -751,7 +974,10 @@ export async function POST(request) {
         success: true,
         title: courseData.title || "",
         structure: structure,
-        message: "Import khóa học thành công",
+        courseId: course.id,
+        message: course.isExisting
+          ? "Khóa học đã tồn tại, đã cập nhật thêm nội dung mới"
+          : "Import khóa học mới thành công",
       });
     } catch (error) {
       console.error("Lỗi khi lấy thông tin thư mục:", error);
