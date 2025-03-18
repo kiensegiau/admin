@@ -32,6 +32,12 @@ const s3Client = new S3Client({
 
 const BUCKET_NAME = process.env.WASABI_BUCKET_NAME || "hocmai";
 
+// Thêm cache để lưu trữ dữ liệu đã truy vấn
+const cache = {
+  courseData: {},
+  fileChecks: {},
+};
+
 // Hàm lấy ID từ Google Drive URL
 function extractDriveId(url) {
   const patterns = [
@@ -579,7 +585,215 @@ function getFileType(mimeType) {
   return "other";
 }
 
-// Sửa lại hàm xử lý đệ quy cho các thư mục
+// Sửa lại hàm checkFileExists để sử dụng cache
+async function checkFileExists(
+  courseId,
+  chapterId,
+  lessonId,
+  fileName,
+  isSubfolder
+) {
+  try {
+    // Tạo key cho cache
+    const cacheKey = `${courseId}_${chapterId}_${lessonId}_${fileName}_${isSubfolder}`;
+
+    // Kiểm tra cache trước
+    if (cache.fileChecks[cacheKey] !== undefined) {
+      return cache.fileChecks[cacheKey];
+    }
+
+    // Nếu đã cache dữ liệu khóa học, sử dụng từ cache
+    let courseData;
+    if (cache.courseData[courseId]) {
+      courseData = cache.courseData[courseId];
+    } else {
+      const courseRef = db.collection("courses").doc(courseId);
+      const courseDoc = await courseRef.get();
+
+      if (!courseDoc.exists) {
+        cache.fileChecks[cacheKey] = false;
+        return false;
+      }
+
+      courseData = courseDoc.data();
+      // Cache lại dữ liệu khóa học để sử dụng lần sau
+      cache.courseData[courseId] = courseData;
+    }
+
+    const chapter = courseData.chapters.find((c) => c.id === chapterId);
+
+    if (!chapter) {
+      cache.fileChecks[cacheKey] = false;
+      return false;
+    }
+
+    const lesson = chapter.lessons.find((l) => l.id === lessonId);
+
+    if (!lesson) {
+      cache.fileChecks[cacheKey] = false;
+      return false;
+    }
+
+    let exists = false;
+
+    if (isSubfolder) {
+      // Kiểm tra file trong các subfolder
+      if (lesson.subfolders && lesson.subfolders.length > 0) {
+        for (const subfolder of lesson.subfolders) {
+          exists =
+            subfolder.files?.some((file) => file.name === fileName) || false;
+          if (exists) break;
+        }
+      }
+    } else {
+      // Kiểm tra file trực tiếp trong lesson
+      exists = lesson.files?.some((file) => file.name === fileName) || false;
+    }
+
+    // Lưu kết quả vào cache
+    cache.fileChecks[cacheKey] = exists;
+    return exists;
+  } catch (error) {
+    console.error("Lỗi khi kiểm tra file tồn tại:", error);
+    return false;
+  }
+}
+
+// Sửa lại hàm xử lý nhiều file cùng lúc
+async function processFiles(
+  drive,
+  validFiles,
+  courseId,
+  parentId,
+  lessonId,
+  parentType,
+  parentPath
+) {
+  console.log(
+    `\n=== Bắt đầu xử lý ${validFiles.length} files lên Wasabi từ ${
+      parentPath || "thư mục gốc"
+    } ===`
+  );
+
+  // Kiểm tra toàn bộ files trước để xác định những file cần xử lý
+  const filesToProcess = [];
+  for (const file of validFiles) {
+    const isExistingFile = await checkFileExists(
+      courseId,
+      parentId,
+      lessonId,
+      file.name,
+      parentType === "subfolder"
+    );
+
+    if (!isExistingFile) {
+      filesToProcess.push(file);
+    } else {
+      console.log(`File ${file.name} đã tồn tại, bỏ qua.`);
+    }
+  }
+
+  if (filesToProcess.length === 0) {
+    console.log("Không có file mới để xử lý.");
+    return;
+  }
+
+  // Xử lý các file theo batch để không quá tải hệ thống
+  const BATCH_SIZE = 5; // Số file xử lý đồng thời
+
+  for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
+    const batch = filesToProcess.slice(i, i + BATCH_SIZE);
+
+    await Promise.all(
+      batch.map(async (file) => {
+        try {
+          console.log(`\nĐang xử lý file: ${file.name} (${file.mimeType})`);
+
+          const uploadResult = await uploadToWasabi(
+            drive,
+            file.id,
+            file.name,
+            file.mimeType
+          );
+
+          const isSubfolder = parentType === "subfolder";
+          let subfolderId = null;
+
+          if (isSubfolder && parentPath) {
+            const subfolderName = parentPath.split("/").pop();
+            subfolderId = await getOrCreateSubfolder(
+              courseId,
+              parentId,
+              lessonId,
+              subfolderName
+            );
+          }
+
+          if (uploadResult.success) {
+            console.log(
+              `File ${file.name} upload thành công lên Wasabi, key: ${uploadResult.key}`
+            );
+
+            const fileWithWasabi = {
+              ...file,
+              wasabi: {
+                key: uploadResult.key,
+                size: uploadResult.size,
+              },
+            };
+
+            await addFileToLesson(
+              courseId,
+              parentId,
+              lessonId,
+              fileWithWasabi,
+              subfolderId
+            );
+          } else {
+            console.warn(
+              `Upload thất bại cho file ${file.name}:`,
+              uploadResult.error
+            );
+            await addFileToLesson(
+              courseId,
+              parentId,
+              lessonId,
+              file,
+              subfolderId
+            );
+          }
+        } catch (error) {
+          console.error(`Lỗi khi xử lý file ${file.name}:`, error);
+          const subfolderId =
+            parentType === "subfolder" && parentPath
+              ? await getOrCreateSubfolder(
+                  courseId,
+                  parentId,
+                  lessonId,
+                  parentPath.split("/").pop()
+                )
+              : null;
+          await addFileToLesson(
+            courseId,
+            parentId,
+            lessonId,
+            file,
+            subfolderId
+          );
+        }
+      })
+    );
+
+    // Cho phép hệ thống nghỉ ngơi giữa các batch
+    if (i + BATCH_SIZE < filesToProcess.length) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+
+  console.log(`=== Hoàn thành xử lý ${filesToProcess.length} files ===`);
+}
+
+// Sửa lại hàm processFolder để sử dụng cache và xử lý song song
 async function processFolder(
   drive,
   folderId,
@@ -664,103 +878,16 @@ async function processFolder(
       });
 
       if (validFiles.length > 0) {
-        console.log(
-          `\n=== Bắt đầu xử lý ${validFiles.length} files lên Wasabi từ ${
-            parentPath || "thư mục gốc"
-          } ===`
+        // Sử dụng hàm mới để xử lý file
+        await processFiles(
+          drive,
+          validFiles,
+          courseId,
+          parentId,
+          lessonId,
+          parentType,
+          parentPath
         );
-
-        for (const file of validFiles) {
-          try {
-            // Kiểm tra xem file đã tồn tại chưa (dựa vào tên file)
-            const isExistingFile = await checkFileExists(
-              courseId,
-              parentId,
-              lessonId,
-              file.name,
-              parentType === "subfolder"
-            );
-
-            if (isExistingFile) {
-              console.log(`File ${file.name} đã tồn tại, bỏ qua.`);
-              continue;
-            }
-
-            console.log(`\nĐang xử lý file: ${file.name} (${file.mimeType})`);
-
-            const uploadResult = await uploadToWasabi(
-              drive,
-              file.id,
-              file.name,
-              file.mimeType
-            );
-
-            const isSubfolder = parentType === "subfolder";
-            let subfolderId = null;
-
-            if (isSubfolder && parentPath) {
-              const subfolderName = parentPath.split("/").pop();
-              subfolderId = await getOrCreateSubfolder(
-                courseId,
-                parentId,
-                lessonId,
-                subfolderName
-              );
-            }
-
-            if (uploadResult.success) {
-              console.log(
-                `File ${file.name} upload thành công lên Wasabi, key: ${uploadResult.key}`
-              );
-
-              const fileWithWasabi = {
-                ...file,
-                wasabi: {
-                  key: uploadResult.key,
-                  size: uploadResult.size,
-                },
-              };
-
-              await addFileToLesson(
-                courseId,
-                parentId,
-                lessonId,
-                fileWithWasabi,
-                subfolderId
-              );
-            } else {
-              console.warn(
-                `Upload thất bại cho file ${file.name}:`,
-                uploadResult.error
-              );
-              await addFileToLesson(
-                courseId,
-                parentId,
-                lessonId,
-                file,
-                subfolderId
-              );
-            }
-          } catch (error) {
-            console.error(`Lỗi khi xử lý file ${file.name}:`, error);
-            const subfolderId =
-              parentType === "subfolder" && parentPath
-                ? await getOrCreateSubfolder(
-                    courseId,
-                    parentId,
-                    lessonId,
-                    parentPath.split("/").pop()
-                  )
-                : null;
-            await addFileToLesson(
-              courseId,
-              parentId,
-              lessonId,
-              file,
-              subfolderId
-            );
-          }
-        }
       }
     }
 
@@ -768,59 +895,6 @@ async function processFolder(
   } catch (error) {
     console.error(`Lỗi khi xử lý thư mục ${parentPath || "gốc"}:`, error);
     throw error;
-  }
-}
-
-// Thêm hàm kiểm tra file đã tồn tại chưa
-async function checkFileExists(
-  courseId,
-  chapterId,
-  lessonId,
-  fileName,
-  isSubfolder
-) {
-  try {
-    const courseRef = db.collection("courses").doc(courseId);
-    const courseDoc = await courseRef.get();
-
-    if (!courseDoc.exists) {
-      return false;
-    }
-
-    const courseData = courseDoc.data();
-    const chapter = courseData.chapters.find((c) => c.id === chapterId);
-
-    if (!chapter) {
-      return false;
-    }
-
-    const lesson = chapter.lessons.find((l) => l.id === lessonId);
-
-    if (!lesson) {
-      return false;
-    }
-
-    if (isSubfolder) {
-      // Kiểm tra file trong các subfolder
-      if (!lesson.subfolders || lesson.subfolders.length === 0) {
-        return false;
-      }
-
-      for (const subfolder of lesson.subfolders) {
-        const fileExists = subfolder.files?.some(
-          (file) => file.name === fileName
-        );
-        if (fileExists) return true;
-      }
-
-      return false;
-    } else {
-      // Kiểm tra file trực tiếp trong lesson
-      return lesson.files?.some((file) => file.name === fileName) || false;
-    }
-  } catch (error) {
-    console.error("Lỗi khi kiểm tra file tồn tại:", error);
-    return false;
   }
 }
 
