@@ -16,7 +16,11 @@ import fs from "fs";
 import axios from "axios";
 import { pipeline } from "stream/promises";
 // Import AWS SDK S3
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3";
 import { refreshDriveToken, checkAndRefreshToken } from "@/lib/tokenRefresher";
 
 // Khởi tạo Wasabi client
@@ -36,6 +40,17 @@ const BUCKET_NAME = process.env.WASABI_BUCKET_NAME || "hocmai";
 const cache = {
   courseData: {},
   fileChecks: {},
+};
+
+// Thêm cấu trúc dữ liệu để theo dõi các mục đã xử lý
+const syncState = {
+  processedItems: {
+    chapters: new Set(),
+    lessons: new Set(),
+    files: new Set(),
+    subfolders: new Set(),
+  },
+  needSync: false,
 };
 
 // Hàm lấy ID từ Google Drive URL
@@ -678,6 +693,9 @@ async function processFiles(
   // Kiểm tra toàn bộ files trước để xác định những file cần xử lý
   const filesToProcess = [];
   for (const file of validFiles) {
+    // Đánh dấu file đã xử lý (để không bị xóa khi đồng bộ)
+    syncState.processedItems.files.add(file.id);
+
     const isExistingFile = await checkFileExists(
       courseId,
       parentId,
@@ -822,6 +840,7 @@ async function processFolder(
       if (parentType === "course") {
         // Kiểm tra và tạo/tái sử dụng chương
         const chapter = await getOrCreateChapter(courseId, folder.name);
+        syncState.processedItems.chapters.add(chapter.id);
         await processFolder(
           drive,
           folder.id,
@@ -838,6 +857,7 @@ async function processFolder(
           parentId,
           folder.name
         );
+        syncState.processedItems.lessons.add(newLessonId);
         await processFolder(
           drive,
           folder.id,
@@ -856,6 +876,7 @@ async function processFolder(
           lessonId,
           subfolderName
         );
+        syncState.processedItems.subfolders.add(subfolderId);
 
         await processFolder(
           drive,
@@ -898,12 +919,237 @@ async function processFolder(
   }
 }
 
+// Thêm hàm xóa file từ Wasabi storage
+async function deleteFromWasabi(key) {
+  if (!key) {
+    console.warn("Không có key file để xóa từ Wasabi");
+    return false;
+  }
+
+  try {
+    console.log(`Đang xóa file từ Wasabi với key: ${key}`);
+
+    const command = new DeleteObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+    });
+
+    await s3Client.send(command);
+    console.log(`Đã xóa file từ Wasabi thành công: ${key}`);
+    return true;
+  } catch (error) {
+    console.error(`Lỗi khi xóa file từ Wasabi (${key}):`, error);
+    return false;
+  }
+}
+
+// Cập nhật hàm synchronizeDeletedItems để xóa file trên Wasabi
+async function synchronizeDeletedItems(courseId) {
+  try {
+    console.log("\n=== Bắt đầu đồng bộ các mục đã xóa ===");
+
+    // Lấy dữ liệu khóa học hiện tại
+    const courseRef = db.collection("courses").doc(courseId);
+    const courseDoc = await courseRef.get();
+    if (!courseDoc.exists) {
+      console.log("Không tìm thấy khóa học, bỏ qua đồng bộ xóa");
+      return false;
+    }
+
+    const courseData = courseDoc.data();
+    let hasChanges = false;
+    let deletedFilesCount = 0;
+
+    // Đồng bộ xóa chương và bài học
+    const updatedChapters = [];
+
+    for (const chapter of courseData.chapters || []) {
+      // Kiểm tra xem chương có tồn tại trên Drive không
+      if (!syncState.processedItems.chapters.has(chapter.id)) {
+        console.log(
+          `Chương "${chapter.title}" (${chapter.id}) đã bị xóa trên Drive, xóa khỏi hệ thống`
+        );
+
+        // Xóa tất cả các file trong chương khỏi Wasabi
+        for (const lesson of chapter.lessons || []) {
+          // Xóa file trong lesson
+          for (const file of lesson.files || []) {
+            if (file.storage?.provider === "wasabi" && file.storage?.key) {
+              const deleted = await deleteFromWasabi(file.storage.key);
+              if (deleted) deletedFilesCount++;
+            }
+          }
+
+          // Xóa file trong subfolder
+          for (const subfolder of lesson.subfolders || []) {
+            for (const file of subfolder.files || []) {
+              if (file.storage?.provider === "wasabi" && file.storage?.key) {
+                const deleted = await deleteFromWasabi(file.storage.key);
+                if (deleted) deletedFilesCount++;
+              }
+            }
+          }
+        }
+
+        hasChanges = true;
+        continue; // Bỏ qua chương đã bị xóa
+      }
+
+      // Đồng bộ xóa bài học
+      const updatedLessons = [];
+
+      for (const lesson of chapter.lessons || []) {
+        if (!syncState.processedItems.lessons.has(lesson.id)) {
+          console.log(
+            `Bài học "${lesson.title}" (${lesson.id}) đã bị xóa trên Drive, xóa khỏi hệ thống`
+          );
+
+          // Xóa tất cả file trong lesson khỏi Wasabi
+          for (const file of lesson.files || []) {
+            if (file.storage?.provider === "wasabi" && file.storage?.key) {
+              const deleted = await deleteFromWasabi(file.storage.key);
+              if (deleted) deletedFilesCount++;
+            }
+          }
+
+          // Xóa file trong subfolder
+          for (const subfolder of lesson.subfolders || []) {
+            for (const file of subfolder.files || []) {
+              if (file.storage?.provider === "wasabi" && file.storage?.key) {
+                const deleted = await deleteFromWasabi(file.storage.key);
+                if (deleted) deletedFilesCount++;
+              }
+            }
+          }
+
+          hasChanges = true;
+          continue; // Bỏ qua bài học đã bị xóa
+        }
+
+        // Đồng bộ xóa file trong bài học
+        const updatedFiles = [];
+        for (const file of lesson.files || []) {
+          const fileExists = syncState.processedItems.files.has(
+            file.driveFileId
+          );
+          if (!fileExists) {
+            console.log(
+              `File "${file.name}" đã bị xóa trên Drive, xóa khỏi hệ thống`
+            );
+
+            // Xóa file từ Wasabi
+            if (file.storage?.provider === "wasabi" && file.storage?.key) {
+              const deleted = await deleteFromWasabi(file.storage.key);
+              if (deleted) deletedFilesCount++;
+            }
+
+            hasChanges = true;
+          } else {
+            updatedFiles.push(file);
+          }
+        }
+
+        // Đồng bộ xóa thư mục con
+        const updatedSubfolders = [];
+
+        for (const subfolder of lesson.subfolders || []) {
+          if (!syncState.processedItems.subfolders.has(subfolder.id)) {
+            console.log(
+              `Thư mục con "${subfolder.name}" (${subfolder.id}) đã bị xóa trên Drive, xóa khỏi hệ thống`
+            );
+
+            // Xóa tất cả file trong subfolder khỏi Wasabi
+            for (const file of subfolder.files || []) {
+              if (file.storage?.provider === "wasabi" && file.storage?.key) {
+                const deleted = await deleteFromWasabi(file.storage.key);
+                if (deleted) deletedFilesCount++;
+              }
+            }
+
+            hasChanges = true;
+            continue; // Bỏ qua thư mục con đã bị xóa
+          }
+
+          // Đồng bộ xóa file trong thư mục con
+          const updatedSubfolderFiles = [];
+          for (const file of subfolder.files || []) {
+            const fileExists = syncState.processedItems.files.has(
+              file.driveFileId
+            );
+            if (!fileExists) {
+              console.log(
+                `File "${file.name}" trong thư mục con "${subfolder.name}" đã bị xóa trên Drive, xóa khỏi hệ thống`
+              );
+
+              // Xóa file từ Wasabi
+              if (file.storage?.provider === "wasabi" && file.storage?.key) {
+                const deleted = await deleteFromWasabi(file.storage.key);
+                if (deleted) deletedFilesCount++;
+              }
+
+              hasChanges = true;
+            } else {
+              updatedSubfolderFiles.push(file);
+            }
+          }
+
+          updatedSubfolders.push({
+            ...subfolder,
+            files: updatedSubfolderFiles,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+
+        updatedLessons.push({
+          ...lesson,
+          files: updatedFiles,
+          subfolders: updatedSubfolders,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
+      updatedChapters.push({
+        ...chapter,
+        lessons: updatedLessons,
+        totalLessons: updatedLessons.length,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    if (hasChanges) {
+      // Cập nhật lại khóa học sau khi đồng bộ xóa
+      await courseRef.update({
+        chapters: updatedChapters,
+        totalChapters: updatedChapters.length,
+        totalLessons: updatedChapters.reduce(
+          (total, chapter) => total + chapter.lessons.length,
+          0
+        ),
+        updatedAt: new Date().toISOString(),
+      });
+
+      console.log(
+        `Đã cập nhật khóa học sau khi đồng bộ xóa. Đã xóa ${deletedFilesCount} file trên Wasabi.`
+      );
+    } else {
+      console.log("Không có mục nào bị xóa, không cần cập nhật");
+    }
+
+    console.log("=== Kết thúc đồng bộ các mục đã xóa ===\n");
+    return { hasChanges, deletedFilesCount };
+  } catch (error) {
+    console.error("Lỗi khi đồng bộ các mục đã xóa:", error);
+    return { hasChanges: false, deletedFilesCount: 0 };
+  }
+}
+
 // Sửa lại hàm chính để sử dụng getOrCreateCourse
 export async function POST(request) {
   try {
     console.log("\n=== Bắt đầu import khóa học ===");
-    const { driveUrl } = await request.json();
+    const { driveUrl, enableSync = true } = await request.json();
     console.log("URL Drive:", driveUrl);
+    console.log("Đồng bộ xóa:", enableSync ? "Bật" : "Tắt");
 
     const folderId = extractDriveId(driveUrl);
     console.log("Folder ID:", folderId);
@@ -983,6 +1229,13 @@ export async function POST(request) {
         );
       }
 
+      // Khởi tạo lại trạng thái đồng bộ
+      syncState.processedItems.chapters.clear();
+      syncState.processedItems.lessons.clear();
+      syncState.processedItems.files.clear();
+      syncState.processedItems.subfolders.clear();
+      syncState.needSync = enableSync;
+
       // Thay đổi từ createNewCourse sang getOrCreateCourse
       const course = await getOrCreateCourse(folderInfo.name);
       console.log(
@@ -992,6 +1245,12 @@ export async function POST(request) {
       );
 
       await processFolder(drive, folderId, course.id);
+
+      // Thực hiện đồng bộ xóa nếu được yêu cầu
+      let syncResult = false;
+      if (enableSync && course.isExisting) {
+        syncResult = await synchronizeDeletedItems(course.id);
+      }
 
       const courseRef = db.collection("courses").doc(course.id);
       const courseDoc = await courseRef.get();
@@ -1049,8 +1308,12 @@ export async function POST(request) {
         title: courseData.title || "",
         structure: structure,
         courseId: course.id,
+        syncPerformed: enableSync && course.isExisting,
+        hasRemovedItems: syncResult,
         message: course.isExisting
-          ? "Khóa học đã tồn tại, đã cập nhật thêm nội dung mới"
+          ? `Khóa học đã tồn tại, đã cập nhật nội dung${
+              syncResult ? " và đồng bộ các mục đã xóa" : ""
+            }`
           : "Import khóa học mới thành công",
       });
     } catch (error) {
