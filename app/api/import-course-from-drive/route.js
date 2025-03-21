@@ -20,6 +20,7 @@ import {
   S3Client,
   PutObjectCommand,
   DeleteObjectCommand,
+  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { refreshDriveToken, checkAndRefreshToken } from "@/lib/tokenRefresher";
 
@@ -98,9 +99,10 @@ async function uploadToWasabi(drive, fileId, fileName, mimeType) {
     // Đọc file để upload lên Wasabi
     const fileBuffer = fs.readFileSync(tempFilePath);
 
-    // Tạo key cho file trên Wasabi
+    // Tạo key cho file trên Wasabi với UUID để đảm bảo không trùng lặp
     const timestamp = Date.now();
-    const key = `videos/${timestamp}-${fileName}`;
+    const uniqueId = uuidv4().substring(0, 8); // Lấy 8 ký tự đầu của UUID
+    let key = `videos/${timestamp}-${uniqueId}-${fileName}`;
 
     // Upload lên Wasabi
     const command = new PutObjectCommand({
@@ -500,6 +502,7 @@ async function addFileToLesson(
       driveFileId: file.id || null,
       status: "active",
       size: file.size?.toString() || "0",
+      modifiedTime: file.modifiedTime || new Date().toISOString(),
     };
 
     if (file.wasabi) {
@@ -507,6 +510,7 @@ async function addFileToLesson(
         provider: "wasabi",
         key: file.wasabi.key,
         size: file.wasabi.size,
+        uploadTime: new Date().toISOString(),
       };
     } else {
       const encryptedId = encryptId(file.id);
@@ -606,11 +610,14 @@ async function checkFileExists(
   chapterId,
   lessonId,
   fileName,
-  isSubfolder
+  subfolderName = null,
+  driveFileId = null
 ) {
   try {
-    // Tạo key cho cache
-    const cacheKey = `${courseId}_${chapterId}_${lessonId}_${fileName}_${isSubfolder}`;
+    // Tạo key cho cache - thêm thông tin subfolder và driveFileId
+    const cacheKey = `${courseId}_${chapterId}_${lessonId}_${
+      subfolderName || "root"
+    }_${fileName}_${driveFileId || ""}`;
 
     // Kiểm tra cache trước
     if (cache.fileChecks[cacheKey] !== undefined) {
@@ -651,18 +658,41 @@ async function checkFileExists(
 
     let exists = false;
 
-    if (isSubfolder) {
-      // Kiểm tra file trong các subfolder
-      if (lesson.subfolders && lesson.subfolders.length > 0) {
-        for (const subfolder of lesson.subfolders) {
-          exists =
-            subfolder.files?.some((file) => file.name === fileName) || false;
-          if (exists) break;
+    if (subfolderName) {
+      // Kiểm tra file trong subfolder cụ thể
+      const targetSubfolder = lesson.subfolders?.find(
+        (sf) => sf.name === subfolderName
+      );
+      if (targetSubfolder) {
+        exists =
+          targetSubfolder.files?.some((file) => {
+            // Nếu có driveFileId, kiểm tra cả tên và ID
+            if (driveFileId) {
+              return file.name === fileName && file.driveFileId === driveFileId;
+            }
+            return file.name === fileName;
+          }) || false;
+
+        if (exists) {
+          console.log(
+            `File "${fileName}" đã tồn tại trong subfolder "${subfolderName}"`
+          );
         }
       }
     } else {
       // Kiểm tra file trực tiếp trong lesson
-      exists = lesson.files?.some((file) => file.name === fileName) || false;
+      exists =
+        lesson.files?.some((file) => {
+          // Nếu có driveFileId, kiểm tra cả tên và ID
+          if (driveFileId) {
+            return file.name === fileName && file.driveFileId === driveFileId;
+          }
+          return file.name === fileName;
+        }) || false;
+
+      if (exists) {
+        console.log(`File "${fileName}" đã tồn tại trực tiếp trong lesson`);
+      }
     }
 
     // Lưu kết quả vào cache
@@ -696,12 +726,19 @@ async function processFiles(
     // Đánh dấu file đã xử lý (để không bị xóa khi đồng bộ)
     syncState.processedItems.files.add(file.id);
 
+    // Lấy tên subfolder từ parentPath nếu là kiểu subfolder
+    const subfolderName =
+      parentType === "subfolder" && parentPath
+        ? parentPath.split("/").pop()
+        : null;
+
     const isExistingFile = await checkFileExists(
       courseId,
       parentId,
       lessonId,
       file.name,
-      parentType === "subfolder"
+      subfolderName,
+      file.id // DriveFileId
     );
 
     if (!isExistingFile) {
@@ -734,6 +771,21 @@ async function processFiles(
             file.mimeType
           );
 
+          if (!uploadResult.success) {
+            console.warn(
+              `Upload thất bại cho file ${file.name}:`,
+              uploadResult.error
+            );
+            // Kiểm tra xem lỗi có nghiêm trọng không
+            if (
+              uploadResult.error.includes("không đủ quyền") ||
+              uploadResult.error.includes("không tìm thấy file")
+            ) {
+              console.error(`Bỏ qua file ${file.name} do lỗi nghiêm trọng`);
+              return; // Bỏ qua file này, không thêm vào database
+            }
+          }
+
           const isSubfolder = parentType === "subfolder";
           let subfolderId = null;
 
@@ -747,6 +799,7 @@ async function processFiles(
             );
           }
 
+          // Chỉ thêm vào database nếu upload thành công hoặc lỗi không nghiêm trọng
           if (uploadResult.success) {
             console.log(
               `File ${file.name} upload thành công lên Wasabi, key: ${uploadResult.key}`
@@ -768,9 +821,9 @@ async function processFiles(
               subfolderId
             );
           } else {
-            console.warn(
-              `Upload thất bại cho file ${file.name}:`,
-              uploadResult.error
+            // Chỉ thêm vào database với liên kết trực tiếp từ Drive nếu không upload được
+            console.log(
+              `Thêm file ${file.name} với link Drive (không qua Wasabi)`
             );
             await addFileToLesson(
               courseId,
@@ -782,22 +835,8 @@ async function processFiles(
           }
         } catch (error) {
           console.error(`Lỗi khi xử lý file ${file.name}:`, error);
-          const subfolderId =
-            parentType === "subfolder" && parentPath
-              ? await getOrCreateSubfolder(
-                  courseId,
-                  parentId,
-                  lessonId,
-                  parentPath.split("/").pop()
-                )
-              : null;
-          await addFileToLesson(
-            courseId,
-            parentId,
-            lessonId,
-            file,
-            subfolderId
-          );
+          // Không tự động thêm vào database khi có lỗi xử lý
+          // Việc này giúp tránh dữ liệu không nhất quán
         }
       })
     );
@@ -1155,6 +1194,10 @@ export async function POST(request) {
     const { driveUrl, enableSync = true } = await request.json();
     console.log("URL Drive:", driveUrl);
     console.log("Đồng bộ xóa:", enableSync ? "Bật" : "Tắt");
+
+    // Làm mới cache trước khi bắt đầu import
+    cache.fileChecks = {};
+    cache.courseData = {};
 
     const folderId = extractDriveId(driveUrl);
     console.log("Folder ID:", folderId);
