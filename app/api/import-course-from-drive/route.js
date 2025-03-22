@@ -77,9 +77,17 @@ async function uploadToWasabi(drive, fileId, fileName, mimeType) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
 
-    const tempFilePath = path.join(tempDir, fileName);
+    // Chỉ làm sạch tên file để lưu vào bộ nhớ tạm, tránh lỗi hệ thống tệp
+    const sanitizedFileName = sanitizeFileName(fileName);
+    const tempFilePath = path.join(tempDir, sanitizedFileName);
 
     console.log(`Đang tải file ${fileName} từ Google Drive...`);
+
+    // Biến theo dõi tốc độ tải
+    const downloadStartTime = Date.now();
+    let lastProgressTime = Date.now();
+    let downloadedBytes = 0;
+    let totalBytes = 0;
 
     // Sử dụng retryWithNewToken để đảm bảo token không hết hạn khi tải file lớn
     const fileStream = await drive.files.get(
@@ -90,19 +98,74 @@ async function uploadToWasabi(drive, fileId, fileName, mimeType) {
       { responseType: "stream" }
     );
 
+    // Lấy thông tin file để biết kích thước
+    const fileInfo = await drive.files.get({
+      fileId: fileId,
+      fields: "size,name",
+    });
+
+    totalBytes = parseInt(fileInfo.data.size, 10) || 0;
+    const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
+
     // Đối với file lớn, sử dụng stream để download
     const writer = fs.createWriteStream(tempFilePath);
+
+    // Theo dõi tiến trình tải
+    fileStream.data.on("data", (chunk) => {
+      downloadedBytes += chunk.length;
+
+      // Hiển thị tiến trình mỗi 1 giây hoặc khi tải xong
+      const now = Date.now();
+      if (now - lastProgressTime > 1000 || downloadedBytes >= totalBytes) {
+        const percent = totalBytes
+          ? Math.round((downloadedBytes / totalBytes) * 100)
+          : 0;
+        const downloadedMB = (downloadedBytes / (1024 * 1024)).toFixed(2);
+        const elapsedSecs = ((now - downloadStartTime) / 1000).toFixed(1);
+        const currentSpeed = (downloadedMB / elapsedSecs).toFixed(2);
+
+        console.log(
+          `Tải xuống: ${percent}% (${downloadedMB}/${totalMB} MB) - Tốc độ hiện tại: ${currentSpeed} MB/s`
+        );
+        lastProgressTime = now;
+      }
+    });
+
     await pipeline(fileStream.data, writer);
 
+    const downloadEndTime = Date.now();
+    const downloadDuration = (downloadEndTime - downloadStartTime) / 1000; // chuyển sang giây
+
+    // Đọc kích thước file
+    const stats = fs.statSync(tempFilePath);
+    const fileSizeInBytes = stats.size;
+    const fileSizeInMB = fileSizeInBytes / (1024 * 1024);
+
+    // Tính tốc độ tải (MB/s)
+    const downloadSpeed =
+      downloadDuration > 0 ? (fileSizeInMB / downloadDuration).toFixed(2) : 0;
+
     console.log(`File đã được tải về: ${tempFilePath}`);
+    console.log(
+      `Kích thước: ${fileSizeInMB.toFixed(
+        2
+      )} MB | Thời gian tải: ${downloadDuration.toFixed(
+        2
+      )}s | Tốc độ: ${downloadSpeed} MB/s`
+    );
 
     // Đọc file để upload lên Wasabi
     const fileBuffer = fs.readFileSync(tempFilePath);
 
     // Tạo key cho file trên Wasabi với UUID để đảm bảo không trùng lặp
+    // Vẫn sử dụng tên file gốc cho key trên Wasabi
     const timestamp = Date.now();
     const uniqueId = uuidv4().substring(0, 8); // Lấy 8 ký tự đầu của UUID
     let key = `videos/${timestamp}-${uniqueId}-${fileName}`;
+
+    // Biến theo dõi tốc độ upload
+    const uploadStartTime = Date.now();
+    console.log(`Bắt đầu upload lên Wasabi (${fileSizeInMB.toFixed(2)} MB)...`);
 
     // Upload lên Wasabi
     const command = new PutObjectCommand({
@@ -113,16 +176,32 @@ async function uploadToWasabi(drive, fileId, fileName, mimeType) {
     });
 
     await s3Client.send(command);
+
+    const uploadEndTime = Date.now();
+    const uploadDuration = (uploadEndTime - uploadStartTime) / 1000; // chuyển sang giây
+
+    // Tính tốc độ upload (MB/s)
+    const uploadSpeed =
+      uploadDuration > 0 ? (fileSizeInMB / uploadDuration).toFixed(2) : 0;
+
     console.log(`File đã được upload lên Wasabi: ${key}`);
+    console.log(
+      `Thời gian upload: ${uploadDuration.toFixed(
+        2
+      )}s | Tốc độ: ${uploadSpeed} MB/s`
+    );
 
     // Xóa file tạm
     fs.unlinkSync(tempFilePath);
 
-    // Trả về key để lưu trong database
+    // Trả về key để lưu trong database và thông tin tốc độ
     return {
       success: true,
       key: key,
       size: fileBuffer.length,
+      downloadSpeed: downloadSpeed,
+      uploadSpeed: uploadSpeed,
+      fileSize: fileSizeInMB.toFixed(2),
     };
   } catch (error) {
     console.error("Lỗi khi upload file lên Wasabi:", error);
@@ -131,6 +210,22 @@ async function uploadToWasabi(drive, fileId, fileName, mimeType) {
       error: error.message,
     };
   }
+}
+
+// Hàm làm sạch tên file chỉ dùng cho file tạm
+function sanitizeFileName(fileName) {
+  // Danh sách các ký tự không hợp lệ trong tên file Windows
+  const invalidChars = /[<>:"/\\|?*\x00-\x1F]/g;
+  // Thay thế các ký tự không hợp lệ bằng dấu gạch ngang
+  let sanitized = fileName.replace(invalidChars, "-");
+
+  // Đảm bảo tên file không vượt quá 255 ký tự
+  if (sanitized.length > 255) {
+    const ext = path.extname(sanitized);
+    sanitized = sanitized.substring(0, 255 - ext.length) + ext;
+  }
+
+  return sanitized;
 }
 
 // Thêm hàm kiểm tra và trả về khóa học nếu đã tồn tại hoặc tạo mới nếu chưa có
@@ -604,7 +699,7 @@ function getFileType(mimeType) {
   return "other";
 }
 
-// Sửa lại hàm checkFileExists để sử dụng cache
+// Khôi phục lại hàm checkFileExists về logic ban đầu
 async function checkFileExists(
   courseId,
   chapterId,
@@ -633,8 +728,8 @@ async function checkFileExists(
       const courseDoc = await courseRef.get();
 
       if (!courseDoc.exists) {
-        cache.fileChecks[cacheKey] = false;
-        return false;
+        cache.fileChecks[cacheKey] = { exists: false, hasWasabi: false };
+        return { exists: false, hasWasabi: false };
       }
 
       courseData = courseDoc.data();
@@ -645,18 +740,18 @@ async function checkFileExists(
     const chapter = courseData.chapters.find((c) => c.id === chapterId);
 
     if (!chapter) {
-      cache.fileChecks[cacheKey] = false;
-      return false;
+      cache.fileChecks[cacheKey] = { exists: false, hasWasabi: false };
+      return { exists: false, hasWasabi: false };
     }
 
     const lesson = chapter.lessons.find((l) => l.id === lessonId);
 
     if (!lesson) {
-      cache.fileChecks[cacheKey] = false;
-      return false;
+      cache.fileChecks[cacheKey] = { exists: false, hasWasabi: false };
+      return { exists: false, hasWasabi: false };
     }
 
-    let exists = false;
+    let fileFound = null;
 
     if (subfolderName) {
       // Kiểm tra file trong subfolder cụ thể
@@ -664,16 +759,15 @@ async function checkFileExists(
         (sf) => sf.name === subfolderName
       );
       if (targetSubfolder) {
-        exists =
-          targetSubfolder.files?.some((file) => {
-            // Nếu có driveFileId, kiểm tra cả tên và ID
-            if (driveFileId) {
-              return file.name === fileName && file.driveFileId === driveFileId;
-            }
-            return file.name === fileName;
-          }) || false;
+        fileFound = targetSubfolder.files?.find((file) => {
+          // Nếu có driveFileId, kiểm tra cả tên và ID
+          if (driveFileId) {
+            return file.name === fileName && file.driveFileId === driveFileId;
+          }
+          return file.name === fileName;
+        });
 
-        if (exists) {
+        if (fileFound) {
           console.log(
             `File "${fileName}" đã tồn tại trong subfolder "${subfolderName}"`
           );
@@ -681,30 +775,48 @@ async function checkFileExists(
       }
     } else {
       // Kiểm tra file trực tiếp trong lesson
-      exists =
-        lesson.files?.some((file) => {
-          // Nếu có driveFileId, kiểm tra cả tên và ID
-          if (driveFileId) {
-            return file.name === fileName && file.driveFileId === driveFileId;
-          }
-          return file.name === fileName;
-        }) || false;
+      fileFound = lesson.files?.find((file) => {
+        // Nếu có driveFileId, kiểm tra cả tên và ID
+        if (driveFileId) {
+          return file.name === fileName && file.driveFileId === driveFileId;
+        }
+        return file.name === fileName;
+      });
 
-      if (exists) {
+      if (fileFound) {
         console.log(`File "${fileName}" đã tồn tại trực tiếp trong lesson`);
       }
     }
 
+    const result = {
+      exists: !!fileFound,
+      hasWasabi:
+        fileFound?.storage?.provider === "wasabi" && !!fileFound?.storage?.key,
+      fileData: fileFound,
+    };
+
+    if (result.exists) {
+      if (result.hasWasabi) {
+        console.log(
+          `File "${fileName}" đã có key Wasabi: ${fileFound.storage.key}`
+        );
+      } else {
+        console.log(
+          `File "${fileName}" tồn tại nhưng chưa có key Wasabi, cần tải lại`
+        );
+      }
+    }
+
     // Lưu kết quả vào cache
-    cache.fileChecks[cacheKey] = exists;
-    return exists;
+    cache.fileChecks[cacheKey] = result;
+    return result;
   } catch (error) {
     console.error("Lỗi khi kiểm tra file tồn tại:", error);
-    return false;
+    return { exists: false, hasWasabi: false };
   }
 }
 
-// Sửa lại hàm xử lý nhiều file cùng lúc
+// Sửa lại hàm processFiles để xử lý file tồn tại nhưng chưa có key Wasabi
 async function processFiles(
   drive,
   validFiles,
@@ -732,7 +844,7 @@ async function processFiles(
         ? parentPath.split("/").pop()
         : null;
 
-    const isExistingFile = await checkFileExists(
+    const fileCheckResult = await checkFileExists(
       courseId,
       parentId,
       lessonId,
@@ -741,17 +853,36 @@ async function processFiles(
       file.id // DriveFileId
     );
 
-    if (!isExistingFile) {
-      filesToProcess.push(file);
+    // Nếu file chưa tồn tại HOẶC đã tồn tại nhưng chưa có key Wasabi thì thêm vào danh sách xử lý
+    if (
+      !fileCheckResult.exists ||
+      (fileCheckResult.exists && !fileCheckResult.hasWasabi)
+    ) {
+      filesToProcess.push({
+        ...file,
+        existingData: fileCheckResult.exists ? fileCheckResult.fileData : null,
+      });
     } else {
-      console.log(`File ${file.name} đã tồn tại, bỏ qua.`);
+      console.log(`File ${file.name} đã tồn tại và có key Wasabi, bỏ qua.`);
     }
   }
 
   if (filesToProcess.length === 0) {
-    console.log("Không có file mới để xử lý.");
+    console.log("Không có file mới hoặc file cần tải lại lên Wasabi.");
     return;
   }
+
+  // Biến thống kê tốc độ
+  const stats = {
+    totalFiles: filesToProcess.length,
+    processedFiles: 0,
+    totalSize: 0,
+    totalDownloadTime: 0,
+    totalUploadTime: 0,
+    avgDownloadSpeed: 0,
+    avgUploadSpeed: 0,
+    startTime: Date.now(),
+  };
 
   // Xử lý các file theo batch để không quá tải hệ thống
   const BATCH_SIZE = 5; // Số file xử lý đồng thời
@@ -762,7 +893,12 @@ async function processFiles(
     await Promise.all(
       batch.map(async (file) => {
         try {
-          console.log(`\nĐang xử lý file: ${file.name} (${file.mimeType})`);
+          const isUpdate = !!file.existingData;
+          console.log(
+            `\nĐang ${isUpdate ? "cập nhật" : "xử lý"} file: ${file.name} (${
+              file.mimeType
+            })`
+          );
 
           const uploadResult = await uploadToWasabi(
             drive,
@@ -770,6 +906,22 @@ async function processFiles(
             file.name,
             file.mimeType
           );
+
+          if (uploadResult.success) {
+            // Cập nhật thống kê
+            stats.processedFiles++;
+            stats.totalSize += parseFloat(uploadResult.fileSize || 0);
+            stats.totalDownloadTime +=
+              parseFloat(uploadResult.downloadSpeed) > 0
+                ? parseFloat(uploadResult.fileSize) /
+                  parseFloat(uploadResult.downloadSpeed)
+                : 0;
+            stats.totalUploadTime +=
+              parseFloat(uploadResult.uploadSpeed) > 0
+                ? parseFloat(uploadResult.fileSize) /
+                  parseFloat(uploadResult.uploadSpeed)
+                : 0;
+          }
 
           if (!uploadResult.success) {
             console.warn(
@@ -805,23 +957,128 @@ async function processFiles(
               `File ${file.name} upload thành công lên Wasabi, key: ${uploadResult.key}`
             );
 
-            const fileWithWasabi = {
-              ...file,
-              wasabi: {
-                key: uploadResult.key,
-                size: uploadResult.size,
-              },
-            };
+            // Nếu đã tồn tại, cập nhật thông tin lưu trữ
+            if (isUpdate) {
+              // Tìm và cập nhật file trong database
+              const courseRef = db.collection("courses").doc(courseId);
+              const courseDoc = await courseRef.get();
+              const courseData = courseDoc.data();
 
-            await addFileToLesson(
-              courseId,
-              parentId,
-              lessonId,
-              fileWithWasabi,
-              subfolderId
-            );
-          } else {
-            // Chỉ thêm vào database với liên kết trực tiếp từ Drive nếu không upload được
+              const chapter = courseData.chapters.find(
+                (c) => c.id === parentId
+              );
+              if (!chapter) {
+                console.error("Không tìm thấy chapter khi cập nhật file");
+                return;
+              }
+
+              const lesson = chapter.lessons.find((l) => l.id === lessonId);
+              if (!lesson) {
+                console.error("Không tìm thấy lesson khi cập nhật file");
+                return;
+              }
+
+              if (subfolderId) {
+                // Cập nhật file trong subfolder
+                const updatedChapters = courseData.chapters.map((c) => {
+                  if (c.id === parentId) {
+                    const updatedLessons = c.lessons.map((l) => {
+                      if (l.id === lessonId) {
+                        const updatedSubfolders = l.subfolders.map((sf) => {
+                          if (sf.name === subfolderName) {
+                            const updatedFiles = sf.files.map((f) => {
+                              if (f.id === file.existingData.id) {
+                                return {
+                                  ...f,
+                                  storage: {
+                                    provider: "wasabi",
+                                    key: uploadResult.key,
+                                    size: uploadResult.size,
+                                    uploadTime: new Date().toISOString(),
+                                  },
+                                  updatedAt: new Date().toISOString(),
+                                };
+                              }
+                              return f;
+                            });
+                            return { ...sf, files: updatedFiles };
+                          }
+                          return sf;
+                        });
+                        return { ...l, subfolders: updatedSubfolders };
+                      }
+                      return l;
+                    });
+                    return { ...c, lessons: updatedLessons };
+                  }
+                  return c;
+                });
+
+                await courseRef.update({
+                  chapters: updatedChapters,
+                  updatedAt: new Date().toISOString(),
+                });
+                console.log(
+                  `Đã cập nhật key Wasabi cho file ${file.name} trong subfolder`
+                );
+              } else {
+                // Cập nhật file trong lesson
+                const updatedChapters = courseData.chapters.map((c) => {
+                  if (c.id === parentId) {
+                    const updatedLessons = c.lessons.map((l) => {
+                      if (l.id === lessonId) {
+                        const updatedFiles = l.files.map((f) => {
+                          if (f.id === file.existingData.id) {
+                            return {
+                              ...f,
+                              storage: {
+                                provider: "wasabi",
+                                key: uploadResult.key,
+                                size: uploadResult.size,
+                                uploadTime: new Date().toISOString(),
+                              },
+                              updatedAt: new Date().toISOString(),
+                            };
+                          }
+                          return f;
+                        });
+                        return { ...l, files: updatedFiles };
+                      }
+                      return l;
+                    });
+                    return { ...c, lessons: updatedLessons };
+                  }
+                  return c;
+                });
+
+                await courseRef.update({
+                  chapters: updatedChapters,
+                  updatedAt: new Date().toISOString(),
+                });
+                console.log(
+                  `Đã cập nhật key Wasabi cho file ${file.name} trong lesson`
+                );
+              }
+            } else {
+              // Thêm file mới với thông tin Wasabi
+              const fileWithWasabi = {
+                ...file,
+                wasabi: {
+                  key: uploadResult.key,
+                  size: uploadResult.size,
+                },
+              };
+
+              await addFileToLesson(
+                courseId,
+                parentId,
+                lessonId,
+                fileWithWasabi,
+                subfolderId
+              );
+            }
+          } else if (!isUpdate) {
+            // Chỉ thêm vào database với liên kết trực tiếp từ Drive nếu là file mới và không upload được
             console.log(
               `Thêm file ${file.name} với link Drive (không qua Wasabi)`
             );
@@ -848,6 +1105,30 @@ async function processFiles(
   }
 
   console.log(`=== Hoàn thành xử lý ${filesToProcess.length} files ===`);
+
+  // Tính và hiển thị thống kê tốc độ
+  const totalTime = (Date.now() - stats.startTime) / 1000; // Thời gian tổng cộng (giây)
+
+  if (stats.processedFiles > 0) {
+    stats.avgDownloadSpeed =
+      stats.totalDownloadTime > 0
+        ? (stats.totalSize / stats.totalDownloadTime).toFixed(2)
+        : 0;
+    stats.avgUploadSpeed =
+      stats.totalUploadTime > 0
+        ? (stats.totalSize / stats.totalUploadTime).toFixed(2)
+        : 0;
+
+    console.log("\n=== THỐNG KÊ TỐC ĐỘ ===");
+    console.log(
+      `Số lượng file đã xử lý: ${stats.processedFiles}/${stats.totalFiles}`
+    );
+    console.log(`Tổng kích thước: ${stats.totalSize.toFixed(2)} MB`);
+    console.log(`Thời gian xử lý: ${totalTime.toFixed(2)} giây`);
+    console.log(`Tốc độ tải trung bình: ${stats.avgDownloadSpeed} MB/s`);
+    console.log(`Tốc độ upload trung bình: ${stats.avgUploadSpeed} MB/s`);
+    console.log("======================\n");
+  }
 }
 
 // Sửa lại hàm processFolder để sử dụng cache và xử lý song song
@@ -1189,11 +1470,52 @@ export async function GET(request) {
 
 // Sửa lại hàm chính để sử dụng getOrCreateCourse
 export async function POST(request) {
+  // Lưu hàm gốc vào biến ngoài phạm vi try-catch
+  const originalUploadToWasabi = uploadToWasabi;
+
   try {
     console.log("\n=== Bắt đầu import khóa học ===");
     const { driveUrl, enableSync = true } = await request.json();
     console.log("URL Drive:", driveUrl);
     console.log("Đồng bộ xóa:", enableSync ? "Bật" : "Tắt");
+
+    // Thêm biến thống kê tốc độ tổng
+    const globalStats = {
+      totalProcessedFiles: 0,
+      totalSize: 0,
+      totalDownloadTime: 0,
+      totalUploadTime: 0,
+      avgDownloadSpeed: 0,
+      avgUploadSpeed: 0,
+      startTime: Date.now(),
+    };
+
+    // Thêm hàm theo dõi hoạt động upload
+    const trackFileUpload = (fileStats) => {
+      if (fileStats && fileStats.success) {
+        globalStats.totalProcessedFiles++;
+        globalStats.totalSize += parseFloat(fileStats.fileSize || 0);
+
+        // Tính thời gian tải và upload dựa trên tốc độ và kích thước
+        if (parseFloat(fileStats.downloadSpeed) > 0) {
+          globalStats.totalDownloadTime +=
+            parseFloat(fileStats.fileSize) /
+            parseFloat(fileStats.downloadSpeed);
+        }
+
+        if (parseFloat(fileStats.uploadSpeed) > 0) {
+          globalStats.totalUploadTime +=
+            parseFloat(fileStats.fileSize) / parseFloat(fileStats.uploadSpeed);
+        }
+      }
+    };
+
+    // Ghi đè hàm uploadToWasabi để theo dõi tốc độ
+    uploadToWasabi = async (...args) => {
+      const result = await originalUploadToWasabi(...args);
+      trackFileUpload(result);
+      return result;
+    };
 
     // Làm mới cache trước khi bắt đầu import
     cache.fileChecks = {};
@@ -1351,6 +1673,34 @@ export async function POST(request) {
 
       console.log("=== Kết thúc import khóa học ===\n");
 
+      // Tính toán tốc độ trung bình
+      const totalTime = (Date.now() - globalStats.startTime) / 1000; // Thời gian tổng cộng (giây)
+
+      if (globalStats.totalProcessedFiles > 0) {
+        globalStats.avgDownloadSpeed =
+          globalStats.totalDownloadTime > 0
+            ? (globalStats.totalSize / globalStats.totalDownloadTime).toFixed(2)
+            : 0;
+        globalStats.avgUploadSpeed =
+          globalStats.totalUploadTime > 0
+            ? (globalStats.totalSize / globalStats.totalUploadTime).toFixed(2)
+            : 0;
+
+        console.log("\n=== THỐNG KÊ TỐC ĐỘ TỔNG THỂ ===");
+        console.log(
+          `Số lượng file đã xử lý: ${globalStats.totalProcessedFiles}`
+        );
+        console.log(`Tổng kích thước: ${globalStats.totalSize.toFixed(2)} MB`);
+        console.log(`Thời gian xử lý: ${totalTime.toFixed(2)} giây`);
+        console.log(
+          `Tốc độ tải trung bình: ${globalStats.avgDownloadSpeed} MB/s`
+        );
+        console.log(
+          `Tốc độ upload trung bình: ${globalStats.avgUploadSpeed} MB/s`
+        );
+        console.log("==============================\n");
+      }
+
       return NextResponse.json({
         success: true,
         title: courseData.title || "",
@@ -1363,6 +1713,13 @@ export async function POST(request) {
               syncResult ? " và đồng bộ các mục đã xóa" : ""
             }`
           : "Import khóa học mới thành công",
+        stats: {
+          totalFiles: globalStats.totalProcessedFiles,
+          totalSize: globalStats.totalSize.toFixed(2),
+          totalTime: totalTime.toFixed(2),
+          avgDownloadSpeed: globalStats.avgDownloadSpeed,
+          avgUploadSpeed: globalStats.avgUploadSpeed,
+        },
       });
     } catch (error) {
       console.error("Lỗi khi lấy thông tin thư mục:", error);
@@ -1373,6 +1730,9 @@ export async function POST(request) {
         },
         { status: 500 }
       );
+    } finally {
+      // Đảm bảo khôi phục lại hàm uploadToWasabi gốc trong mọi trường hợp
+      uploadToWasabi = originalUploadToWasabi;
     }
   } catch (error) {
     console.error("Lỗi khi import khóa học:", error);
