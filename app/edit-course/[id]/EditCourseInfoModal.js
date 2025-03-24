@@ -20,6 +20,7 @@ const SUBJECTS = [
   { value: "history", label: "Lịch sử" },
   { value: "geography", label: "Địa lý" },
   { value: "informatics", label: "Tin học" },
+  { value: "other", label: "Khác" },
 ];
 
 const GRADES = [
@@ -30,6 +31,7 @@ const GRADES = [
   { value: "grade10", label: "Lớp 10" },
   { value: "grade11", label: "Lớp 11" },
   { value: "grade12", label: "Lớp 12" },
+  { value: "other", label: "Khác" },
 ];
 
 export default function EditCourseInfoModal({
