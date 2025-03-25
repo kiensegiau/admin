@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 export async function middleware(request) {
   console.log('Middleware activated for path:', request.url);
 
+  
   const accessToken = request.cookies.get('googleDriveAccessToken')?.value;
   const tokenExpiration = request.cookies.get('tokenExpiration')?.value;
 
