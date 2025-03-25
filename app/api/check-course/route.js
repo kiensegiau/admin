@@ -268,31 +268,42 @@ export async function POST(request) {
                     );
 
                     if (uploadResult.success) {
-                      console.log(
-                        `✅ Đã tải lên Wasabi thành công với key mới: ${uploadResult.key}`
+                      // Xác minh thêm một lần nữa file đã tồn tại trên Wasabi
+                      const wasabiVerified = await checkWasabiFile(
+                        uploadResult.key
                       );
 
-                      // Cập nhật thông tin file với key Wasabi mới
-                      const updatedFile = {
-                        ...file,
-                        storage: {
-                          provider: "wasabi",
-                          key: uploadResult.key,
-                          size: uploadResult.size,
-                          uploadTime: new Date().toISOString(),
-                        },
-                      };
+                      if (wasabiVerified) {
+                        console.log(
+                          `✅ Đã tải lên Wasabi thành công và đã xác minh: ${uploadResult.key}`
+                        );
 
-                      updatedFiles.push(updatedFile);
-                      reuploadedFiles.push({
-                        ...brokenFile,
-                        newKey: uploadResult.key,
-                      });
+                        // Cập nhật thông tin file với key Wasabi mới
+                        const updatedFile = {
+                          ...file,
+                          storage: {
+                            provider: "wasabi",
+                            key: uploadResult.key,
+                            size: uploadResult.size,
+                            uploadTime: new Date().toISOString(),
+                          },
+                        };
 
-                      stats.reuploadedFiles++;
-                      isLessonModified = true;
-                      needsUpdate = true;
-                      continue;
+                        updatedFiles.push(updatedFile);
+                        reuploadedFiles.push({
+                          ...brokenFile,
+                          newKey: uploadResult.key,
+                        });
+
+                        stats.reuploadedFiles++;
+                        isLessonModified = true;
+                        needsUpdate = true;
+                        continue;
+                      } else {
+                        console.error(
+                          `❌ Upload lên Wasabi không thể xác minh: ${uploadResult.key}`
+                        );
+                      }
                     } else {
                       console.warn(
                         `⚠️ Không thể tải lại file từ Drive: ${uploadResult.error}`
@@ -450,31 +461,42 @@ export async function POST(request) {
                       );
 
                       if (uploadResult.success) {
-                        console.log(
-                          `✅ Đã tải lên Wasabi thành công với key mới: ${uploadResult.key}`
+                        // Xác minh thêm một lần nữa file đã tồn tại trên Wasabi
+                        const wasabiVerified = await checkWasabiFile(
+                          uploadResult.key
                         );
 
-                        // Cập nhật thông tin file với key Wasabi mới
-                        const updatedFile = {
-                          ...file,
-                          storage: {
-                            provider: "wasabi",
-                            key: uploadResult.key,
-                            size: uploadResult.size,
-                            uploadTime: new Date().toISOString(),
-                          },
-                        };
+                        if (wasabiVerified) {
+                          console.log(
+                            `✅ Đã tải lên Wasabi thành công và đã xác minh: ${uploadResult.key}`
+                          );
 
-                        updatedSubfolderFiles.push(updatedFile);
-                        reuploadedFiles.push({
-                          ...brokenFile,
-                          newKey: uploadResult.key,
-                        });
+                          // Cập nhật thông tin file với key Wasabi mới
+                          const updatedFile = {
+                            ...file,
+                            storage: {
+                              provider: "wasabi",
+                              key: uploadResult.key,
+                              size: uploadResult.size,
+                              uploadTime: new Date().toISOString(),
+                            },
+                          };
 
-                        stats.reuploadedFiles++;
-                        isSubfolderModified = true;
-                        needsUpdate = true;
-                        continue;
+                          updatedSubfolderFiles.push(updatedFile);
+                          reuploadedFiles.push({
+                            ...brokenFile,
+                            newKey: uploadResult.key,
+                          });
+
+                          stats.reuploadedFiles++;
+                          isSubfolderModified = true;
+                          needsUpdate = true;
+                          continue;
+                        } else {
+                          console.error(
+                            `❌ Upload lên Wasabi không thể xác minh: ${uploadResult.key}`
+                          );
+                        }
                       } else {
                         console.warn(
                           `⚠️ Không thể tải lại file từ Drive: ${uploadResult.error}`
@@ -614,6 +636,49 @@ export async function POST(request) {
       try {
         const totalFixedFiles = stats.fixedFiles + stats.reuploadedFiles;
         console.log(`Đang cập nhật ${totalFixedFiles} file bị lỗi...`);
+
+        // Thêm kiểm tra để đảm bảo chỉ cập nhật database khi có file được sửa đúng
+        if (reuploadedFiles.length > 0) {
+          console.log(
+            `Kiểm tra xác minh ${reuploadedFiles.length} file đã upload lên Wasabi:`
+          );
+
+          // Xác minh lại một lần nữa trên Wasabi trước khi cập nhật database
+          let allFilesVerified = true;
+          for (const file of reuploadedFiles) {
+            if (file.newKey) {
+              const exists = await checkWasabiFile(file.newKey);
+              if (!exists) {
+                console.error(
+                  `❌ File ${file.name} với key ${file.newKey} không tồn tại trên Wasabi!`
+                );
+                allFilesVerified = false;
+              } else {
+                console.log(
+                  `✓ Xác minh file ${file.name} với key ${file.newKey} tồn tại trên Wasabi`
+                );
+              }
+            }
+          }
+
+          if (!allFilesVerified) {
+            console.error(
+              "⚠️ Phát hiện một số file không tồn tại trên Wasabi. Không cập nhật database để đảm bảo dữ liệu nhất quán."
+            );
+            updateResult = {
+              success: false,
+              error: "Một số file không tồn tại trên Wasabi sau khi upload",
+              message:
+                "Không thể cập nhật khóa học vì có file không tồn tại trên Wasabi",
+            };
+            return NextResponse.json({
+              ...result,
+              updateResult,
+              warning:
+                "Không cập nhật database do một số file không tồn tại trên Wasabi",
+            });
+          }
+        }
 
         // Cập nhật lại khóa học
         await courseRef.update({
@@ -1266,24 +1331,58 @@ async function uploadToWasabi(
     });
 
     try {
+      // Upload file lên Wasabi
       await s3Client.send(command);
 
       // Xác minh file đã được tải lên thành công
-      try {
-        const checkCommand = new HeadObjectCommand({
-          Bucket: BUCKET_NAME,
-          Key: key,
-        });
-        const headResponse = await s3Client.send(checkCommand);
-        console.log(
-          `Xác minh upload thành công: ${key} (${headResponse.ContentLength} bytes)`
+      let verificationSuccess = false;
+      let maxVerifyAttempts = 3;
+      let verifyAttempt = 0;
+
+      // Thử xác minh nhiều lần để đối phó với độ trễ của Wasabi
+      while (verifyAttempt < maxVerifyAttempts && !verificationSuccess) {
+        verifyAttempt++;
+        try {
+          // Tạm dừng một chút để đảm bảo hệ thống Wasabi đã cập nhật
+          if (verifyAttempt > 1) {
+            console.log(`Chờ xác minh lần ${verifyAttempt}...`);
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+
+          const checkCommand = new HeadObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: key,
+          });
+
+          const headResponse = await s3Client.send(checkCommand);
+
+          if (
+            headResponse &&
+            headResponse.ContentLength === fileBuffer.length
+          ) {
+            console.log(
+              `✅ Xác minh upload thành công: ${key} (${headResponse.ContentLength} bytes)`
+            );
+            verificationSuccess = true;
+          } else {
+            console.warn(
+              `⚠️ Kích thước file không khớp sau khi upload: ${key}`
+            );
+          }
+        } catch (verifyErr) {
+          console.warn(
+            `⚠️ Không thể xác minh file sau khi upload (nỗ lực ${verifyAttempt}/${maxVerifyAttempts}): ${key}`,
+            verifyErr.name
+          );
+        }
+      }
+
+      // Nếu không thể xác minh sau nhiều lần thử, coi như upload thất bại
+      if (!verificationSuccess) {
+        console.error(
+          `❌ Không thể xác minh file sau ${maxVerifyAttempts} lần thử: ${key}`
         );
-      } catch (verifyErr) {
-        console.warn(
-          `Không thể xác minh file sau khi upload: ${key}`,
-          verifyErr.name
-        );
-        // Tiếp tục xử lý vì chúng ta đã tải lên, có thể là vấn đề trễ hoặc nhất quán
+        throw new Error("Không thể xác minh file sau khi upload");
       }
     } catch (uploadErr) {
       console.error(`Lỗi khi upload lên Wasabi: ${uploadErr.message}`);
