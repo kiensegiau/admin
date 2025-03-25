@@ -1270,9 +1270,21 @@ async function processFolder(
   parentType = "course",
   parentId = null,
   lessonId = null,
-  parentPath = ""
+  parentPath = "",
+  courseName = null
 ) {
   try {
+    // Nếu đây là lần gọi đầu tiên và chưa có courseName, lấy tên khóa học
+    if (parentType === "course" && !courseName) {
+      const courseRef = db.collection("courses").doc(courseId);
+      const courseDoc = await courseRef.get();
+      if (courseDoc.exists) {
+        courseName = courseDoc.data().title || "Unknown Course";
+        // Bắt đầu đường dẫn thư mục với tên khóa học
+        parentPath = courseName;
+      }
+    }
+
     console.log(`\n=== Bắt đầu xử lý thư mục ${parentPath || "gốc"} ===`);
     console.log(`ParentType: ${parentType}, CourseId: ${courseId}`);
 
@@ -1299,7 +1311,8 @@ async function processFolder(
           "chapter",
           chapter.id,
           null,
-          newPath
+          newPath,
+          courseName
         );
       } else if (parentType === "chapter") {
         // Kiểm tra và tạo/tái sử dụng bài học
@@ -1316,7 +1329,8 @@ async function processFolder(
           "lesson",
           parentId,
           newLessonId,
-          newPath
+          newPath,
+          courseName
         );
       } else if (parentType === "lesson" || parentType === "subfolder") {
         // Kiểm tra và tạo/tái sử dụng thư mục con
@@ -1336,7 +1350,8 @@ async function processFolder(
           "subfolder",
           parentId,
           lessonId,
-          newPath
+          newPath,
+          courseName
         );
       }
     }
@@ -1479,12 +1494,22 @@ async function synchronizeDeletedItems(courseId) {
         // Đồng bộ xóa file trong bài học
         const updatedFiles = [];
         for (const file of lesson.files || []) {
-          const fileExists = syncState.processedItems.files.has(
-            file.driveFileId
-          );
+          // Kiểm tra file có driveFileId hợp lệ không
+          const driveFileId = file.driveFileId;
+          if (!driveFileId) {
+            // Nếu không có driveFileId, giữ lại file (không thể kiểm tra)
+            console.log(
+              `File "${file.name}" không có driveFileId, bỏ qua kiểm tra xóa`
+            );
+            updatedFiles.push(file);
+            continue;
+          }
+
+          // Kiểm tra xem file có tồn tại trong danh sách đã xử lý không
+          const fileExists = syncState.processedItems.files.has(driveFileId);
           if (!fileExists) {
             console.log(
-              `File "${file.name}" đã bị xóa trên Drive, xóa khỏi hệ thống`
+              `File "${file.name}" (ID: ${driveFileId}) đã bị xóa trên Drive, xóa khỏi hệ thống`
             );
 
             // Xóa file từ Wasabi
@@ -1523,12 +1548,22 @@ async function synchronizeDeletedItems(courseId) {
           // Đồng bộ xóa file trong thư mục con
           const updatedSubfolderFiles = [];
           for (const file of subfolder.files || []) {
-            const fileExists = syncState.processedItems.files.has(
-              file.driveFileId
-            );
+            // Kiểm tra file có driveFileId hợp lệ không
+            const driveFileId = file.driveFileId;
+            if (!driveFileId) {
+              // Nếu không có driveFileId, giữ lại file (không thể kiểm tra)
+              console.log(
+                `File "${file.name}" trong subfolder không có driveFileId, bỏ qua kiểm tra xóa`
+              );
+              updatedSubfolderFiles.push(file);
+              continue;
+            }
+
+            // Kiểm tra xem file có tồn tại trong danh sách đã xử lý không
+            const fileExists = syncState.processedItems.files.has(driveFileId);
             if (!fileExists) {
               console.log(
-                `File "${file.name}" trong thư mục con "${subfolder.name}" đã bị xóa trên Drive, xóa khỏi hệ thống`
+                `File "${file.name}" (ID: ${driveFileId}) trong thư mục con "${subfolder.name}" đã bị xóa trên Drive, xóa khỏi hệ thống`
               );
 
               // Xóa file từ Wasabi
@@ -1744,7 +1779,17 @@ export async function POST(request) {
           : `Đã tạo khóa học mới: ${course.id}`
       );
 
-      await processFolder(drive, folderId, course.id);
+      // Truyền tên khóa học vào lần gọi đầu tiên của processFolder
+      await processFolder(
+        drive,
+        folderId,
+        course.id,
+        "course",
+        null,
+        null,
+        "",
+        course.title
+      );
 
       // Thực hiện đồng bộ xóa nếu được yêu cầu
       let syncResult = false;
