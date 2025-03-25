@@ -1,29 +1,43 @@
 import { useState } from "react";
+import { Modal, Form, Input, Button, Select } from "antd";
 import { toast } from "sonner";
 
-export default function AddUserModal({ isOpen, onClose, onAddUser }) {
-  const [newUser, setNewUser] = useState({
-    fullName: "",
-    email: "",
-    phoneNumber: "",
-    password: "",
-  });
-  const [isSubmitting, setIsSubmitting] = useState(false);
+const { Option } = Select;
 
-  const handleChange = (e) => {
-    setNewUser({ ...newUser, [e.target.name]: e.target.value });
-  };
+export default function AddUserModal({ open, onCancel, onSuccess }) {
+  const [form] = Form.useForm();
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (values) => {
     try {
-      setIsSubmitting(true);
+      setLoading(true);
+      
+      // Tạo một bản sao của values để xử lý
+      let formattedValues = { ...values };
+      
+      // Xử lý số điện thoại
+      if (values.phoneNumber && values.phoneNumber.trim()) {
+        // Đảm bảo số điện thoại có định dạng +[country code][number]
+        const phoneNumber = values.phoneNumber.trim();
+        if (!phoneNumber.startsWith('+')) {
+          // Mặc định thêm mã quốc gia Việt Nam (+84) nếu số bắt đầu bằng 0
+          if (phoneNumber.startsWith('0')) {
+            formattedValues.phoneNumber = '+84' + phoneNumber.substring(1);
+          } else {
+            formattedValues.phoneNumber = '+84' + phoneNumber;
+          }
+        }
+      } else {
+        // Nếu không có số điện thoại, xóa trường này khỏi object
+        delete formattedValues.phoneNumber;
+      }
+      
       const response = await fetch("/api/users/add", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(newUser),
+        body: JSON.stringify(formattedValues),
       });
 
       const data = await response.json();
@@ -31,122 +45,102 @@ export default function AddUserModal({ isOpen, onClose, onAddUser }) {
         throw new Error(data.error || "Có lỗi xảy ra");
       }
 
-      onAddUser(data.user);
+      onSuccess(data.user);
       toast.success("Người dùng mới đã được thêm");
-      onClose();
+      form.resetFields();
+      onCancel();
     } catch (error) {
       console.error("Lỗi khi thêm người dùng:", error);
       toast.error(error.message || "Không thể thêm người dùng mới");
     } finally {
-      setIsSubmitting(false);
+      setLoading(false);
     }
   };
-
-  if (!isOpen) return null;
+  
+  const prefixSelector = (
+    <Form.Item name="prefix" noStyle initialValue="+84">
+      <Select style={{ width: 80 }}>
+        <Option value="+84">+84</Option>
+        <Option value="+1">+1</Option>
+        <Option value="+65">+65</Option>
+        <Option value="+81">+81</Option>
+      </Select>
+    </Form.Item>
+  );
 
   return (
-    <div
-      className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full"
-      onClick={onClose}
+    <Modal
+      title="Thêm người dùng mới"
+      open={open}
+      onCancel={onCancel}
+      footer={null}
+      maskClosable={false}
     >
-      <div
-        className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white"
-        onClick={(e) => e.stopPropagation()}
+      <Form 
+        form={form}
+        layout="vertical" 
+        onFinish={handleSubmit}
       >
-        <h3 className="text-lg font-medium leading-6 text-gray-900 mb-4">
-          Thêm người dùng mới
-        </h3>
-        <form onSubmit={handleSubmit}>
-          <div className="mb-4">
-            <label
-              className="block text-gray-700 text-sm font-bold mb-2"
-              htmlFor="fullName"
-            >
-              Tên đầy đủ
-            </label>
-            <input
-              type="text"
-              name="fullName"
-              id="fullName"
-              value={newUser.fullName}
-              onChange={handleChange}
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-              required
-              disabled={isSubmitting}
-            />
-          </div>
-          <div className="mb-4">
-            <label
-              className="block text-gray-700 text-sm font-bold mb-2"
-              htmlFor="email"
-            >
-              Email
-            </label>
-            <input
-              type="email"
-              name="email"
-              id="email"
-              value={newUser.email}
-              onChange={handleChange}
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-              required
-              disabled={isSubmitting}
-            />
-          </div>
-          <div className="mb-4">
-            <label
-              className="block text-gray-700 text-sm font-bold mb-2"
-              htmlFor="phoneNumber"
-            >
-              Số điện thoại
-            </label>
-            <input
-              type="tel"
-              name="phoneNumber"
-              id="phoneNumber"
-              value={newUser.phoneNumber}
-              onChange={handleChange}
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-              disabled={isSubmitting}
-            />
-          </div>
-          <div className="mb-4">
-            <label
-              className="block text-gray-700 text-sm font-bold mb-2"
-              htmlFor="password"
-            >
-              Mật khẩu
-            </label>
-            <input
-              type="text"
-              name="password"
-              id="password"
-              value={newUser.password}
-              onChange={handleChange}
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-              required
-              disabled={isSubmitting}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <button
-              type="submit"
-              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? "Đang thêm..." : "Thêm người dùng"}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
-              disabled={isSubmitting}
-            >
-              Hủy
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <Form.Item
+          name="fullName"
+          label="Tên đầy đủ"
+          rules={[{ required: true, message: "Vui lòng nhập tên đầy đủ" }]}
+        >
+          <Input placeholder="Nhập tên đầy đủ" />
+        </Form.Item>
+
+        <Form.Item
+          name="email"
+          label="Email"
+          rules={[
+            { required: true, message: "Vui lòng nhập email" },
+            { type: "email", message: "Email không hợp lệ" }
+          ]}
+        >
+          <Input placeholder="Nhập email" />
+        </Form.Item>
+
+        <Form.Item
+          name="phoneNumber"
+          label="Số điện thoại (không bắt buộc)"
+          rules={[
+            { 
+              validator: (_, value) => {
+                if (!value || value.trim() === '') {
+                  return Promise.resolve();
+                }
+                if (/^(\+\d{1,3})?\d{9,12}$/.test(value)) {
+                  return Promise.resolve();
+                }
+                return Promise.reject('Định dạng số điện thoại không hợp lệ');
+              }
+            }
+          ]}
+        >
+          <Input 
+            addonBefore={prefixSelector}
+            placeholder="Nhập số điện thoại (không cần số 0 đầu)"
+            allowClear
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="password"
+          label="Mật khẩu"
+          rules={[{ required: true, message: "Vui lòng nhập mật khẩu" }]}
+        >
+          <Input.Password placeholder="Nhập mật khẩu" />
+        </Form.Item>
+
+        <Form.Item className="flex justify-end">
+          <Button type="default" onClick={onCancel} style={{ marginRight: 8 }}>
+            Hủy
+          </Button>
+          <Button type="primary" htmlType="submit" loading={loading}>
+            Thêm người dùng
+          </Button>
+        </Form.Item>
+      </Form>
+    </Modal>
   );
 }
