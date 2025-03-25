@@ -10,6 +10,7 @@ import {
   LogoutOutlined,
   SettingOutlined,
   DashboardOutlined,
+  CloudUploadOutlined,
 } from "@ant-design/icons";
 import { toast } from "sonner";
 import { Layout, Menu, Button, Typography, Avatar, Divider, theme } from "antd";
@@ -30,6 +31,12 @@ const menuItems = [
     href: "/courses",
     label: "Quản lý khóa học",
     icon: BookOutlined,
+  },
+  {
+    key: "import-drive-simple",
+    href: "/import-from-drive-simple",
+    label: "Import Drive",
+    icon: CloudUploadOutlined,
   },
   {
     key: "users",
