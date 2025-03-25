@@ -1,25 +1,49 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { Modal, Form, Input, Button, Select, Switch } from "antd";
 import { toast } from "sonner";
 
-export default function EditUserModal({ isOpen, onClose, user, onUpdateUser }) {
-  const [formData, setFormData] = useState({
-    fullName: user.fullName,
-    email: user.email,
-    phoneNumber: user.phoneNumber || "",
-    isActive: user.isActive,
-  });
-  const [isSubmitting, setIsSubmitting] = useState(false);
+const { Option } = Select;
 
-  const handleChange = (e) => {
-    const value =
-      e.target.type === "checkbox" ? e.target.checked : e.target.value;
-    setFormData({ ...formData, [e.target.name]: value });
-  };
+export default function EditUserModal({ open, onCancel, user, onSuccess }) {
+  const [form] = Form.useForm();
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  useEffect(() => {
+    if (user && open) {
+      // Đặt giá trị ban đầu cho form
+      form.setFieldsValue({
+        fullName: user.fullName,
+        email: user.email,
+        phoneNumber: user.phoneNumber || "",
+        isActive: user.isActive,
+      });
+    }
+  }, [user, form, open]);
+
+  const handleSubmit = async (values) => {
     try {
-      setIsSubmitting(true);
+      setLoading(true);
+      
+      // Tạo một bản sao của values để xử lý
+      let formattedValues = { ...values };
+      
+      // Xử lý số điện thoại
+      if (values.phoneNumber && values.phoneNumber.trim()) {
+        // Đảm bảo số điện thoại có định dạng +[country code][number]
+        const phoneNumber = values.phoneNumber.trim();
+        if (!phoneNumber.startsWith('+')) {
+          // Mặc định thêm mã quốc gia Việt Nam (+84) nếu số bắt đầu bằng 0
+          if (phoneNumber.startsWith('0')) {
+            formattedValues.phoneNumber = '+84' + phoneNumber.substring(1);
+          } else {
+            formattedValues.phoneNumber = '+84' + phoneNumber;
+          }
+        }
+      } else {
+        // Nếu không có số điện thoại, để empty string để API xóa
+        formattedValues.phoneNumber = "";
+      }
+      
       const response = await fetch("/api/users/update", {
         method: "PUT",
         headers: {
@@ -27,7 +51,7 @@ export default function EditUserModal({ isOpen, onClose, user, onUpdateUser }) {
         },
         body: JSON.stringify({
           userId: user.id,
-          ...formData,
+          ...formattedValues,
         }),
       });
 
@@ -36,117 +60,101 @@ export default function EditUserModal({ isOpen, onClose, user, onUpdateUser }) {
         throw new Error(data.error || "Có lỗi xảy ra");
       }
 
-      onUpdateUser(data.user);
+      onSuccess(data.user);
       toast.success("Cập nhật người dùng thành công");
-      onClose();
+      onCancel();
     } catch (error) {
       console.error("Lỗi khi cập nhật người dùng:", error);
       toast.error(error.message || "Không thể cập nhật người dùng");
     } finally {
-      setIsSubmitting(false);
+      setLoading(false);
     }
   };
-
-  if (!isOpen) return null;
+  
+  const prefixSelector = (
+    <Form.Item name="prefix" noStyle initialValue="+84">
+      <Select style={{ width: 80 }}>
+        <Option value="+84">+84</Option>
+        <Option value="+1">+1</Option>
+        <Option value="+65">+65</Option>
+        <Option value="+81">+81</Option>
+      </Select>
+    </Form.Item>
+  );
 
   return (
-    <div
-      className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full"
-      onClick={onClose}
+    <Modal
+      title="Chỉnh sửa người dùng"
+      open={open}
+      onCancel={onCancel}
+      footer={null}
+      maskClosable={false}
     >
-      <div
-        className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white"
-        onClick={(e) => e.stopPropagation()}
+      <Form 
+        form={form}
+        layout="vertical" 
+        onFinish={handleSubmit}
       >
-        <h3 className="text-lg font-medium leading-6 text-gray-900 mb-4">
-          Chỉnh sửa người dùng
-        </h3>
-        <form onSubmit={handleSubmit}>
-          <div className="mb-4">
-            <label
-              className="block text-gray-700 text-sm font-bold mb-2"
-              htmlFor="fullName"
-            >
-              Tên đầy đủ
-            </label>
-            <input
-              type="text"
-              name="fullName"
-              id="fullName"
-              value={formData.fullName}
-              onChange={handleChange}
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-              required
-              disabled={isSubmitting}
-            />
-          </div>
-          <div className="mb-4">
-            <label
-              className="block text-gray-700 text-sm font-bold mb-2"
-              htmlFor="email"
-            >
-              Email
-            </label>
-            <input
-              type="email"
-              name="email"
-              id="email"
-              value={formData.email}
-              onChange={handleChange}
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-              required
-              disabled={isSubmitting}
-            />
-          </div>
-          <div className="mb-4">
-            <label
-              className="block text-gray-700 text-sm font-bold mb-2"
-              htmlFor="phoneNumber"
-            >
-              Số điện thoại
-            </label>
-            <input
-              type="tel"
-              name="phoneNumber"
-              id="phoneNumber"
-              value={formData.phoneNumber}
-              onChange={handleChange}
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-              disabled={isSubmitting}
-            />
-          </div>
-          <div className="mb-4">
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                name="isActive"
-                checked={formData.isActive}
-                onChange={handleChange}
-                className="form-checkbox h-4 w-4 text-blue-600"
-                disabled={isSubmitting}
-              />
-              <span className="ml-2 text-gray-700">Hoạt động</span>
-            </label>
-          </div>
-          <div className="flex items-center justify-between">
-            <button
-              type="submit"
-              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? "Đang cập nhật..." : "Cập nhật"}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
-              disabled={isSubmitting}
-            >
-              Hủy
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <Form.Item
+          name="fullName"
+          label="Tên đầy đủ"
+          rules={[{ required: true, message: "Vui lòng nhập tên đầy đủ" }]}
+        >
+          <Input placeholder="Nhập tên đầy đủ" />
+        </Form.Item>
+
+        <Form.Item
+          name="email"
+          label="Email"
+          rules={[
+            { required: true, message: "Vui lòng nhập email" },
+            { type: "email", message: "Email không hợp lệ" }
+          ]}
+        >
+          <Input placeholder="Nhập email" />
+        </Form.Item>
+
+        <Form.Item
+          name="phoneNumber"
+          label="Số điện thoại (không bắt buộc)"
+          rules={[
+            { 
+              validator: (_, value) => {
+                if (!value || value.trim() === '') {
+                  return Promise.resolve();
+                }
+                if (/^(\+\d{1,3})?\d{9,12}$/.test(value)) {
+                  return Promise.resolve();
+                }
+                return Promise.reject('Định dạng số điện thoại không hợp lệ');
+              }
+            }
+          ]}
+        >
+          <Input 
+            addonBefore={prefixSelector}
+            placeholder="Nhập số điện thoại (không cần số 0 đầu)"
+            allowClear
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="isActive"
+          label="Trạng thái"
+          valuePropName="checked"
+        >
+          <Switch checkedChildren="Hoạt động" unCheckedChildren="Khóa" />
+        </Form.Item>
+
+        <Form.Item className="flex justify-end">
+          <Button type="default" onClick={onCancel} style={{ marginRight: 8 }}>
+            Hủy
+          </Button>
+          <Button type="primary" htmlType="submit" loading={loading}>
+            Cập nhật
+          </Button>
+        </Form.Item>
+      </Form>
+    </Modal>
   );
 }

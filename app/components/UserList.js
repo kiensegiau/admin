@@ -251,6 +251,7 @@ export default function UserList() {
                 `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
               }
               parser={(value) => value.replace(/\$\s?|(,*)/g, "")}
+              value={depositAmount}
               onChange={(value) => setDepositAmount(value)}
             />
           </div>
