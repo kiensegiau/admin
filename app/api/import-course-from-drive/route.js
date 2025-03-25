@@ -70,7 +70,13 @@ function extractDriveId(url) {
 }
 
 // Hàm upload file từ Google Drive lên Wasabi
-async function uploadToWasabi(drive, fileId, fileName, mimeType) {
+async function uploadToWasabi(
+  drive,
+  fileId,
+  fileName,
+  mimeType,
+  folderPath = ""
+) {
   try {
     const tempDir = path.join(os.tmpdir(), "hocmai-temp");
     if (!fs.existsSync(tempDir)) {
@@ -157,11 +163,22 @@ async function uploadToWasabi(drive, fileId, fileName, mimeType) {
     // Đọc file để upload lên Wasabi
     const fileBuffer = fs.readFileSync(tempFilePath);
 
-    // Tạo key cho file trên Wasabi với UUID để đảm bảo không trùng lặp
-    // Vẫn sử dụng tên file gốc cho key trên Wasabi
+    // Tạo key cho file trên Wasabi dựa vào cấu trúc thư mục từ Google Drive
     const timestamp = Date.now();
     const uniqueId = uuidv4().substring(0, 8); // Lấy 8 ký tự đầu của UUID
-    let key = `videos/${timestamp}-${uniqueId}-${fileName}`;
+
+    // Sử dụng folderPath để tạo cấu trúc thư mục tương tự như trong Drive
+    let key;
+    if (folderPath && folderPath !== "") {
+      // Làm sạch đường dẫn thư mục
+      const sanitizedPath = folderPath
+        .split("/")
+        .map((part) => sanitizeFileName(part))
+        .join("/");
+      key = `courses/${sanitizedPath}/${timestamp}-${uniqueId}-${fileName}`;
+    } else {
+      key = `courses/${timestamp}-${uniqueId}-${fileName}`;
+    }
 
     // Biến theo dõi tốc độ upload
     const uploadStartTime = Date.now();
@@ -816,7 +833,7 @@ async function checkFileExists(
   }
 }
 
-// Sửa lại hàm processFiles để xử lý file tồn tại nhưng chưa có key Wasabi
+// Sửa lại hàm processFiles để truyền đường dẫn thư mục cho uploadToWasabi
 async function processFiles(
   drive,
   validFiles,
@@ -860,6 +877,7 @@ async function processFiles(
     ) {
       filesToProcess.push({
         ...file,
+        folderPath: parentPath, // Thêm đường dẫn thư mục cho file
         existingData: fileCheckResult.exists ? fileCheckResult.fileData : null,
       });
     } else {
@@ -904,7 +922,8 @@ async function processFiles(
             drive,
             file.id,
             file.name,
-            file.mimeType
+            file.mimeType,
+            file.folderPath
           );
 
           if (uploadResult.success) {
@@ -1142,7 +1161,7 @@ async function processFolder(
   parentPath = ""
 ) {
   try {
-    console.log(`\n=== Bắt đầu xử lý thư mục ${parentPath} ===`);
+    console.log(`\n=== Bắt đầu xử lý thư mục ${parentPath || "gốc"} ===`);
     console.log(`ParentType: ${parentType}, CourseId: ${courseId}`);
 
     const files = await listFolderContents(drive, folderId);
@@ -1205,8 +1224,7 @@ async function processFolder(
           "subfolder",
           parentId,
           lessonId,
-          newPath,
-          subfolderId
+          newPath
         );
       }
     }
@@ -1219,7 +1237,7 @@ async function processFolder(
       });
 
       if (validFiles.length > 0) {
-        // Sử dụng hàm mới để xử lý file
+        // Truyền đường dẫn thư mục khi gọi processFiles
         await processFiles(
           drive,
           validFiles,
