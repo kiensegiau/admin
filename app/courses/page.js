@@ -17,6 +17,8 @@ import {
   InputNumber,
   Tooltip,
   Badge,
+  Progress,
+  Tag,
 } from "antd";
 import {
   PlusOutlined,
@@ -52,6 +54,15 @@ export default function CoursesPage() {
   const [syncLoading, setSyncLoading] = useState(false);
   const [checkLoading, setCheckLoading] = useState(false);
   const [driveUrlModalForm] = Form.useForm();
+
+  // Thêm state để theo dõi quá trình đồng bộ hàng loạt
+  const [batchSyncLoading, setBatchSyncLoading] = useState(false);
+  const [batchSyncProgress, setBatchSyncProgress] = useState({
+    current: 0,
+    total: 0,
+    currentCourse: null,
+    results: [],
+  });
 
   useEffect(() => {
     fetchCourses();
@@ -256,7 +267,7 @@ export default function CoursesPage() {
     }
   };
 
-  // Hàm đồng bộ khóa học từ Drive
+  // Hàm đồng bộ khóa học từ Drive (đồng bộ một khóa học)
   const syncFromDrive = async (courseId, driveUrl) => {
     try {
       if (!driveUrl) {
@@ -267,6 +278,8 @@ export default function CoursesPage() {
       }
 
       setSyncLoading(true);
+      setCurrentCourseId(courseId);
+
       const response = await fetch("/api/import-course-from-drive", {
         method: "POST",
         headers: {
@@ -282,10 +295,12 @@ export default function CoursesPage() {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || "Có lỗi xảy ra khi đồng bộ từ Drive");
+        throw new Error(
+          data.error || data.message || "Có lỗi xảy ra khi đồng bộ từ Drive"
+        );
       }
 
-      message.success("Đồng bộ từ Drive thành công");
+      message.success(data.message || "Đồng bộ từ Drive thành công");
       await fetchCourses();
     } catch (error) {
       console.error("Lỗi khi đồng bộ từ Drive:", error);
@@ -392,6 +407,321 @@ export default function CoursesPage() {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Hàm đồng bộ nhiều khóa học
+  const batchSyncFromDrive = async () => {
+    try {
+      // Lọc danh sách khóa học có Drive URL
+      const coursesWithDriveUrl = filteredCourses.filter(
+        (course) => course.driveUrl
+      );
+
+      if (coursesWithDriveUrl.length === 0) {
+        message.warning("Không có khóa học nào có Drive URL để đồng bộ");
+        return;
+      }
+
+      // Hiển thị hộp thoại xác nhận
+      confirm({
+        title: "Xác nhận đồng bộ nhiều khóa học",
+        content: `Bạn sắp đồng bộ ${coursesWithDriveUrl.length} khóa học từ Google Drive. Quá trình này có thể tốn thời gian. Bạn có chắc chắn muốn tiếp tục?`,
+        okText: "Đồng bộ ngay",
+        cancelText: "Hủy",
+        onOk: async () => {
+          try {
+            // Cập nhật trạng thái
+            setBatchSyncLoading(true);
+            setBatchSyncProgress({
+              current: 0,
+              total: coursesWithDriveUrl.length,
+              currentCourse: null,
+              results: [],
+            });
+
+            // Tạo và hiển thị modal thông tin
+            const syncModalInstance = Modal.info({
+              title: "Đang đồng bộ khóa học",
+              content: (
+                <div>
+                  <p>Đang chuẩn bị đồng bộ các khóa học...</p>
+                  <Progress percent={0} status="active" />
+                </div>
+              ),
+              okText: "Đóng",
+              maskClosable: false,
+              closable: true,
+              okButtonProps: { style: { display: "none" } },
+            });
+
+            // Xử lý tuần tự từng khóa học
+            for (let i = 0; i < coursesWithDriveUrl.length; i++) {
+              const course = coursesWithDriveUrl[i];
+
+              // Cập nhật tiến trình
+              const currentProgress = {
+                current: i + 1,
+                total: coursesWithDriveUrl.length,
+                currentCourse: course,
+                results: batchSyncProgress.results,
+              };
+
+              setBatchSyncProgress(currentProgress);
+
+              // Cập nhật modal với tiến trình hiện tại
+              const progressPercent = Math.round(
+                (currentProgress.current / currentProgress.total) * 100
+              );
+
+              syncModalInstance.update({
+                title: "Đang đồng bộ khóa học",
+                content: (
+                  <div>
+                    <p>
+                      Đang đồng bộ khóa học {currentProgress.current} /{" "}
+                      {currentProgress.total}
+                    </p>
+                    <p>
+                      <strong>Đang xử lý:</strong> {course.title}
+                    </p>
+                    <Progress percent={progressPercent} status="active" />
+                    {currentProgress.results.length > 0 && (
+                      <div style={{ marginTop: 16 }}>
+                        <h4>Kết quả ({currentProgress.results.length}):</h4>
+                        <ul style={{ maxHeight: 200, overflow: "auto" }}>
+                          {currentProgress.results.map((result, index) => (
+                            <li key={index} style={{ marginBottom: 8 }}>
+                              {result.title}:
+                              {result.success ? (
+                                <Tag color="success" style={{ marginLeft: 8 }}>
+                                  Thành công
+                                </Tag>
+                              ) : (
+                                <Tag color="error" style={{ marginLeft: 8 }}>
+                                  Lỗi
+                                </Tag>
+                              )}
+                              <div>{result.message}</div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ),
+              });
+
+              try {
+                // Gọi API đồng bộ
+                const response = await fetch("/api/import-course-from-drive", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    driveUrl: course.driveUrl,
+                    courseId: course.id,
+                    enableSync: true,
+                  }),
+                });
+
+                const data = await response.json();
+
+                // Lưu kết quả
+                const newResult = {
+                  courseId: course.id,
+                  title: course.title,
+                  success: response.ok && data.success,
+                  message:
+                    data.message ||
+                    (response.ok && data.success
+                      ? "Thành công"
+                      : data.error || "Lỗi không xác định"),
+                };
+
+                const updatedResults = [
+                  ...batchSyncProgress.results,
+                  newResult,
+                ];
+
+                setBatchSyncProgress((prev) => ({
+                  ...prev,
+                  results: updatedResults,
+                }));
+
+                // Cập nhật lại modal với kết quả mới
+                syncModalInstance.update({
+                  content: (
+                    <div>
+                      <p>
+                        Đang đồng bộ khóa học {currentProgress.current} /{" "}
+                        {currentProgress.total}
+                      </p>
+                      <p>
+                        <strong>Đã xử lý:</strong> {course.title}
+                      </p>
+                      <Progress percent={progressPercent} status="active" />
+                      <div style={{ marginTop: 16 }}>
+                        <h4>Kết quả ({updatedResults.length}):</h4>
+                        <ul style={{ maxHeight: 200, overflow: "auto" }}>
+                          {updatedResults.map((result, index) => (
+                            <li key={index} style={{ marginBottom: 8 }}>
+                              {result.title}:
+                              {result.success ? (
+                                <Tag color="success" style={{ marginLeft: 8 }}>
+                                  Thành công
+                                </Tag>
+                              ) : (
+                                <Tag color="error" style={{ marginLeft: 8 }}>
+                                  Lỗi
+                                </Tag>
+                              )}
+                              <div>{result.message}</div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  ),
+                });
+
+                if (!response.ok || !data.success) {
+                  console.error(
+                    `Lỗi khi đồng bộ khóa học ${course.title}:`,
+                    data.error || data.message
+                  );
+                }
+
+                // Đợi 1 giây giữa các lần đồng bộ
+                if (i < coursesWithDriveUrl.length - 1) {
+                  await new Promise((resolve) => setTimeout(resolve, 1000));
+                }
+              } catch (courseError) {
+                console.error(
+                  `Lỗi khi đồng bộ khóa học ${course.title}:`,
+                  courseError
+                );
+
+                // Lưu kết quả lỗi
+                const newErrorResult = {
+                  courseId: course.id,
+                  title: course.title,
+                  success: false,
+                  message: courseError.message || "Lỗi không xác định",
+                };
+
+                const updatedResults = [
+                  ...batchSyncProgress.results,
+                  newErrorResult,
+                ];
+
+                setBatchSyncProgress((prev) => ({
+                  ...prev,
+                  results: updatedResults,
+                }));
+
+                // Cập nhật modal với thông tin lỗi
+                syncModalInstance.update({
+                  content: (
+                    <div>
+                      <p>
+                        Đang đồng bộ khóa học {currentProgress.current} /{" "}
+                        {currentProgress.total}
+                      </p>
+                      <p>
+                        <strong>Lỗi xử lý:</strong> {course.title}
+                      </p>
+                      <Progress percent={progressPercent} status="active" />
+                      <div style={{ marginTop: 16 }}>
+                        <h4>Kết quả ({updatedResults.length}):</h4>
+                        <ul style={{ maxHeight: 200, overflow: "auto" }}>
+                          {updatedResults.map((result, index) => (
+                            <li key={index} style={{ marginBottom: 8 }}>
+                              {result.title}:
+                              {result.success ? (
+                                <Tag color="success" style={{ marginLeft: 8 }}>
+                                  Thành công
+                                </Tag>
+                              ) : (
+                                <Tag color="error" style={{ marginLeft: 8 }}>
+                                  Lỗi
+                                </Tag>
+                              )}
+                              <div>{result.message}</div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  ),
+                });
+              }
+            }
+
+            // Hoàn thành, cập nhật modal để có nút đóng
+            const successCount = batchSyncProgress.results.filter(
+              (r) => r.success
+            ).length;
+            const failCount = batchSyncProgress.results.length - successCount;
+
+            syncModalInstance.update({
+              title: "Hoàn thành đồng bộ khóa học",
+              content: (
+                <div>
+                  <p>
+                    Đã hoàn thành đồng bộ {batchSyncProgress.total} khóa học
+                  </p>
+                  <div>
+                    <Tag color="success">Thành công: {successCount}</Tag>
+                    {failCount > 0 && <Tag color="error">Lỗi: {failCount}</Tag>}
+                  </div>
+                  <Progress
+                    percent={100}
+                    status={failCount > 0 ? "exception" : "success"}
+                  />
+                  <div style={{ marginTop: 16 }}>
+                    <h4>Kết quả chi tiết:</h4>
+                    <ul style={{ maxHeight: 200, overflow: "auto" }}>
+                      {batchSyncProgress.results.map((result, index) => (
+                        <li key={index} style={{ marginBottom: 8 }}>
+                          {result.title}:
+                          {result.success ? (
+                            <Tag color="success" style={{ marginLeft: 8 }}>
+                              Thành công
+                            </Tag>
+                          ) : (
+                            <Tag color="error" style={{ marginLeft: 8 }}>
+                              Lỗi
+                            </Tag>
+                          )}
+                          <div>{result.message}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              ),
+              okButtonProps: { style: { display: "block" } },
+            });
+
+            message.success(
+              `Đã hoàn thành đồng bộ ${coursesWithDriveUrl.length} khóa học`
+            );
+
+            // Tải lại danh sách khóa học
+            await fetchCourses();
+          } catch (error) {
+            console.error("Lỗi khi đồng bộ nhiều khóa học:", error);
+            message.error(`Quá trình đồng bộ gặp lỗi: ${error.message}`);
+          } finally {
+            setBatchSyncLoading(false);
+          }
+        },
+      });
+    } catch (error) {
+      console.error("Lỗi khi chuẩn bị đồng bộ hàng loạt:", error);
+      message.error(`Lỗi: ${error.message}`);
     }
   };
 
@@ -565,6 +895,16 @@ export default function CoursesPage() {
               onChange={(e) => e.target.value === "" && handleSearch("")}
               style={{ maxWidth: 400 }}
             />
+            <Button
+              type="primary"
+              icon={<CloudSyncOutlined />}
+              size="large"
+              onClick={batchSyncFromDrive}
+              loading={batchSyncLoading}
+              disabled={batchSyncLoading}
+            >
+              Đồng bộ tất cả
+            </Button>
             <Link href="/add-course">
               <Button type="primary" icon={<PlusOutlined />} size="large">
                 Thêm khóa học
