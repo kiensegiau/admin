@@ -2,30 +2,58 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, BookOpen, Users, LogOut } from "lucide-react";
+import { 
+  HomeOutlined, 
+  BookOutlined, 
+  UserOutlined, 
+  CreditCardOutlined,
+  LogoutOutlined,
+  SettingOutlined 
+} from "@ant-design/icons";
 import { toast } from "sonner";
+import { Layout, Menu, Button, Typography, Avatar } from "antd";
+import { useState } from "react";
+
+const { Sider } = Layout;
+const { Title, Text } = Typography;
 
 const menuItems = [
   {
+    key: "home",
     href: "/",
     label: "Trang chủ",
-    icon: Home,
+    icon: HomeOutlined,
   },
   {
+    key: "courses",
     href: "/courses",
     label: "Quản lý khóa học",
-    icon: BookOpen,
+    icon: BookOutlined,
   },
   {
+    key: "users",
     href: "/users",
     label: "Quản lý người dùng",
-    icon: Users,
+    icon: UserOutlined,
   },
+  {
+    key: "transactions",
+    href: "/transactions",
+    label: "Lịch sử giao dịch",
+    icon: CreditCardOutlined,
+  },
+  {
+    key: "settings",
+    href: "/settings",
+    label: "Cài đặt hệ thống",
+    icon: SettingOutlined,
+  }
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const [collapsed, setCollapsed] = useState(false);
 
   const handleSignOut = async () => {
     try {
@@ -48,45 +76,68 @@ export default function Sidebar() {
     }
   };
 
+  // Tìm key của menu item đang active
+  const activeKey = menuItems.find(item => item.href === pathname)?.key || 'home';
+
   return (
-    <nav className="bg-white shadow">
-      <div className="max-w-7xl mx-auto px-4">
-        <div className="flex justify-between h-16">
-          <div className="flex">
-            <div className="flex-shrink-0 flex items-center">
-              <span className="text-xl font-bold">Admin</span>
-            </div>
-            <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-              {menuItems.map(({ href, label, icon: Icon }) => {
-                const isActive = pathname === href;
-                return (
-                  <Link
-                    key={href}
-                    href={href}
-                    className={`inline-flex items-center px-1 pt-1 text-sm font-medium border-b-2 ${
-                      isActive
-                        ? "border-indigo-500 text-gray-900"
-                        : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
-                    }`}
-                  >
-                    <Icon className="w-4 h-4 mr-2" />
-                    {label}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-          <div className="flex items-center">
-            <button
-              onClick={handleSignOut}
-              className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+    <Sider
+      collapsible
+      collapsed={collapsed}
+      onCollapse={value => setCollapsed(value)}
+      theme="light"
+      className="shadow-md min-h-screen border-r border-gray-200"
+      width={250}
+      style={{ zIndex: 999 }}
+    >
+      <div className={`p-4 flex ${collapsed ? 'justify-center' : 'justify-start'} items-center border-b border-gray-200`}>
+        {collapsed ? (
+          <Avatar 
+            size="large" 
+            className="bg-blue-500 flex items-center justify-center"
+          >
+            A
+          </Avatar>
+        ) : (
+          <div className="flex items-center gap-3">
+            <Avatar 
+              size="large" 
+              className="bg-blue-500 flex items-center justify-center"
             >
-              <LogOut className="w-4 h-4 mr-2" />
-              Đăng xuất
-            </button>
+              A
+            </Avatar>
+            <div>
+              <Title level={5} style={{ margin: 0 }}>Quản Trị Viên</Title>
+              <Text type="secondary" style={{ fontSize: '12px' }}>Admin Portal</Text>
+            </div>
           </div>
-        </div>
+        )}
       </div>
-    </nav>
+
+      <Menu
+        mode="inline"
+        selectedKeys={[activeKey]}
+        style={{ borderRight: 0 }}
+        className="mt-2"
+        items={menuItems.map(item => ({
+          key: item.key,
+          icon: <item.icon style={{ fontSize: '18px' }} />,
+          label: <Link href={item.href}>{item.label}</Link>,
+        }))}
+      />
+
+      <div className={`absolute bottom-0 w-full p-4 border-t border-gray-200 ${collapsed ? 'text-center' : ''}`}>
+        <Button 
+          danger
+          icon={<LogoutOutlined />}
+          onClick={handleSignOut}
+          className="flex items-center gap-2"
+          type="text"
+          size="large"
+          block
+        >
+          {!collapsed && "Đăng xuất"}
+        </Button>
+      </div>
+    </Sider>
   );
 }
