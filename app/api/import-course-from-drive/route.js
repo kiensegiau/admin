@@ -75,17 +75,22 @@ async function uploadToWasabi(
   fileId,
   fileName,
   mimeType,
-  folderPath = ""
+  folderPath = "",
+  retryCount = 0
 ) {
+  const MAX_RETRIES = 3;
+  let tempDir;
+  let tempFilePath;
+
   try {
-    const tempDir = path.join(os.tmpdir(), "hocmai-temp");
+    tempDir = path.join(os.tmpdir(), "hocmai-temp");
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
 
     // Chỉ làm sạch tên file để lưu vào bộ nhớ tạm, tránh lỗi hệ thống tệp
     const sanitizedFileName = sanitizeFileName(fileName);
-    const tempFilePath = path.join(tempDir, sanitizedFileName);
+    tempFilePath = path.join(tempDir, sanitizedFileName);
 
     console.log(`Đang tải file ${fileName} từ Google Drive...`);
 
@@ -137,7 +142,38 @@ async function uploadToWasabi(
       }
     });
 
-    await pipeline(fileStream.data, writer);
+    // Thêm xử lý lỗi cho stream
+    fileStream.data.on("error", (err) => {
+      writer.end();
+      throw new Error(`Lỗi khi tải file: ${err.message}`);
+    });
+
+    try {
+      await pipeline(fileStream.data, writer);
+    } catch (err) {
+      console.error(`Lỗi khi tải file về: ${err.message}`);
+      // Nếu lỗi khi download, thử lại
+      if (retryCount < MAX_RETRIES) {
+        console.log(`Thử lại lần ${retryCount + 1}/${MAX_RETRIES}...`);
+        // Đảm bảo đóng writer trước khi thử lại
+        writer.end();
+        // Thử lại toàn bộ quá trình
+        return uploadToWasabi(
+          drive,
+          fileId,
+          fileName,
+          mimeType,
+          folderPath,
+          retryCount + 1
+        );
+      }
+      throw err;
+    }
+
+    // Kiểm tra file tồn tại sau khi tải
+    if (!fs.existsSync(tempFilePath)) {
+      throw new Error(`File tạm không tồn tại sau khi tải: ${tempFilePath}`);
+    }
 
     const downloadEndTime = Date.now();
     const downloadDuration = (downloadEndTime - downloadStartTime) / 1000; // chuyển sang giây
@@ -161,7 +197,24 @@ async function uploadToWasabi(
     );
 
     // Đọc file để upload lên Wasabi
-    const fileBuffer = fs.readFileSync(tempFilePath);
+    let fileBuffer;
+    try {
+      fileBuffer = fs.readFileSync(tempFilePath);
+    } catch (readErr) {
+      console.error(`Lỗi khi đọc file tạm: ${readErr.message}`);
+      if (retryCount < MAX_RETRIES) {
+        console.log(`Thử lại lần ${retryCount + 1}/${MAX_RETRIES}...`);
+        return uploadToWasabi(
+          drive,
+          fileId,
+          fileName,
+          mimeType,
+          folderPath,
+          retryCount + 1
+        );
+      }
+      throw readErr;
+    }
 
     // Tạo key cho file trên Wasabi dựa vào cấu trúc thư mục từ Google Drive
     const timestamp = Date.now();
@@ -192,7 +245,23 @@ async function uploadToWasabi(
       ContentType: mimeType,
     });
 
-    await s3Client.send(command);
+    try {
+      await s3Client.send(command);
+    } catch (uploadErr) {
+      console.error(`Lỗi khi upload lên Wasabi: ${uploadErr.message}`);
+      if (retryCount < MAX_RETRIES) {
+        console.log(`Thử lại lần ${retryCount + 1}/${MAX_RETRIES}...`);
+        return uploadToWasabi(
+          drive,
+          fileId,
+          fileName,
+          mimeType,
+          folderPath,
+          retryCount + 1
+        );
+      }
+      throw uploadErr;
+    }
 
     const uploadEndTime = Date.now();
     const uploadDuration = (uploadEndTime - uploadStartTime) / 1000; // chuyển sang giây
@@ -209,7 +278,14 @@ async function uploadToWasabi(
     );
 
     // Xóa file tạm
-    fs.unlinkSync(tempFilePath);
+    try {
+      if (fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
+      }
+    } catch (unlinkErr) {
+      console.warn(`Không thể xóa file tạm: ${unlinkErr.message}`);
+      // Tiếp tục xử lý, không cần retry vì đã upload thành công
+    }
 
     // Trả về key để lưu trong database và thông tin tốc độ
     return {
@@ -222,9 +298,45 @@ async function uploadToWasabi(
     };
   } catch (error) {
     console.error("Lỗi khi upload file lên Wasabi:", error);
+
+    // Cố gắng xóa file tạm nếu tồn tại
+    try {
+      if (tempFilePath && fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
+      }
+    } catch (unlinkErr) {
+      console.warn(`Không thể xóa file tạm sau lỗi: ${unlinkErr.message}`);
+    }
+
+    // Nếu lỗi ENOENT hoặc lỗi khác liên quan đến file system và chưa vượt quá số lần thử lại
+    if (
+      (error.code === "ENOENT" || error.message.includes("no such file")) &&
+      retryCount < MAX_RETRIES
+    ) {
+      console.log(
+        `Lỗi file không tìm thấy, thử lại lần ${
+          retryCount + 1
+        }/${MAX_RETRIES}...`
+      );
+
+      // Tạm dừng để hệ thống có thể giải phóng tài nguyên
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Thử lại từ đầu
+      return uploadToWasabi(
+        drive,
+        fileId,
+        fileName,
+        mimeType,
+        folderPath,
+        retryCount + 1
+      );
+    }
+
     return {
       success: false,
       error: error.message,
+      retryCount,
     };
   }
 }
