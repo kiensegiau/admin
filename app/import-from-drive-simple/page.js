@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Button,
   Input,
@@ -69,6 +69,25 @@ export default function ImportFromDriveSimple() {
   const [importResults, setImportResults] = useState([]);
   const [checkSteps, setCheckSteps] = useState([]);
 
+  // Khởi tạo autoFixEnabled từ localStorage nếu có, mặc định là true
+  const [autoFixEnabled, setAutoFixEnabled] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("autoFixEnabled");
+      return saved !== null ? JSON.parse(saved) : true;
+    }
+    return true;
+  });
+
+  const [tokenStatus, setTokenStatus] = useState(null);
+
+  // Lưu giá trị autoFixEnabled vào localStorage khi thay đổi
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("autoFixEnabled", JSON.stringify(autoFixEnabled));
+      console.log("Đã lưu autoFixEnabled vào localStorage:", autoFixEnabled);
+    }
+  }, [autoFixEnabled]);
+
   // Tải danh sách khóa học đã có
   const loadCourses = async () => {
     try {
@@ -99,16 +118,26 @@ export default function ImportFromDriveSimple() {
       setIsChecking(true);
       setCheckSteps([{ step: "Đang kiểm tra khóa học", status: "processing" }]);
 
+      console.log(
+        "Giá trị autoFixEnabled trước khi gửi request:",
+        autoFixEnabled
+      );
+
+      // Tạo requestData với tham số autoFix là 1 nếu true để tránh vấn đề khi serialize
+      const requestData = {
+        courseId,
+        checkWithDrive: true,
+        autoFix: autoFixEnabled ? 1 : 0, // Dùng số thay vì boolean
+      };
+
+      console.log("Request data gửi đi:", JSON.stringify(requestData));
+
       const response = await fetch("/api/check-course", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          courseId,
-          checkWithDrive: true,
-          autoFix: true, // Tự động sửa các file lỗi 404
-        }),
+        body: JSON.stringify(requestData),
       });
 
       if (!response.ok) {
@@ -143,7 +172,7 @@ export default function ImportFromDriveSimple() {
       if (data.stats.wasabiFiles > 0) {
         const wasabiStatus =
           data.stats.brokenFiles > 0
-            ? data.autoFix && data.updateResult?.success
+            ? autoFixEnabled && data.updateResult?.success
               ? "warning"
               : "error"
             : "success";
@@ -151,14 +180,14 @@ export default function ImportFromDriveSimple() {
         let wasabiDescription = `${data.stats.wasabiFiles} file có key Wasabi`;
 
         if (data.stats.brokenFiles > 0) {
-          if (data.autoFix && data.updateResult?.success) {
+          if (autoFixEnabled && data.updateResult?.success) {
             const totalFixed =
               (data.updateResult.fixedCount || 0) +
               (data.updateResult.reuploadedCount || 0);
             wasabiDescription += `, đã sửa ${totalFixed} file lỗi`;
 
             if (data.updateResult.reuploadedCount > 0) {
-              wasabiDescription += ` (${data.updateResult.reuploadedCount} được tải lại từ Drive)`;
+              wasabiDescription += ` (${data.updateResult.reuploadedCount} file đã tải lại từ Drive)`;
             }
 
             if (data.stats.brokenFiles > totalFixed) {
@@ -218,7 +247,7 @@ export default function ImportFromDriveSimple() {
       setCheckResults(steps);
 
       const hasBrokenFileAfterFix =
-        data.autoFix && data.updateResult?.success
+        autoFixEnabled && data.updateResult?.success
           ? data.stats.brokenFiles > data.updateResult.fixedCount
           : data.stats.brokenFiles > 0;
 
@@ -248,7 +277,7 @@ export default function ImportFromDriveSimple() {
           okText: "Cập nhật",
           cancelText: "Hủy",
         });
-      } else if (data.autoFix && data.updateResult?.success) {
+      } else if (autoFixEnabled && data.updateResult?.success) {
         message.success(
           `Đã tự động sửa ${data.updateResult.fixedCount} file bị lỗi`
         );
@@ -788,6 +817,77 @@ export default function ImportFromDriveSimple() {
     }
   };
 
+  // Hàm kiểm tra token Google Drive
+  const checkDriveToken = async () => {
+    try {
+      setTokenStatus({
+        checking: true,
+        message: "Đang kiểm tra kết nối Google Drive...",
+      });
+
+      // Sử dụng API mới để kiểm tra kết nối Drive
+      const response = await fetch("/api/check-drive-connection", {
+        method: "GET",
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setTokenStatus({
+          valid: true,
+          message: `Kết nối Google Drive thành công! Tài khoản: ${
+            data.user?.displayName || "Không xác định"
+          } (${data.user?.emailAddress || ""}). Hết hạn: ${new Date(
+            data.tokenExpiry
+          ).toLocaleString()}`,
+          details: data,
+        });
+        message.success("Kết nối Google Drive thành công");
+      } else {
+        setTokenStatus({
+          valid: false,
+          message:
+            data.error ||
+            "Kết nối Google Drive không thành công. Vui lòng xác thực lại.",
+        });
+        message.error("Kết nối Google Drive không thành công");
+
+        // Hiển thị hướng dẫn xác thực
+        Modal.info({
+          title: "Cần xác thực với Google Drive",
+          content: (
+            <div>
+              <p>
+                Không thể kết nối tới Google Drive. Bạn cần xác thực để sử dụng
+                tính năng tự động tải lại file từ Drive.
+              </p>
+              <p>Vui lòng:</p>
+              <ol>
+                <li>
+                  Truy cập trang xác thực:{" "}
+                  <a href="/api/auth/google" target="_blank">
+                    /api/auth/google
+                  </a>
+                </li>
+                <li>Nhấn nút "Xác thực với Google Drive"</li>
+                <li>Đăng nhập và cấp quyền cho ứng dụng</li>
+                <li>Quay lại trang này và kiểm tra kết nối lại</li>
+              </ol>
+            </div>
+          ),
+          okText: "Đã hiểu",
+        });
+      }
+    } catch (error) {
+      console.error("Lỗi kiểm tra kết nối:", error);
+      setTokenStatus({
+        valid: false,
+        message: `Lỗi kiểm tra kết nối: ${error.message}`,
+      });
+      message.error(`Lỗi kiểm tra kết nối: ${error.message}`);
+    }
+  };
+
   return (
     <Layout className="min-h-screen">
       <Layout>
@@ -876,52 +976,42 @@ export default function ImportFromDriveSimple() {
                 <div className="mb-6">
                   <Space>
                     <Button
+                      type="default"
                       onClick={loadCourses}
                       loading={isLoadingCourses}
-                      icon={<SyncOutlined />}
                     >
-                      Tải danh sách khóa học
+                      Tải danh sách
                     </Button>
-
-                    <Select
-                      placeholder="Chọn khóa học cần kiểm tra"
-                      style={{ width: 300 }}
-                      onChange={setCourseId}
-                      value={courseId}
-                      disabled={isCheckingCourse || coursesToCheck.length === 0}
-                      loading={isLoadingCourses}
+                    <Button
+                      type="default"
+                      onClick={checkDriveToken}
+                      loading={tokenStatus?.checking}
+                      icon={<LinkOutlined />}
                     >
-                      {coursesToCheck.map((course) => (
-                        <Option key={course.id} value={course.id}>
-                          {course.title}
-                        </Option>
-                      ))}
-                    </Select>
-
+                      Kiểm tra token Drive
+                    </Button>
                     <Button
                       type="primary"
                       onClick={handleCheck}
-                      loading={isCheckingCourse}
-                      disabled={!courseId || isCheckingCourse}
-                      icon={<FileSearchOutlined />}
+                      loading={isChecking}
+                      disabled={!courseId}
                     >
-                      Kiểm tra khóa học
+                      Kiểm tra
                     </Button>
-
-                    {detailedStats?.hasDriveUrl && (
-                      <Tooltip title="Đồng bộ kiểm tra với Google Drive">
-                        <Button
-                          onClick={() => handleSyncWithDrive(courseId)}
-                          icon={<SyncOutlined />}
-                          disabled={isCheckingCourse}
-                          style={{ marginLeft: "8px" }}
-                        >
-                          Đồng bộ với Drive
-                        </Button>
-                      </Tooltip>
-                    )}
+                    <Tag color="success" icon={<CheckCircleOutlined />}>
+                      Tự động tải lại file từ Drive khi lỗi 404: Đã bật
+                    </Tag>
                   </Space>
                 </div>
+
+                {tokenStatus && (
+                  <Alert
+                    message={tokenStatus.message}
+                    type={tokenStatus.valid ? "success" : "warning"}
+                    showIcon
+                    style={{ marginTop: 10, marginBottom: 10 }}
+                  />
+                )}
 
                 {courseId && (
                   <div className="mb-6">

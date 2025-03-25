@@ -32,53 +32,49 @@ const s3Client = new S3Client({
 
 const BUCKET_NAME = process.env.WASABI_BUCKET_NAME || "hocmai";
 
-// Hàm kiểm tra file có tồn tại trên Wasabi không
+// Hàm kiểm tra file trên Wasabi
 async function checkWasabiFile(key) {
-  if (!key) {
-    console.warn("Không thể kiểm tra vì key rỗng");
-    return false;
-  }
+  if (!key) return false;
 
   try {
-    console.log(`Đang kiểm tra file Wasabi với key: ${key}`);
-
     const command = new HeadObjectCommand({
       Bucket: BUCKET_NAME,
       Key: key,
     });
 
-    const response = await s3Client.send(command);
-    console.log(
-      `File tồn tại trên Wasabi: ${key} (${response.ContentLength} bytes)`
-    );
-    return true; // File tồn tại
+    await s3Client.send(command);
+    return true;
   } catch (error) {
-    if (error.name === "NotFound" || error.name === "NoSuchKey") {
-      console.error(`File không tồn tại trên Wasabi (404): ${key}`);
-    } else {
-      console.error(
-        `Lỗi khi kiểm tra file trên Wasabi: ${key}`,
-        error.name,
-        error.message
-      );
+    if (error.name === "NotFound") {
+      console.log(`File không tồn tại trên Wasabi: ${key}`);
+      return false;
     }
-    return false; // File không tồn tại hoặc có lỗi
+    console.error(`Lỗi khi kiểm tra file trên Wasabi: ${error.message}`);
+    return false;
   }
 }
 
 export async function POST(request) {
   try {
-    const {
-      courseId,
-      checkWithDrive = false,
-      autoFix = false,
-    } = await request.json();
+    const requestData = await request.json();
+    console.log("Dữ liệu nhận được từ client:", JSON.stringify(requestData));
+
+    // Đảm bảo các tham số đúng kiểu dữ liệu
+    const courseId = requestData.courseId;
+    // Chuyển đổi sang boolean rõ ràng để tránh các vấn đề với kiểu dữ liệu
+    const checkWithDrive = requestData.checkWithDrive === true;
+
+    // Mặc định autoFix luôn là true không phụ thuộc vào giá trị từ client
+    const autoFix = true;
 
     if (!courseId) {
       return NextResponse.json({ error: "Thiếu courseId" }, { status: 400 });
     }
 
     console.log(`Bắt đầu kiểm tra khóa học: ${courseId}`);
+    console.log(
+      `Chi tiết tham số nhận được: checkWithDrive=${checkWithDrive}, autoFix=${autoFix} (${typeof autoFix})`
+    );
 
     // Lấy thông tin khóa học
     const courseRef = db.collection("courses").doc(courseId);
@@ -97,30 +93,73 @@ export async function POST(request) {
     // Chuẩn bị Google Drive API nếu cần autoFix
     let drive = null;
     if (autoFix) {
-      console.log("Chuẩn bị Google Drive API cho tự động sửa lỗi...");
+      console.log("🔄 Chuẩn bị Google Drive API cho tự động sửa lỗi...");
       try {
         // Đọc token từ storage
-        const tokens = await readTokens();
+        let tokens = await readTokens();
         if (!tokens) {
           console.warn(
-            "Không tìm thấy token Google Drive. Tắt chế độ autoFix."
+            "⚠️ Không tìm thấy token Google Drive. Tắt chế độ tải lại từ Drive."
           );
         } else {
+          console.log("✓ Đã đọc token Google Drive thành công");
+
           // Tự động làm mới token nếu hết hạn
           if (tokens.expiry_date && Date.now() >= tokens.expiry_date) {
-            console.log("Token đã hết hạn, đang tự động làm mới...");
-            await refreshDriveToken();
+            console.log(
+              "⚠️ Token Google Drive đã hết hạn, đang tự động làm mới..."
+            );
+            const refreshedTokens = await refreshDriveToken();
+            if (refreshedTokens) {
+              console.log("✓ Đã làm mới token Google Drive thành công");
+              tokens = refreshedTokens;
+            } else {
+              console.error("❌ Không thể làm mới token Google Drive");
+              return NextResponse.json(
+                { error: "Không thể làm mới Google Drive token" },
+                { status: 401 }
+              );
+            }
           }
 
           // Khởi tạo Drive client
-          drive = await initializeDriveClient();
-          console.log("Đã khởi tạo Google Drive API thành công");
+          try {
+            drive = await initializeDriveClient();
+            if (drive) {
+              console.log("✅ Đã khởi tạo Google Drive API thành công");
+
+              // Kiểm tra xem client có hoạt động không bằng cách gọi một API đơn giản
+              try {
+                const response = await drive.about.get({
+                  fields: "user",
+                });
+                console.log(
+                  `✅ Xác nhận Drive API hoạt động, user: ${
+                    response.data.user?.displayName || "Không xác định"
+                  }`
+                );
+              } catch (testError) {
+                console.error(
+                  "❌ Drive API không hoạt động:",
+                  testError.message
+                );
+                drive = null;
+              }
+            } else {
+              console.error("❌ Không thể khởi tạo Google Drive client");
+            }
+          } catch (initError) {
+            console.error("❌ Lỗi khi khởi tạo Drive client:", initError);
+            drive = null;
+          }
         }
       } catch (error) {
-        console.error("Lỗi khi khởi tạo Drive API:", error);
-        console.warn("Tắt chế độ tự động tải file từ Drive");
-        // Vẫn tiếp tục nhưng sẽ không tải file từ Drive
+        console.error("❌ Lỗi khi chuẩn bị Drive API:", error);
+        console.warn("⚠️ Tắt chế độ tự động tải file từ Drive");
+        drive = null;
       }
+    } else {
+      console.log("ℹ️ Bỏ qua khởi tạo Drive API vì autoFix = false");
     }
 
     // Khởi tạo thống kê
@@ -146,25 +185,43 @@ export async function POST(request) {
     // Tạo Map để theo dõi file trùng lặp
     const fileKeysMap = new Map();
 
-    // Theo dõi các chapter và lesson để cập nhật
-    const chaptersToUpdate = new Map();
+    // Mảng chứa các chương đã được cập nhật
+    const updatedChapters = [];
+    let needsUpdate = false;
 
-    // Kiểm tra từng chương và bài học
-    for (const chapter of courseData.chapters || []) {
+    // Kiểm tra và xử lý từng chương
+    for (
+      let chapterIndex = 0;
+      chapterIndex < courseData.chapters.length;
+      chapterIndex++
+    ) {
+      const chapter = courseData.chapters[chapterIndex];
       stats.chaptersCount++;
       let isChapterModified = false;
-      let updatedChapter = { ...chapter, lessons: [] };
+      const updatedLessons = [];
 
-      for (const lesson of chapter.lessons || []) {
+      // Kiểm tra và xử lý từng bài học
+      for (
+        let lessonIndex = 0;
+        lessonIndex < chapter.lessons.length;
+        lessonIndex++
+      ) {
+        const lesson = chapter.lessons[lessonIndex];
         stats.lessonsCount++;
         let isLessonModified = false;
-        let updatedLesson = { ...lesson, files: [], subfolders: [] };
+        const updatedFiles = [];
+        const updatedSubfolders = [];
 
         // Tạo đường dẫn thư mục cho lesson
         const lessonPath = `${courseData.title}/${chapter.title}/${lesson.title}`;
 
-        // Kiểm tra các file trong bài học
-        for (const file of lesson.files || []) {
+        // Kiểm tra và xử lý files trong bài học
+        for (
+          let fileIndex = 0;
+          fileIndex < (lesson.files || []).length;
+          fileIndex++
+        ) {
+          const file = lesson.files[fileIndex];
           stats.filesCount++;
 
           // Kiểm tra file có trên Wasabi không
@@ -187,91 +244,101 @@ export async function POST(request) {
 
               brokenFiles.push(brokenFile);
 
-              if (autoFix && drive && file.driveFileId) {
-                try {
+              if (autoFix) {
+                if (!drive) {
                   console.log(
-                    `Đang tự động tải lại file "${file.name}" từ Drive lên Wasabi...`
+                    `⚠️ Không thể tải từ Drive: Drive client chưa được khởi tạo hoặc token không hợp lệ`
                   );
-                  // Upload file từ Drive lên Wasabi
-                  const uploadResult = await uploadToWasabi(
-                    drive,
-                    file.driveFileId,
-                    file.name,
-                    file.mimeType,
-                    lessonPath
+                } else if (!file.driveFileId) {
+                  console.log(
+                    `⚠️ File "${file.name}" không có driveFileId, không thể tải lại từ Drive`
                   );
-
-                  if (uploadResult.success) {
-                    console.log(
-                      `Đã tải lại file "${file.name}" thành công với key mới: ${uploadResult.key}`
+                } else {
+                  console.log(
+                    `[AutoFix] Đang tải lại file "${file.name}" (ID: ${file.driveFileId}) từ Drive lên Wasabi...`
+                  );
+                  try {
+                    // Tải trực tiếp từ Drive và upload lên Wasabi ngay
+                    const uploadResult = await uploadToWasabi(
+                      drive,
+                      file.driveFileId,
+                      file.name,
+                      file.mimeType || "application/octet-stream",
+                      lessonPath
                     );
 
-                    // Cập nhật thông tin file với key Wasabi mới
-                    const updatedFile = {
-                      ...file,
-                      storage: {
-                        provider: "wasabi",
-                        key: uploadResult.key,
-                        size: uploadResult.size,
-                        uploadTime: new Date().toISOString(),
-                      },
-                    };
+                    if (uploadResult.success) {
+                      console.log(
+                        `✅ Đã tải lên Wasabi thành công với key mới: ${uploadResult.key}`
+                      );
 
-                    updatedLesson.files.push(updatedFile);
-                    reuploadedFiles.push({
-                      ...brokenFile,
-                      newKey: uploadResult.key,
-                    });
+                      // Cập nhật thông tin file với key Wasabi mới
+                      const updatedFile = {
+                        ...file,
+                        storage: {
+                          provider: "wasabi",
+                          key: uploadResult.key,
+                          size: uploadResult.size,
+                          uploadTime: new Date().toISOString(),
+                        },
+                      };
 
-                    stats.reuploadedFiles++;
-                    isLessonModified = true;
-                    continue;
-                  } else {
-                    console.warn(
-                      `Không thể tải lại file từ Drive: ${uploadResult.error}`
+                      updatedFiles.push(updatedFile);
+                      reuploadedFiles.push({
+                        ...brokenFile,
+                        newKey: uploadResult.key,
+                      });
+
+                      stats.reuploadedFiles++;
+                      isLessonModified = true;
+                      needsUpdate = true;
+                      continue;
+                    } else {
+                      console.warn(
+                        `⚠️ Không thể tải lại file từ Drive: ${uploadResult.error}`
+                      );
+                    }
+                  } catch (uploadError) {
+                    console.error(
+                      `❌ Lỗi khi tải lại file từ Drive:`,
+                      uploadError
                     );
                   }
-                } catch (uploadError) {
-                  console.error(`Lỗi khi tải lại file từ Drive:`, uploadError);
                 }
 
-                // Nếu không tải được từ Drive, sử dụng phương án dự phòng (xóa key và tạo proxyUrl)
+                // Nếu không tải được, dùng phương án dự phòng
                 console.log(
-                  `Sử dụng phương án dự phòng: Tạo proxyUrl cho file "${file.name}"`
+                  `⚠️ Sử dụng phương án dự phòng: Tạo proxyUrl cho file "${file.name}"`
                 );
                 const fixedFile = {
                   ...file,
                   storage: null, // Xóa key Wasabi
                 };
 
-                // Thêm proxyUrl để truy cập trực tiếp từ Drive
-                const encryptedId = encryptId(file.driveFileId);
-                fixedFile.proxyUrl = `/api/proxy/files?id=${encryptedId}`;
+                // Thêm proxyUrl nếu có driveFileId
+                if (file.driveFileId) {
+                  const encryptedId = encryptId(file.driveFileId);
+                  fixedFile.proxyUrl = `/api/proxy/files?id=${encryptedId}`;
+                  console.log(`✓ Đã tạo proxyUrl cho file: ${file.name}`);
+                } else {
+                  console.log(
+                    `⚠️ Không thể tạo proxyUrl vì thiếu driveFileId: ${file.name}`
+                  );
+                }
 
-                updatedLesson.files.push(fixedFile);
+                updatedFiles.push(fixedFile);
                 fixedFiles.push(brokenFile);
                 stats.fixedFiles++;
                 isLessonModified = true;
-              } else if (autoFix && file.driveFileId) {
-                // Nếu không có Drive client, sử dụng phương án dự phòng
-                const fixedFile = {
-                  ...file,
-                  storage: null, // Xóa key Wasabi
-                };
-
-                // Thêm proxyUrl để truy cập trực tiếp từ Drive
-                const encryptedId = encryptId(file.driveFileId);
-                fixedFile.proxyUrl = `/api/proxy/files?id=${encryptedId}`;
-
-                updatedLesson.files.push(fixedFile);
-                fixedFiles.push(brokenFile);
-                stats.fixedFiles++;
-                isLessonModified = true;
+                needsUpdate = true;
               } else {
-                updatedLesson.files.push(file);
+                console.log(
+                  `ℹ️ Bỏ qua tự động sửa file "${file.name}" vì autoFix = false`
+                );
+                updatedFiles.push(file);
               }
             } else {
-              updatedLesson.files.push(file);
+              updatedFiles.push(file);
 
               // Kiểm tra trùng lặp
               if (fileKeysMap.has(file.storage.key)) {
@@ -298,7 +365,7 @@ export async function POST(request) {
               }
             }
           } else {
-            updatedLesson.files.push(file);
+            updatedFiles.push(file);
 
             if (!file.proxyUrl && !file.storage) {
               // File thiếu cả Wasabi key và proxy URL
@@ -315,15 +382,26 @@ export async function POST(request) {
           }
         }
 
-        // Kiểm tra các file trong subfolder
-        for (const subfolder of lesson.subfolders || []) {
+        // Kiểm tra và xử lý từng subfolder
+        for (
+          let subfolderIndex = 0;
+          subfolderIndex < (lesson.subfolders || []).length;
+          subfolderIndex++
+        ) {
+          const subfolder = lesson.subfolders[subfolderIndex];
           let isSubfolderModified = false;
-          let updatedSubfolder = { ...subfolder, files: [] };
+          const updatedSubfolderFiles = [];
 
           // Tạo đường dẫn thư mục cho subfolder
           const subfolderPath = `${lessonPath}/${subfolder.name}`;
 
-          for (const file of subfolder.files || []) {
+          // Kiểm tra và xử lý files trong subfolder
+          for (
+            let fileIndex = 0;
+            fileIndex < (subfolder.files || []).length;
+            fileIndex++
+          ) {
+            const file = subfolder.files[fileIndex];
             stats.filesCount++;
 
             // Kiểm tra file có trên Wasabi không
@@ -348,94 +426,101 @@ export async function POST(request) {
 
                 brokenFiles.push(brokenFile);
 
-                if (autoFix && drive && file.driveFileId) {
-                  try {
+                if (autoFix) {
+                  if (!drive) {
                     console.log(
-                      `Đang tự động tải lại file "${file.name}" từ Drive lên Wasabi...`
+                      `⚠️ Không thể tải từ Drive: Drive client chưa được khởi tạo hoặc token không hợp lệ`
                     );
-                    // Upload file từ Drive lên Wasabi
-                    const uploadResult = await uploadToWasabi(
-                      drive,
-                      file.driveFileId,
-                      file.name,
-                      file.mimeType,
-                      subfolderPath
+                  } else if (!file.driveFileId) {
+                    console.log(
+                      `⚠️ File "${file.name}" không có driveFileId, không thể tải lại từ Drive`
                     );
-
-                    if (uploadResult.success) {
-                      console.log(
-                        `Đã tải lại file "${file.name}" thành công với key mới: ${uploadResult.key}`
+                  } else {
+                    console.log(
+                      `[AutoFix] Đang tải lại file "${file.name}" (ID: ${file.driveFileId}) từ Drive lên Wasabi...`
+                    );
+                    try {
+                      // Tải trực tiếp từ Drive và upload lên Wasabi ngay
+                      const uploadResult = await uploadToWasabi(
+                        drive,
+                        file.driveFileId,
+                        file.name,
+                        file.mimeType || "application/octet-stream",
+                        subfolderPath
                       );
 
-                      // Cập nhật thông tin file với key Wasabi mới
-                      const updatedFile = {
-                        ...file,
-                        storage: {
-                          provider: "wasabi",
-                          key: uploadResult.key,
-                          size: uploadResult.size,
-                          uploadTime: new Date().toISOString(),
-                        },
-                      };
+                      if (uploadResult.success) {
+                        console.log(
+                          `✅ Đã tải lên Wasabi thành công với key mới: ${uploadResult.key}`
+                        );
 
-                      updatedSubfolder.files.push(updatedFile);
-                      reuploadedFiles.push({
-                        ...brokenFile,
-                        newKey: uploadResult.key,
-                      });
+                        // Cập nhật thông tin file với key Wasabi mới
+                        const updatedFile = {
+                          ...file,
+                          storage: {
+                            provider: "wasabi",
+                            key: uploadResult.key,
+                            size: uploadResult.size,
+                            uploadTime: new Date().toISOString(),
+                          },
+                        };
 
-                      stats.reuploadedFiles++;
-                      isSubfolderModified = true;
-                      continue;
-                    } else {
-                      console.warn(
-                        `Không thể tải lại file từ Drive: ${uploadResult.error}`
+                        updatedSubfolderFiles.push(updatedFile);
+                        reuploadedFiles.push({
+                          ...brokenFile,
+                          newKey: uploadResult.key,
+                        });
+
+                        stats.reuploadedFiles++;
+                        isSubfolderModified = true;
+                        needsUpdate = true;
+                        continue;
+                      } else {
+                        console.warn(
+                          `⚠️ Không thể tải lại file từ Drive: ${uploadResult.error}`
+                        );
+                      }
+                    } catch (uploadError) {
+                      console.error(
+                        `❌ Lỗi khi tải lại file từ Drive:`,
+                        uploadError
                       );
                     }
-                  } catch (uploadError) {
-                    console.error(
-                      `Lỗi khi tải lại file từ Drive:`,
-                      uploadError
-                    );
                   }
 
-                  // Nếu không tải được từ Drive, sử dụng phương án dự phòng (xóa key và tạo proxyUrl)
+                  // Nếu không tải được, dùng phương án dự phòng
                   console.log(
-                    `Sử dụng phương án dự phòng: Tạo proxyUrl cho file "${file.name}"`
+                    `⚠️ Sử dụng phương án dự phòng: Tạo proxyUrl cho file "${file.name}"`
                   );
                   const fixedFile = {
                     ...file,
                     storage: null, // Xóa key Wasabi
                   };
 
-                  // Thêm proxyUrl để truy cập trực tiếp từ Drive
-                  const encryptedId = encryptId(file.driveFileId);
-                  fixedFile.proxyUrl = `/api/proxy/files?id=${encryptedId}`;
+                  // Thêm proxyUrl nếu có driveFileId
+                  if (file.driveFileId) {
+                    const encryptedId = encryptId(file.driveFileId);
+                    fixedFile.proxyUrl = `/api/proxy/files?id=${encryptedId}`;
+                    console.log(`✓ Đã tạo proxyUrl cho file: ${file.name}`);
+                  } else {
+                    console.log(
+                      `⚠️ Không thể tạo proxyUrl vì thiếu driveFileId: ${file.name}`
+                    );
+                  }
 
-                  updatedSubfolder.files.push(fixedFile);
+                  updatedSubfolderFiles.push(fixedFile);
                   fixedFiles.push(brokenFile);
                   stats.fixedFiles++;
                   isSubfolderModified = true;
-                } else if (autoFix && file.driveFileId) {
-                  // Nếu không có Drive client, sử dụng phương án dự phòng
-                  const fixedFile = {
-                    ...file,
-                    storage: null, // Xóa key Wasabi
-                  };
-
-                  // Thêm proxyUrl để truy cập trực tiếp từ Drive
-                  const encryptedId = encryptId(file.driveFileId);
-                  fixedFile.proxyUrl = `/api/proxy/files?id=${encryptedId}`;
-
-                  updatedSubfolder.files.push(fixedFile);
-                  fixedFiles.push(brokenFile);
-                  stats.fixedFiles++;
-                  isSubfolderModified = true;
+                  needsUpdate = true;
                 } else {
-                  updatedSubfolder.files.push(file);
+                  console.log(
+                    `ℹ️ Bỏ qua tự động sửa file "${file.name}" vì autoFix = false`
+                  );
+                  updatedSubfolderFiles.push(file);
                 }
               } else {
-                updatedSubfolder.files.push(file);
+                updatedSubfolderFiles.push(file);
 
                 // Kiểm tra trùng lặp
                 if (fileKeysMap.has(file.storage.key)) {
@@ -466,7 +551,7 @@ export async function POST(request) {
                 }
               }
             } else {
-              updatedSubfolder.files.push(file);
+              updatedSubfolderFiles.push(file);
 
               if (!file.proxyUrl && !file.storage) {
                 // File thiếu cả Wasabi key và proxy URL
@@ -489,38 +574,46 @@ export async function POST(request) {
             isLessonModified = true;
           }
 
-          updatedLesson.subfolders.push(updatedSubfolder);
+          updatedSubfolders.push({
+            ...subfolder,
+            files: updatedSubfolderFiles,
+          });
         }
 
+        // Thêm lesson đã cập nhật vào mảng
         if (isLessonModified) {
           isChapterModified = true;
+          updatedLessons.push({
+            ...lesson,
+            files: updatedFiles,
+            subfolders: updatedSubfolders,
+          });
+        } else {
+          updatedLessons.push(lesson);
         }
-
-        updatedChapter.lessons.push(updatedLesson);
       }
 
+      // Thêm chapter đã cập nhật vào mảng
       if (isChapterModified) {
-        chaptersToUpdate.set(chapter.id, updatedChapter);
+        updatedChapters.push({
+          ...chapter,
+          lessons: updatedLessons,
+        });
       } else {
-        chaptersToUpdate.set(chapter.id, chapter);
+        updatedChapters.push(chapter);
       }
     }
 
-    // Kiểm tra xem có cần cập nhật không
-    const needsUpdate =
-      brokenFiles.length > 0 ||
-      duplicateFiles.length > 0 ||
-      missingFiles.length > 0;
-
     // Cập nhật database nếu có autoFix và có file được sửa
     let updateResult = null;
-    if (autoFix && (stats.fixedFiles > 0 || stats.reuploadedFiles > 0)) {
+    if (
+      autoFix &&
+      needsUpdate &&
+      (stats.fixedFiles > 0 || stats.reuploadedFiles > 0)
+    ) {
       try {
         const totalFixedFiles = stats.fixedFiles + stats.reuploadedFiles;
         console.log(`Đang cập nhật ${totalFixedFiles} file bị lỗi...`);
-
-        // Chuyển đổi Map thành mảng để cập nhật
-        const updatedChapters = Array.from(chaptersToUpdate.values());
 
         // Cập nhật lại khóa học
         await courseRef.update({
@@ -548,6 +641,12 @@ export async function POST(request) {
       }
     }
 
+    // Kiểm tra nếu vẫn còn file cần cập nhật
+    const stillNeedsUpdate =
+      brokenFiles.length > stats.fixedFiles + stats.reuploadedFiles ||
+      duplicateFiles.length > 0 ||
+      missingFiles.length > 0;
+
     // Tạo kết quả trả về
     const result = {
       courseId,
@@ -559,11 +658,8 @@ export async function POST(request) {
       duplicateFiles,
       missingFiles,
       fixedFiles: autoFix ? fixedFiles : [],
-      reuploadedFiles: autoFix ? reuploadedFiles : [], // Thêm danh sách file đã tải lại
-      needsUpdate: autoFix
-        ? needsUpdate &&
-          stats.brokenFiles > stats.fixedFiles + stats.reuploadedFiles
-        : needsUpdate,
+      reuploadedFiles: autoFix ? reuploadedFiles : [],
+      needsUpdate: stillNeedsUpdate,
       structureCheck: true,
       wasabiCheck: brokenFiles.length === 0,
       duplicatesCheck: duplicateFiles.length === 0 && missingFiles.length === 0,
