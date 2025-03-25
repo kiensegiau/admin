@@ -15,8 +15,21 @@ import {
   Col,
   Form,
   InputNumber,
+  Tooltip,
+  Badge,
 } from "antd";
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, SaveOutlined, CloseOutlined } from "@ant-design/icons";
+import {
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  SearchOutlined,
+  SaveOutlined,
+  CloseOutlined,
+  CloudSyncOutlined,
+  LinkOutlined,
+  CheckCircleOutlined,
+  SyncOutlined,
+} from "@ant-design/icons";
 import Link from "next/link";
 
 const { Title, Text } = Typography;
@@ -32,6 +45,14 @@ export default function CoursesPage() {
   const [editingId, setEditingId] = useState(null);
   const [form] = Form.useForm();
 
+  // Thêm các state cho Drive URL modal
+  const [driveUrlModalVisible, setDriveUrlModalVisible] = useState(false);
+  const [currentCourseId, setCurrentCourseId] = useState(null);
+  const [driveUrl, setDriveUrl] = useState("");
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [checkLoading, setCheckLoading] = useState(false);
+  const [driveUrlModalForm] = Form.useForm();
+
   useEffect(() => {
     fetchCourses();
   }, []);
@@ -45,8 +66,18 @@ export default function CoursesPage() {
         throw new Error(data.error || "Không thể tải danh sách khóa học");
       }
 
-      setCourses(data.courses);
-      setFilteredCourses(data.courses);
+      // Kiểm tra dữ liệu nhận được
+      console.log("Dữ liệu khóa học từ API:", data.courses);
+
+      // Đảm bảo tất cả các trường đều có giá trị
+      const formattedCourses = data.courses.map((course) => ({
+        ...course,
+        price: course.price || 0,
+        teacher: course.teacher || "",
+      }));
+
+      setCourses(formattedCourses);
+      setFilteredCourses(formattedCourses);
     } catch (error) {
       console.error("Error fetching courses:", error);
       message.error("Không thể tải danh sách khóa học");
@@ -57,25 +88,29 @@ export default function CoursesPage() {
 
   const formatPrice = (price) => {
     if (!price && price !== 0) return "0";
-    return price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   };
 
   const handleSearch = (value) => {
     setSearchText(value);
-    
-    if (!value || value.trim() === '') {
+
+    if (!value || value.trim() === "") {
       setFilteredCourses(courses);
       return;
     }
-    
+
     const lowercasedQuery = value.toLowerCase().trim();
-    const results = courses.filter(course => 
-      (course.title && course.title.toLowerCase().includes(lowercasedQuery)) ||
-      (course.description && course.description.toLowerCase().includes(lowercasedQuery)) ||
-      (course.teacher && course.teacher.toLowerCase().includes(lowercasedQuery)) ||
-      (course.price && course.price.toString().includes(lowercasedQuery))
+    const results = courses.filter(
+      (course) =>
+        (course.title &&
+          course.title.toLowerCase().includes(lowercasedQuery)) ||
+        (course.description &&
+          course.description.toLowerCase().includes(lowercasedQuery)) ||
+        (course.teacher &&
+          course.teacher.toLowerCase().includes(lowercasedQuery)) ||
+        (course.price && course.price.toString().includes(lowercasedQuery))
     );
-    
+
     setFilteredCourses(results);
   };
 
@@ -145,7 +180,7 @@ export default function CoursesPage() {
         price: values.price,
         teacher: values.teacher,
       };
-      
+
       console.log("Dữ liệu gửi đi (đơn giản hóa):", updateData);
 
       const response = await fetch("/api/courses/update", {
@@ -158,7 +193,7 @@ export default function CoursesPage() {
 
       const data = await response.json();
       console.log("Phản hồi từ server:", data);
-      
+
       if (!response.ok) {
         throw new Error(data.error || "Có lỗi xảy ra");
       }
@@ -169,7 +204,192 @@ export default function CoursesPage() {
       await fetchCourses();
     } catch (error) {
       console.error("Chi tiết lỗi:", error);
-      message.error(error.message || "Không thể cập nhật. Vui lòng thử lại sau.");
+      message.error(
+        error.message || "Không thể cập nhật. Vui lòng thử lại sau."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Hàm mở modal cập nhật Drive URL
+  const openDriveUrlModal = (courseId, existingUrl) => {
+    setCurrentCourseId(courseId);
+    setDriveUrl(existingUrl || "");
+    driveUrlModalForm.setFieldsValue({ driveUrl: existingUrl || "" });
+    setDriveUrlModalVisible(true);
+  };
+
+  // Hàm lưu Drive URL
+  const saveDriveUrl = async () => {
+    try {
+      const values = await driveUrlModalForm.validateFields();
+      setSyncLoading(true);
+
+      const response = await fetch("/api/courses/update-drive-url", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          courseId: currentCourseId,
+          driveUrl: values.driveUrl,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Có lỗi xảy ra khi cập nhật Drive URL");
+      }
+
+      message.success("Đã cập nhật Drive URL thành công");
+      setDriveUrlModalVisible(false);
+      await fetchCourses();
+    } catch (error) {
+      console.error("Lỗi khi cập nhật Drive URL:", error);
+      message.error(
+        error.message || "Không thể cập nhật Drive URL. Vui lòng thử lại sau."
+      );
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  // Hàm đồng bộ khóa học từ Drive
+  const syncFromDrive = async (courseId, driveUrl) => {
+    try {
+      if (!driveUrl) {
+        message.error(
+          "Chưa có Drive URL. Vui lòng thêm URL trước khi đồng bộ."
+        );
+        return;
+      }
+
+      setSyncLoading(true);
+      const response = await fetch("/api/import-course-from-drive", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          driveUrl: driveUrl,
+          courseId: courseId,
+          enableSync: true,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Có lỗi xảy ra khi đồng bộ từ Drive");
+      }
+
+      message.success("Đồng bộ từ Drive thành công");
+      await fetchCourses();
+    } catch (error) {
+      console.error("Lỗi khi đồng bộ từ Drive:", error);
+      message.error(
+        error.message || "Không thể đồng bộ từ Drive. Vui lòng thử lại sau."
+      );
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  // Hàm kiểm tra khóa học
+  const checkCourse = async (courseId) => {
+    try {
+      setCheckLoading(true);
+      setCurrentCourseId(courseId);
+
+      const response = await fetch("/api/check-course", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          courseId: courseId,
+          checkWithDrive: true, // Thêm tùy chọn này để kiểm tra với Google Drive
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Có lỗi xảy ra khi kiểm tra khóa học");
+      }
+
+      if (
+        data.brokenFiles.length > 0 ||
+        data.duplicateFiles.length > 0 ||
+        data.missingFiles.length > 0
+      ) {
+        Modal.confirm({
+          title: "Kết quả kiểm tra khóa học",
+          content: (
+            <div>
+              <p>Tìm thấy các vấn đề với khóa học:</p>
+              <ul>
+                {data.brokenFiles.length > 0 && (
+                  <li>Số file bị hỏng: {data.brokenFiles.length}</li>
+                )}
+                {data.duplicateFiles.length > 0 && (
+                  <li>Số file trùng lặp: {data.duplicateFiles.length}</li>
+                )}
+                {data.missingFiles.length > 0 && (
+                  <li>Số file thiếu: {data.missingFiles.length}</li>
+                )}
+              </ul>
+              <p>Bạn có muốn sửa chữa các vấn đề này không?</p>
+            </div>
+          ),
+          okText: "Sửa chữa",
+          cancelText: "Hủy",
+          onOk: () => updateCourse(courseId),
+        });
+      } else {
+        message.success("Khóa học không có vấn đề gì");
+      }
+    } catch (error) {
+      console.error("Lỗi khi kiểm tra khóa học:", error);
+      message.error(
+        error.message || "Không thể kiểm tra khóa học. Vui lòng thử lại sau."
+      );
+    } finally {
+      setCheckLoading(false);
+    }
+  };
+
+  // Hàm cập nhật khóa học (sửa các vấn đề)
+  const updateCourse = async (courseId) => {
+    try {
+      setLoading(true);
+      const response = await fetch("/api/update-course", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          courseId: courseId,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Có lỗi xảy ra khi cập nhật khóa học");
+      }
+
+      message.success(
+        `Đã cập nhật khóa học thành công: Đã xóa ${data.deletedCount} file, cập nhật ${data.updatedCount} file`
+      );
+      await fetchCourses();
+    } catch (error) {
+      console.error("Lỗi khi cập nhật khóa học:", error);
+      message.error(
+        error.message || "Không thể cập nhật khóa học. Vui lòng thử lại sau."
+      );
     } finally {
       setLoading(false);
     }
@@ -181,13 +401,13 @@ export default function CoursesPage() {
       dataIndex: "title",
       key: "title",
       render: (text) => <Text strong>{text}</Text>,
-      width: "30%",
+      width: "25%",
     },
     {
       title: "Giá",
       dataIndex: "price",
       key: "price",
-      width: "20%",
+      width: "15%",
       render: (text, record) => {
         const isEditing = record.id === editingId;
         return isEditing ? (
@@ -204,8 +424,8 @@ export default function CoursesPage() {
             <InputNumber
               min={0}
               formatter={(value) => formatPrice(value)}
-              parser={(value) => value.replace(/\$\s?|(,*)/g, '')}
-              style={{ width: '100%' }}
+              parser={(value) => value.replace(/\$\s?|(,*)/g, "")}
+              style={{ width: "100%" }}
             />
           </Form.Item>
         ) : (
@@ -217,7 +437,7 @@ export default function CoursesPage() {
       title: "Giáo viên",
       dataIndex: "teacher",
       key: "teacher",
-      width: "20%",
+      width: "15%",
       render: (text, record) => {
         const isEditing = record.id === editingId;
         return isEditing ? (
@@ -239,6 +459,29 @@ export default function CoursesPage() {
       },
     },
     {
+      title: "Google Drive",
+      key: "driveUrl",
+      width: "15%",
+      render: (_, record) => {
+        return (
+          <Space>
+            {record.driveUrl ? (
+              <Badge status="success" text="Đã liên kết" />
+            ) : (
+              <Badge status="default" text="Chưa liên kết" />
+            )}
+            <Button
+              type={record.driveUrl ? "default" : "primary"}
+              icon={<LinkOutlined />}
+              onClick={() => openDriveUrlModal(record.id, record.driveUrl)}
+            >
+              {record.driveUrl ? "Cập nhật URL" : "Thêm URL"}
+            </Button>
+          </Space>
+        );
+      },
+    },
+    {
       title: "Thao tác",
       key: "actions",
       width: "30%",
@@ -254,10 +497,7 @@ export default function CoursesPage() {
             >
               Lưu
             </Button>
-            <Button
-              icon={<CloseOutlined />}
-              onClick={cancelEditing}
-            >
+            <Button icon={<CloseOutlined />} onClick={cancelEditing}>
               Hủy
             </Button>
           </Space>
@@ -275,6 +515,23 @@ export default function CoursesPage() {
                 Chi tiết
               </Button>
             </Link>
+            <Tooltip title="Đồng bộ từ Google Drive">
+              <Button
+                type="default"
+                icon={<CloudSyncOutlined />}
+                onClick={() => syncFromDrive(record.id, record.driveUrl)}
+                disabled={!record.driveUrl}
+                loading={syncLoading && currentCourseId === record.id}
+              />
+            </Tooltip>
+            <Tooltip title="Kiểm tra khóa học">
+              <Button
+                type="default"
+                icon={<CheckCircleOutlined />}
+                onClick={() => checkCourse(record.id)}
+                loading={checkLoading && currentCourseId === record.id}
+              />
+            </Tooltip>
             <Button
               type="primary"
               danger
@@ -332,6 +589,40 @@ export default function CoursesPage() {
           />
         </Form>
       </Card>
+
+      {/* Modal nhập Drive URL */}
+      <Modal
+        title="Google Drive URL"
+        open={driveUrlModalVisible}
+        onOk={saveDriveUrl}
+        onCancel={() => setDriveUrlModalVisible(false)}
+        confirmLoading={syncLoading}
+        okText="Lưu"
+        cancelText="Hủy"
+      >
+        <Form form={driveUrlModalForm} layout="vertical">
+          <Form.Item
+            name="driveUrl"
+            label="URL thư mục Google Drive"
+            rules={[
+              {
+                required: true,
+                message: "Vui lòng nhập URL Google Drive!",
+              },
+              {
+                type: "url",
+                message: "Vui lòng nhập URL hợp lệ!",
+              },
+            ]}
+          >
+            <Input placeholder="https://drive.google.com/drive/folders/..." />
+          </Form.Item>
+          <Text type="secondary">
+            Nhập URL thư mục Google Drive chứa nội dung khóa học. Hệ thống sẽ tự
+            động đồng bộ cấu trúc thư mục và tải các tệp tin về.
+          </Text>
+        </Form>
+      </Modal>
     </Content>
   );
 }

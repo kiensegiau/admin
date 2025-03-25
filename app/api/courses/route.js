@@ -1,3 +1,48 @@
-export const dynamic = 'force-dynamic';
+import { NextResponse } from "next/server";
+import { db } from "@/lib/firebase-admin";
 
-import { NextResponse } from "next/server"; import { db } from "@/lib/firebase-admin";  export async function GET() {   try {     console.log("Bắt đầu lấy danh sách khóa học");      const coursesRef = db.collection("courses");     const snapshot = await coursesRef.orderBy("createdAt", "desc").get();      const courses = [];     snapshot.forEach((doc) => {       courses.push({         id: doc.id,         ...doc.data(),       });     });      console.log(`Đã lấy ${courses.length} khóa học`);      return NextResponse.json({       success: true,       courses: courses,     });   } catch (error) {     console.error("Lỗi khi lấy danh sách khóa học:", error);     return NextResponse.json(       {         success: false,         error: error.message || "Có lỗi xảy ra khi lấy danh sách khóa học",       },       { status: 500 }     );   } }
+export const dynamic = "force-dynamic";
+
+export async function GET(request) {
+  try {
+    // Lấy danh sách tất cả các khóa học từ Firestore
+    const coursesRef = db.collection("courses");
+    const snapshot = await coursesRef.get();
+
+    if (snapshot.empty) {
+      return NextResponse.json({ courses: [] });
+    }
+
+    const courses = [];
+    snapshot.forEach((doc) => {
+      const courseData = doc.data();
+      courses.push({
+        id: doc.id,
+        title: courseData.title || "Khóa học không tên",
+        chaptersCount: courseData.chapters?.length || 0,
+        lessonsCount: courseData.totalLessons || 0,
+        updatedAt: courseData.updatedAt,
+        status: courseData.status || "draft",
+        driveUrl: courseData.driveUrl || null,
+        driveFolderId: courseData.driveFolderId || null,
+        price: courseData.price || 0,
+        teacher: courseData.teacher || "",
+      });
+    });
+
+    // Sắp xếp khóa học theo thời gian cập nhật mới nhất
+    courses.sort((a, b) => {
+      if (!a.updatedAt) return 1;
+      if (!b.updatedAt) return -1;
+      return new Date(b.updatedAt) - new Date(a.updatedAt);
+    });
+
+    return NextResponse.json({ courses });
+  } catch (error) {
+    console.error("Lỗi khi lấy danh sách khóa học:", error);
+    return NextResponse.json(
+      { error: "Không thể lấy danh sách khóa học: " + error.message },
+      { status: 500 }
+    );
+  }
+}

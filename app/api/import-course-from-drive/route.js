@@ -69,6 +69,46 @@ function extractDriveId(url) {
   return null;
 }
 
+// Hàm xử lý đường dẫn an toàn cho Wasabi
+function sanitizeWasabiPath(path) {
+  if (!path) return "";
+
+  // Xử lý từng phần của đường dẫn
+  const parts = path.split("/").map((part) => {
+    if (!part) return "";
+
+    // Thay vì loại bỏ dấu, chuyển toàn bộ ký tự không an toàn
+    // thành mã hex để giữ lại nguyên nghĩa
+    let sanitized = part;
+
+    // Thay thế các ký tự không hợp lệ trên Wasabi
+    sanitized = sanitized
+      .replace(/[<>:"\/\\|?*\x00-\x1F]/g, "-") // Ký tự không hợp lệ trên hầu hết các hệ thống
+      .replace(/\s+/g, "-") // Thay khoảng trắng bằng gạch ngang
+      .replace(/-+/g, "-") // Loại bỏ nhiều gạch ngang liên tiếp
+      .replace(/^-+|-+$/g, ""); // Loại bỏ gạch ngang ở đầu và cuối
+
+    // Đảm bảo chiều dài an toàn cho mỗi phần của đường dẫn
+    if (sanitized.length > 100) {
+      sanitized = sanitized.substring(0, 100);
+    }
+
+    return sanitized;
+  });
+
+  // Loại bỏ các phần rỗng và giới hạn tổng chiều dài đường dẫn
+  const result = parts.filter(Boolean).join("/");
+
+  // Nếu đường dẫn quá dài, cắt bớt để đảm bảo an toàn
+  if (result.length > 900) {
+    // AWS S3 có giới hạn key 1024 ký tự
+    console.warn(`Đường dẫn quá dài, đã cắt bớt: ${result.length} ký tự`);
+    return result.substring(0, 900);
+  }
+
+  return result;
+}
+
 // Hàm upload file từ Google Drive lên Wasabi
 async function uploadToWasabi(
   drive,
@@ -220,18 +260,22 @@ async function uploadToWasabi(
     const timestamp = Date.now();
     const uniqueId = uuidv4().substring(0, 8); // Lấy 8 ký tự đầu của UUID
 
-    // Sử dụng folderPath để tạo cấu trúc thư mục tương tự như trong Drive
+    // Tạo key với tên file đã được xử lý
     let key;
+
+    // Xử lý đường dẫn thư mục nếu có, giữ cấu trúc nhưng xử lý các ký tự đặc biệt
     if (folderPath && folderPath !== "") {
-      // Làm sạch đường dẫn thư mục
-      const sanitizedPath = folderPath
-        .split("/")
-        .map((part) => sanitizeFileName(part))
-        .join("/");
-      key = `courses/${sanitizedPath}/${timestamp}-${uniqueId}-${fileName}`;
+      // Xử lý đường dẫn an toàn
+      const sanitizedPath = sanitizeWasabiPath(folderPath);
+      // Tạo key cho file
+      key = `courses/${sanitizedPath}/${timestamp}-${uniqueId}-${sanitizeFileName(
+        fileName
+      )}`;
     } else {
-      key = `courses/${timestamp}-${uniqueId}-${fileName}`;
+      key = `courses/${timestamp}-${uniqueId}-${sanitizeFileName(fileName)}`;
     }
+
+    console.log(`Tạo key Wasabi: ${key}`);
 
     // Biến theo dõi tốc độ upload
     const uploadStartTime = Date.now();
@@ -247,6 +291,24 @@ async function uploadToWasabi(
 
     try {
       await s3Client.send(command);
+
+      // Xác minh file đã được tải lên thành công
+      try {
+        const checkCommand = new HeadObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: key,
+        });
+        const headResponse = await s3Client.send(checkCommand);
+        console.log(
+          `Xác minh upload thành công: ${key} (${headResponse.ContentLength} bytes)`
+        );
+      } catch (verifyErr) {
+        console.warn(
+          `Không thể xác minh file sau khi upload: ${key}`,
+          verifyErr.name
+        );
+        // Tiếp tục xử lý vì chúng ta đã tải lên, có thể là vấn đề trễ hoặc nhất quán
+      }
     } catch (uploadErr) {
       console.error(`Lỗi khi upload lên Wasabi: ${uploadErr.message}`);
       if (retryCount < MAX_RETRIES) {
@@ -343,10 +405,22 @@ async function uploadToWasabi(
 
 // Hàm làm sạch tên file chỉ dùng cho file tạm
 function sanitizeFileName(fileName) {
-  // Danh sách các ký tự không hợp lệ trong tên file Windows
+  if (!fileName) return "unknown-file";
+
+  // Danh sách các ký tự không hợp lệ trong tên file
   const invalidChars = /[<>:"/\\|?*\x00-\x1F]/g;
+
   // Thay thế các ký tự không hợp lệ bằng dấu gạch ngang
   let sanitized = fileName.replace(invalidChars, "-");
+
+  // Xử lý khoảng trắng
+  sanitized = sanitized.replace(/\s+/g, "-");
+
+  // Loại bỏ nhiều dấu gạch ngang liên tiếp
+  sanitized = sanitized.replace(/-+/g, "-");
+
+  // Loại bỏ dấu gạch ngang ở đầu và cuối
+  sanitized = sanitized.replace(/^-+|-+$/g, "");
 
   // Đảm bảo tên file không vượt quá 255 ký tự
   if (sanitized.length > 255) {
@@ -354,11 +428,16 @@ function sanitizeFileName(fileName) {
     sanitized = sanitized.substring(0, 255 - ext.length) + ext;
   }
 
+  // Đảm bảo tên file không rỗng
+  if (!sanitized) {
+    sanitized = "file-" + Date.now();
+  }
+
   return sanitized;
 }
 
 // Thêm hàm kiểm tra và trả về khóa học nếu đã tồn tại hoặc tạo mới nếu chưa có
-async function getOrCreateCourse(name) {
+async function getOrCreateCourse(name, driveUrl = null, driveFolderId = null) {
   try {
     if (!name || typeof name !== "string") {
       throw new Error("Tên khóa học không hợp lệ");
@@ -374,6 +453,19 @@ async function getOrCreateCourse(name) {
       const courseDoc = snapshot.docs[0];
       const courseData = courseDoc.data();
       console.log(`Đã tìm thấy khóa học: ${courseDoc.id}`);
+
+      // Cập nhật driveUrl nếu chưa có và có giá trị mới
+      if (driveUrl && !courseData.driveUrl) {
+        await courseDoc.ref.update({
+          driveUrl: driveUrl,
+          driveFolderId: driveFolderId,
+          updatedAt: new Date().toISOString(),
+        });
+        console.log(`Đã cập nhật Drive URL cho khóa học hiện có: ${driveUrl}`);
+        courseData.driveUrl = driveUrl;
+        courseData.driveFolderId = driveFolderId;
+      }
+
       return { id: courseDoc.id, ...courseData, isExisting: true };
     }
 
@@ -392,6 +484,12 @@ async function getOrCreateCourse(name) {
       totalLessons: 0,
       totalChapters: 0,
     };
+
+    // Thêm driveUrl và driveFolderId nếu có
+    if (driveUrl) {
+      courseData.driveUrl = driveUrl;
+      courseData.driveFolderId = driveFolderId;
+    }
 
     const courseRef = await db.collection("courses").add(courseData);
     console.log("Đã tạo khóa học mới:", courseRef.id);
@@ -929,6 +1027,15 @@ async function checkFileExists(
         console.log(
           `File "${fileName}" đã có key Wasabi: ${fileFound.storage.key}`
         );
+
+        // Kiểm tra thực tế xem file có tồn tại trên Wasabi không
+        const wasabiFileExists = await checkWasabiFile(fileFound.storage.key);
+        if (!wasabiFileExists) {
+          console.warn(
+            `File ${fileName} có key Wasabi nhưng không tìm thấy trên Wasabi, cần tải lại`
+          );
+          result.hasWasabi = false;
+        }
       } else {
         console.log(
           `File "${fileName}" tồn tại nhưng chưa có key Wasabi, cần tải lại`
@@ -960,6 +1067,8 @@ async function processFiles(
       parentPath || "thư mục gốc"
     } ===`
   );
+  console.log(`Đường dẫn gốc: "${parentPath}"`);
+  console.log(`Đường dẫn sau khi xử lý: "${sanitizeWasabiPath(parentPath)}"`);
 
   // Kiểm tra toàn bộ files trước để xác định những file cần xử lý
   const filesToProcess = [];
@@ -1029,6 +1138,7 @@ async function processFiles(
               file.mimeType
             })`
           );
+          console.log(`Đường dẫn thư mục: ${file.folderPath}`);
 
           const uploadResult = await uploadToWasabi(
             drive,
@@ -1274,18 +1384,28 @@ async function processFolder(
   courseName = null
 ) {
   try {
-    // Nếu đây là lần gọi đầu tiên và chưa có courseName, lấy tên khóa học
-    if (parentType === "course" && !courseName) {
+    // Lấy tên khóa học nếu chưa có
+    if (!courseName) {
       const courseRef = db.collection("courses").doc(courseId);
       const courseDoc = await courseRef.get();
       if (courseDoc.exists) {
         courseName = courseDoc.data().title || "Unknown Course";
-        // Bắt đầu đường dẫn thư mục với tên khóa học
-        parentPath = courseName;
+      } else {
+        courseName = "Unknown Course";
       }
     }
 
-    console.log(`\n=== Bắt đầu xử lý thư mục ${parentPath || "gốc"} ===`);
+    // Xử lý đường dẫn: nếu là lần gọi đầu tiên, bắt đầu với tên khóa học
+    let currentPath = parentPath;
+    if (parentType === "course") {
+      // Bắt đầu đường dẫn với tên khóa học
+      currentPath = courseName;
+    } else if (parentPath === "") {
+      // Trường hợp đặc biệt khi đường dẫn rỗng nhưng không phải là thư mục gốc
+      currentPath = courseName;
+    }
+
+    console.log(`\n=== Bắt đầu xử lý thư mục ${currentPath || "gốc"} ===`);
     console.log(`ParentType: ${parentType}, CourseId: ${courseId}`);
 
     const files = await listFolderContents(drive, folderId);
@@ -1298,7 +1418,14 @@ async function processFolder(
 
     // Xử lý các thư mục con
     for (const folder of folders) {
-      const newPath = parentPath ? `${parentPath}/${folder.name}` : folder.name;
+      const newPath = currentPath
+        ? `${currentPath}/${folder.name}`
+        : folder.name;
+      console.log(`Tạo đường dẫn mới: ${newPath}`);
+
+      // Hiển thị đường dẫn đã xử lý để kiểm tra
+      const sanitizedPath = sanitizeWasabiPath(newPath);
+      console.log(`Đường dẫn sau khi xử lý: ${sanitizedPath}`);
 
       if (parentType === "course") {
         // Kiểm tra và tạo/tái sử dụng chương
@@ -1364,6 +1491,9 @@ async function processFolder(
       });
 
       if (validFiles.length > 0) {
+        console.log(
+          `Xử lý ${validFiles.length} file trong thư mục "${currentPath}"`
+        );
         // Truyền đường dẫn thư mục khi gọi processFiles
         await processFiles(
           drive,
@@ -1372,14 +1502,14 @@ async function processFolder(
           parentId,
           lessonId,
           parentType,
-          parentPath
+          currentPath
         );
       }
     }
 
-    console.log(`=== Kết thúc xử lý thư mục ${parentPath || "gốc"} ===\n`);
+    console.log(`=== Kết thúc xử lý thư mục ${currentPath || "gốc"} ===\n`);
   } catch (error) {
-    console.error(`Lỗi khi xử lý thư mục ${parentPath || "gốc"}:`, error);
+    console.error(`Lỗi khi xử lý thư mục ${currentPath || "gốc"}:`, error);
     throw error;
   }
 }
@@ -1640,9 +1770,14 @@ export async function POST(request) {
 
   try {
     console.log("\n=== Bắt đầu import khóa học ===");
-    const { driveUrl, enableSync = true } = await request.json();
+    const {
+      driveUrl,
+      enableSync = true,
+      courseId = null,
+    } = await request.json();
     console.log("URL Drive:", driveUrl);
     console.log("Đồng bộ xóa:", enableSync ? "Bật" : "Tắt");
+    console.log("CourseId:", courseId ? courseId : "Tạo mới");
 
     // Thêm biến thống kê tốc độ tổng
     const globalStats = {
@@ -1771,13 +1906,55 @@ export async function POST(request) {
       syncState.processedItems.subfolders.clear();
       syncState.needSync = enableSync;
 
-      // Thay đổi từ createNewCourse sang getOrCreateCourse
-      const course = await getOrCreateCourse(folderInfo.name);
-      console.log(
-        course.isExisting
-          ? `Đã tìm thấy khóa học: ${course.id}`
-          : `Đã tạo khóa học mới: ${course.id}`
-      );
+      let course;
+
+      if (courseId) {
+        // Nếu có courseId, kiểm tra và sử dụng khóa học hiện có
+        const courseRef = db.collection("courses").doc(courseId);
+        const courseDoc = await courseRef.get();
+
+        if (!courseDoc.exists) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: "Không tìm thấy khóa học với ID đã cung cấp",
+            },
+            { status: 404 }
+          );
+        }
+
+        course = { id: courseId, ...courseDoc.data(), isExisting: true };
+        console.log(`Đã tìm thấy khóa học: ${course.id} (${course.title})`);
+
+        // Cập nhật URL Drive nếu chưa có
+        if (!course.driveUrl) {
+          await courseRef.update({
+            driveUrl: driveUrl,
+            driveFolderId: folderId,
+            updatedAt: new Date().toISOString(),
+          });
+          console.log(`Đã cập nhật Drive URL cho khóa học: ${driveUrl}`);
+        }
+      } else {
+        // Nếu không có courseId, tạo khóa học mới
+        course = await getOrCreateCourse(folderInfo.name, driveUrl, folderId);
+        console.log(
+          course.isExisting
+            ? `Đã tìm thấy khóa học: ${course.id}`
+            : `Đã tạo khóa học mới: ${course.id}`
+        );
+
+        // Cập nhật Drive URL cho khóa học mới hoặc hiện có
+        if (!course.driveUrl) {
+          const courseRef = db.collection("courses").doc(course.id);
+          await courseRef.update({
+            driveUrl: driveUrl,
+            driveFolderId: folderId,
+            updatedAt: new Date().toISOString(),
+          });
+          console.log(`Đã cập nhật Drive URL cho khóa học: ${driveUrl}`);
+        }
+      }
 
       // Truyền tên khóa học vào lần gọi đầu tiên của processFolder
       await processFolder(

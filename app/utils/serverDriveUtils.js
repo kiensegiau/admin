@@ -9,6 +9,21 @@ const oauth2Client = new google.auth.OAuth2(
   process.env.CALLBACK_URL
 );
 
+// Hàm lấy ID từ Google Drive URL
+export function extractDriveId(url) {
+  const patterns = [
+    /\/folders\/([a-zA-Z0-9-_]+)/, // Format: folders/id
+    /\/d\/([a-zA-Z0-9-_]+)/, // Format: d/id
+    /id=([a-zA-Z0-9-_]+)/, // Format: id=id
+  ];
+
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
+}
+
 // Hàm kiểm tra và làm mới token trước khi gọi API
 export async function ensureValidToken() {
   try {
