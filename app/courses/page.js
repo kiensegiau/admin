@@ -10,17 +10,23 @@ import {
   Typography,
   message,
   Modal,
+  Input,
+  Row,
+  Col,
 } from "antd";
-import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from "@ant-design/icons";
 import Link from "next/link";
 
 const { Title } = Typography;
 const { Content } = Layout;
 const { confirm } = Modal;
+const { Search } = Input;
 
 export default function CoursesPage() {
   const [courses, setCourses] = useState([]);
+  const [filteredCourses, setFilteredCourses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchText, setSearchText] = useState("");
 
   useEffect(() => {
     fetchCourses();
@@ -36,12 +42,30 @@ export default function CoursesPage() {
       }
 
       setCourses(data.courses);
+      setFilteredCourses(data.courses);
     } catch (error) {
       console.error("Error fetching courses:", error);
       message.error("Không thể tải danh sách khóa học");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearch = (value) => {
+    setSearchText(value);
+    
+    if (!value || value.trim() === '') {
+      setFilteredCourses(courses);
+      return;
+    }
+    
+    const lowercasedQuery = value.toLowerCase().trim();
+    const results = courses.filter(course => 
+      (course.title && course.title.toLowerCase().includes(lowercasedQuery)) ||
+      (course.description && course.description.toLowerCase().includes(lowercasedQuery))
+    );
+    
+    setFilteredCourses(results);
   };
 
   const handleDelete = async (id, title) => {
@@ -118,20 +142,33 @@ export default function CoursesPage() {
   return (
     <Content className="p-6 min-h-screen bg-gray-50">
       <Card className="shadow-sm">
-        <div className="flex justify-between items-center mb-6">
-          <Title level={2} style={{ margin: 0 }}>
-            Quản lý khóa học
-          </Title>
-          <Link href="/add-course">
-            <Button type="primary" icon={<PlusOutlined />} size="large">
-              Thêm khóa học
-            </Button>
-          </Link>
-        </div>
+        <Row gutter={[16, 16]} className="mb-6">
+          <Col xs={24} md={12}>
+            <Title level={2} style={{ margin: 0 }}>
+              Quản lý khóa học
+            </Title>
+          </Col>
+          <Col xs={24} md={12} className="flex justify-end items-center gap-2">
+            <Search
+              placeholder="Tìm kiếm khóa học"
+              allowClear
+              enterButton={<SearchOutlined />}
+              size="large"
+              onSearch={handleSearch}
+              onChange={(e) => e.target.value === "" && handleSearch("")}
+              style={{ maxWidth: 400 }}
+            />
+            <Link href="/add-course">
+              <Button type="primary" icon={<PlusOutlined />} size="large">
+                Thêm khóa học
+              </Button>
+            </Link>
+          </Col>
+        </Row>
 
         <Table
           columns={columns}
-          dataSource={courses}
+          dataSource={filteredCourses}
           loading={loading}
           rowKey="id"
           pagination={{

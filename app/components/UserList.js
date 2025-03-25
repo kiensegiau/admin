@@ -1,6 +1,6 @@
 "use client";
-import { useState, useEffect } from "react";
-import { Table, Space, Button, Tag, Modal, message, InputNumber } from "antd";
+import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
+import { Table, Space, Button, Tag, Modal, message, InputNumber, Card } from "antd";
 import {
   EditOutlined,
   DeleteOutlined,
@@ -10,14 +10,21 @@ import { toast } from "sonner";
 import AddUserModal from "./AddUserModal";
 import EditUserModal from "./EditUserModal";
 
-export default function UserList() {
+const UserList = forwardRef(({ searchQuery }, ref) => {
   const [users, setUsers] = useState([]);
+  const [filteredUsers, setFilteredUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [depositAmount, setDepositAmount] = useState(0);
   const [showDepositModal, setShowDepositModal] = useState(false);
+
+  // Expose methods via ref
+  useImperativeHandle(ref, () => ({
+    searchUsers: (query) => handleSearch(query),
+    refreshUsers: () => fetchUsers()
+  }));
 
   const fetchUsers = async () => {
     try {
@@ -27,6 +34,7 @@ export default function UserList() {
       }
       const data = await response.json();
       setUsers(data.users);
+      setFilteredUsers(data.users);
     } catch (error) {
       console.error("Lỗi khi tải danh sách người dùng:", error);
       toast.error(error.message);
@@ -39,14 +47,42 @@ export default function UserList() {
     fetchUsers();
   }, []);
 
+  // Xử lý tìm kiếm
+  const handleSearch = (query) => {
+    if (!query || query.trim() === '') {
+      setFilteredUsers(users);
+      return;
+    }
+    
+    const lowercasedQuery = query.toLowerCase().trim();
+    const results = users.filter(user => 
+      (user.fullName && user.fullName.toLowerCase().includes(lowercasedQuery)) || 
+      (user.email && user.email.toLowerCase().includes(lowercasedQuery)) || 
+      (user.phoneNumber && user.phoneNumber.toLowerCase().includes(lowercasedQuery))
+    );
+    
+    setFilteredUsers(results);
+  };
+
+  // Thực hiện tìm kiếm khi searchQuery thay đổi từ component cha
+  useEffect(() => {
+    if (searchQuery !== undefined) {
+      handleSearch(searchQuery);
+    }
+  }, [searchQuery, users]);
+
   const handleAddUser = (newUser) => {
-    setUsers([...users, newUser]);
+    const updatedUsers = [...users, newUser];
+    setUsers(updatedUsers);
+    setFilteredUsers(updatedUsers);
   };
 
   const handleEditUser = (updatedUser) => {
-    setUsers(
-      users.map((user) => (user.id === updatedUser.id ? updatedUser : user))
+    const updatedUsers = users.map((user) => 
+      user.id === updatedUser.id ? updatedUser : user
     );
+    setUsers(updatedUsers);
+    setFilteredUsers(handleSearch(searchQuery) || updatedUsers);
   };
 
   const handleDeleteUser = (userId) => {
@@ -71,7 +107,9 @@ export default function UserList() {
             throw new Error(data.error || "Không thể xóa người dùng");
           }
 
-          setUsers(users.filter((user) => user.id !== userId));
+          const updatedUsers = users.filter((user) => user.id !== userId);
+          setUsers(updatedUsers);
+          setFilteredUsers(updatedUsers);
           message.success("Đã xóa người dùng");
         } catch (error) {
           console.error("Lỗi khi xóa người dùng:", error);
@@ -102,11 +140,12 @@ export default function UserList() {
       const { balance } = await response.json();
 
       // Cập nhật danh sách users với số dư mới
-      setUsers(
-        users.map((user) =>
-          user.id === selectedUser.id ? { ...user, balance } : user
-        )
+      const updatedUsers = users.map((user) =>
+        user.id === selectedUser.id ? { ...user, balance } : user
       );
+      
+      setUsers(updatedUsers);
+      setFilteredUsers(updatedUsers);
 
       message.success("Nạp tiền thành công");
       setShowDepositModal(false);
@@ -189,10 +228,10 @@ export default function UserList() {
   ];
 
   return (
-    <>
+    <Card className="shadow-sm">
       <Table
         columns={columns}
-        dataSource={users}
+        dataSource={filteredUsers}
         rowKey="id"
         loading={loading}
         pagination={{
@@ -257,6 +296,10 @@ export default function UserList() {
           </div>
         </div>
       </Modal>
-    </>
+    </Card>
   );
-}
+});
+
+UserList.displayName = "UserList";
+
+export default UserList;
