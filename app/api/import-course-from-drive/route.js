@@ -1545,6 +1545,15 @@ async function synchronizeDeletedItems(courseId) {
   try {
     console.log("\n=== Bắt đầu đồng bộ các mục đã xóa ===");
 
+    // Kiểm tra tính toàn vẹn của dữ liệu
+    if (!syncState.processedItems.chapters.size && 
+        !syncState.processedItems.lessons.size && 
+        !syncState.processedItems.files.size && 
+        !syncState.processedItems.subfolders.size) {
+      console.warn("CẢNH BÁO: Không có mục nào được đánh dấu đã xử lý - có thể dẫn đến xóa nhầm. Bỏ qua đồng bộ.");
+      return { hasChanges: false, deletedFilesCount: 0, failedDeletionsCount: 0, skippedDueToCaution: true };
+    }
+
     // Lấy dữ liệu khóa học hiện tại
     const courseRef = db.collection("courses").doc(courseId);
     const courseDoc = await courseRef.get();
@@ -1557,9 +1566,41 @@ async function synchronizeDeletedItems(courseId) {
     let hasChanges = false;
     let deletedFilesCount = 0;
     let failedDeletionsCount = 0;
+    
+    // Thống kê để kiểm tra tính hợp lệ
+    const stats = {
+      totalChapters: courseData.chapters?.length || 0,
+      totalLessons: 0,
+      totalFiles: 0,
+      totalSubfolders: 0,
+      deletedChapters: 0,
+      deletedLessons: 0,
+      deletedSubfolders: 0,
+      deletedFiles: 0
+    };
+    
+    // Tính tổng số mục trong khóa học
+    for (const chapter of courseData.chapters || []) {
+      for (const lesson of chapter.lessons || []) {
+        stats.totalLessons++;
+        stats.totalFiles += lesson.files?.length || 0;
+        
+        for (const subfolder of lesson.subfolders || []) {
+          stats.totalSubfolders++;
+          stats.totalFiles += subfolder.files?.length || 0;
+        }
+      }
+    }
 
     // Đồng bộ xóa chương và bài học
     const updatedChapters = [];
+
+    // Cảnh báo nếu quá nhiều mục sẽ bị xóa (> 80%)
+    const processedChaptersCount = syncState.processedItems.chapters.size;
+    if (processedChaptersCount > 0 && processedChaptersCount < stats.totalChapters * 0.2) {
+      console.warn(`CẢNH BÁO: Chỉ ${processedChaptersCount}/${stats.totalChapters} chương được tìm thấy trên Drive. Có thể dẫn đến xóa nhầm > 80% dữ liệu. Bỏ qua đồng bộ.`);
+      return { hasChanges: false, deletedFilesCount: 0, failedDeletionsCount: 0, skippedDueToCaution: true };
+    }
 
     for (const chapter of courseData.chapters || []) {
       // Kiểm tra xem chương có tồn tại trên Drive không
@@ -1567,10 +1608,22 @@ async function synchronizeDeletedItems(courseId) {
         console.log(
           `Chương "${chapter.title}" (${chapter.id}) đã bị xóa trên Drive, xóa khỏi hệ thống`
         );
-
+        
+        stats.deletedChapters++;
+        
+        // Tính số lượng mục sẽ bị xóa trong chương này
+        const chapterLessons = chapter.lessons?.length || 0;
+        stats.deletedLessons += chapterLessons;
+        
+        let chapterFilesCount = 0;
+        let chapterSubfoldersCount = 0;
+        
         // Xóa tất cả các file trong chương khỏi Wasabi
         for (const lesson of chapter.lessons || []) {
           // Xóa file trong lesson
+          chapterFilesCount += lesson.files?.length || 0;
+          chapterSubfoldersCount += lesson.subfolders?.length || 0;
+          
           for (const file of lesson.files || []) {
             if (file.storage?.provider === "wasabi" && file.storage?.key) {
               try {
@@ -1587,9 +1640,11 @@ async function synchronizeDeletedItems(courseId) {
               }
             }
           }
-
+          
           // Xóa file trong subfolder
           for (const subfolder of lesson.subfolders || []) {
+            chapterFilesCount += subfolder.files?.length || 0;
+            
             for (const file of subfolder.files || []) {
               if (file.storage?.provider === "wasabi" && file.storage?.key) {
                 try {
@@ -1608,6 +1663,8 @@ async function synchronizeDeletedItems(courseId) {
             }
           }
         }
+        
+        console.log(`Đã xóa chương có ${chapterLessons} bài học, ${chapterSubfoldersCount} thư mục con và ${chapterFilesCount} files`);
 
         hasChanges = true;
         continue; // Bỏ qua chương đã bị xóa
@@ -1621,7 +1678,14 @@ async function synchronizeDeletedItems(courseId) {
           console.log(
             `Bài học "${lesson.title}" (${lesson.id}) đã bị xóa trên Drive, xóa khỏi hệ thống`
           );
-
+          
+          stats.deletedLessons++;
+          
+          // Tính số lượng mục sẽ bị xóa trong bài học này
+          let lessonFilesCount = lesson.files?.length || 0;
+          const lessonSubfoldersCount = lesson.subfolders?.length || 0;
+          stats.deletedSubfolders += lessonSubfoldersCount;
+          
           // Xóa tất cả file trong lesson khỏi Wasabi
           for (const file of lesson.files || []) {
             if (file.storage?.provider === "wasabi" && file.storage?.key) {
@@ -1639,9 +1703,11 @@ async function synchronizeDeletedItems(courseId) {
               }
             }
           }
-
+          
           // Xóa file trong subfolder
           for (const subfolder of lesson.subfolders || []) {
+            lessonFilesCount += subfolder.files?.length || 0;
+            
             for (const file of subfolder.files || []) {
               if (file.storage?.provider === "wasabi" && file.storage?.key) {
                 try {
@@ -1659,6 +1725,9 @@ async function synchronizeDeletedItems(courseId) {
               }
             }
           }
+          
+          stats.deletedFiles += lessonFilesCount;
+          console.log(`Đã xóa bài học có ${lessonFilesCount} files và ${lessonSubfoldersCount} thư mục con`);
 
           hasChanges = true;
           continue; // Bỏ qua bài học đã bị xóa
@@ -1675,6 +1744,8 @@ async function synchronizeDeletedItems(courseId) {
             console.log(
               `File "${file.name}" (ID: ${driveFileId}) đã bị xóa trên Drive, xóa khỏi hệ thống`
             );
+            
+            stats.deletedFiles++;
 
             // Xóa file từ Wasabi nếu có
             if (file.storage?.provider === "wasabi" && file.storage?.key) {
@@ -1707,7 +1778,13 @@ async function synchronizeDeletedItems(courseId) {
             console.log(
               `Thư mục con "${subfolder.name}" (${subfolder.id}) đã bị xóa trên Drive, xóa khỏi hệ thống`
             );
-
+            
+            stats.deletedSubfolders++;
+            
+            // Tính số lượng file sẽ bị xóa
+            const subfolderFilesCount = subfolder.files?.length || 0;
+            stats.deletedFiles += subfolderFilesCount;
+            
             // Xóa tất cả file trong subfolder khỏi Wasabi
             for (const file of subfolder.files || []) {
               if (file.storage?.provider === "wasabi" && file.storage?.key) {
@@ -1725,6 +1802,8 @@ async function synchronizeDeletedItems(courseId) {
                 }
               }
             }
+            
+            console.log(`Đã xóa thư mục con có ${subfolderFilesCount} files`);
 
             hasChanges = true;
             continue; // Bỏ qua thư mục con đã bị xóa
@@ -1741,6 +1820,8 @@ async function synchronizeDeletedItems(courseId) {
               console.log(
                 `File "${file.name}" (ID: ${driveFileId}) trong thư mục con "${subfolder.name}" đã bị xóa trên Drive, xóa khỏi hệ thống`
               );
+              
+              stats.deletedFiles++;
 
               // Xóa file từ Wasabi
               if (file.storage?.provider === "wasabi" && file.storage?.key) {
@@ -1788,6 +1869,22 @@ async function synchronizeDeletedItems(courseId) {
       });
     }
 
+    // Cảnh báo nếu xóa quá nhiều dữ liệu
+    if (stats.deletedChapters > stats.totalChapters * 0.8 || 
+        stats.deletedLessons > stats.totalLessons * 0.8 || 
+        stats.deletedFiles > stats.totalFiles * 0.8) {
+      console.warn(`
+        CẢNH BÁO: Đang thực hiện xóa số lượng lớn dữ liệu:
+        - Chương: ${stats.deletedChapters}/${stats.totalChapters} (${Math.round(stats.deletedChapters/stats.totalChapters*100)}%)
+        - Bài học: ${stats.deletedLessons}/${stats.totalLessons} (${Math.round(stats.deletedLessons/stats.totalLessons*100)}%)
+        - Thư mục con: ${stats.deletedSubfolders}/${stats.totalSubfolders} (${Math.round(stats.deletedSubfolders/stats.totalSubfolders*100)}%)
+        - Files: ${stats.deletedFiles}/${stats.totalFiles} (${Math.round(stats.deletedFiles/stats.totalFiles*100)}%)
+      `);
+      
+      // Bạn có thể bỏ comment dòng dưới đây để tự động hủy xóa nếu quá 80% dữ liệu sẽ bị xóa
+      // return { hasChanges: false, deletedFilesCount: 0, failedDeletionsCount: 0, skippedDueToCaution: true };
+    }
+
     if (hasChanges) {
       // Cập nhật lại khóa học sau khi đồng bộ xóa
       await courseRef.update({
@@ -1803,12 +1900,34 @@ async function synchronizeDeletedItems(courseId) {
       console.log(
         `Đã cập nhật khóa học sau khi đồng bộ xóa. Đã xóa ${deletedFilesCount} file trên Wasabi (${failedDeletionsCount} thất bại).`
       );
+      
+      console.log(`
+        Tóm tắt xóa:
+        - Chương: ${stats.deletedChapters}/${stats.totalChapters}
+        - Bài học: ${stats.deletedLessons}/${stats.totalLessons}
+        - Thư mục con: ${stats.deletedSubfolders}/${stats.totalSubfolders}
+        - Files: ${stats.deletedFiles}/${stats.totalFiles}
+      `);
     } else {
       console.log("Không có mục nào bị xóa, không cần cập nhật");
     }
 
     console.log("=== Kết thúc đồng bộ các mục đã xóa ===\n");
-    return { hasChanges, deletedFilesCount, failedDeletionsCount };
+    return { 
+      hasChanges, 
+      deletedFilesCount, 
+      failedDeletionsCount,
+      stats: {
+        deletedChapters: stats.deletedChapters,
+        deletedLessons: stats.deletedLessons,
+        deletedSubfolders: stats.deletedSubfolders,
+        deletedFiles: stats.deletedFiles,
+        totalChapters: stats.totalChapters,
+        totalLessons: stats.totalLessons,
+        totalSubfolders: stats.totalSubfolders,
+        totalFiles: stats.totalFiles
+      }
+    };
   } catch (error) {
     console.error("Lỗi khi đồng bộ các mục đã xóa:", error);
     return { hasChanges: false, deletedFilesCount: 0, failedDeletionsCount: 0 };
