@@ -1482,12 +1482,14 @@ async function processFolder(
 }
 
 // Thêm hàm xóa file từ Wasabi storage
-async function deleteFromWasabi(key) {
+async function deleteFromWasabi(key, retryCount = 0) {
   if (!key) {
     console.warn("Không có key file để xóa từ Wasabi");
     return false;
   }
 
+  const MAX_RETRIES = 2;
+  
   try {
     console.log(`Đang xóa file từ Wasabi với key: ${key}`);
 
@@ -1501,11 +1503,44 @@ async function deleteFromWasabi(key) {
     return true;
   } catch (error) {
     console.error(`Lỗi khi xóa file từ Wasabi (${key}):`, error);
-    return false;
+    
+    // Thử lại nếu chưa vượt quá số lần thử
+    if (retryCount < MAX_RETRIES) {
+      console.log(`Thử xóa lại lần ${retryCount + 1}/${MAX_RETRIES}...`);
+      // Đợi 500ms trước khi thử lại
+      await new Promise(resolve => setTimeout(resolve, 500));
+      return deleteFromWasabi(key, retryCount + 1);
+    }
+    
+    // Nếu đã vượt quá số lần thử, kiểm tra xem file có tồn tại không
+    try {
+      const checkCommand = new HeadObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      });
+      
+      try {
+        await s3Client.send(checkCommand);
+        console.warn(`File vẫn tồn tại trên Wasabi sau ${MAX_RETRIES + 1} lần thử xóa: ${key}`);
+        // File vẫn tồn tại
+        return false;
+      } catch (err) {
+        // Nếu lỗi NotFound thì có nghĩa là file đã bị xóa hoặc không tồn tại
+        if (err.name === 'NotFound' || err.Code === 'NotFound' || err.name === 'NoSuchKey') {
+          console.log(`File không còn tồn tại trên Wasabi: ${key} (có thể đã bị xóa trước đó)`);
+          return true;
+        }
+        console.warn(`Không thể kiểm tra tồn tại của file: ${key} - ${err.message}`);
+        return false;
+      }
+    } catch (checkError) {
+      console.error(`Lỗi khi kiểm tra file sau khi xóa thất bại: ${checkError.message}`);
+      return false;
+    }
   }
 }
 
-// Cập nhật hàm synchronizeDeletedItems để xóa file trên Wasabi
+// Cập nhật hàm synchronizeDeletedItems để xóa triệt để các mục đã xóa
 async function synchronizeDeletedItems(courseId) {
   try {
     console.log("\n=== Bắt đầu đồng bộ các mục đã xóa ===");
@@ -1521,6 +1556,7 @@ async function synchronizeDeletedItems(courseId) {
     const courseData = courseDoc.data();
     let hasChanges = false;
     let deletedFilesCount = 0;
+    let failedDeletionsCount = 0;
 
     // Đồng bộ xóa chương và bài học
     const updatedChapters = [];
@@ -1537,8 +1573,18 @@ async function synchronizeDeletedItems(courseId) {
           // Xóa file trong lesson
           for (const file of lesson.files || []) {
             if (file.storage?.provider === "wasabi" && file.storage?.key) {
-              const deleted = await deleteFromWasabi(file.storage.key);
-              if (deleted) deletedFilesCount++;
+              try {
+                const deleted = await deleteFromWasabi(file.storage.key);
+                if (deleted) {
+                  deletedFilesCount++;
+                } else {
+                  failedDeletionsCount++;
+                  console.warn(`Không thể xóa file: ${file.storage.key} từ Wasabi`);
+                }
+              } catch (err) {
+                failedDeletionsCount++;
+                console.error(`Lỗi khi xóa file từ Wasabi: ${err.message}`);
+              }
             }
           }
 
@@ -1546,8 +1592,18 @@ async function synchronizeDeletedItems(courseId) {
           for (const subfolder of lesson.subfolders || []) {
             for (const file of subfolder.files || []) {
               if (file.storage?.provider === "wasabi" && file.storage?.key) {
-                const deleted = await deleteFromWasabi(file.storage.key);
-                if (deleted) deletedFilesCount++;
+                try {
+                  const deleted = await deleteFromWasabi(file.storage.key);
+                  if (deleted) {
+                    deletedFilesCount++;
+                  } else {
+                    failedDeletionsCount++;
+                    console.warn(`Không thể xóa file: ${file.storage.key} từ Wasabi`);
+                  }
+                } catch (err) {
+                  failedDeletionsCount++;
+                  console.error(`Lỗi khi xóa file từ Wasabi: ${err.message}`);
+                }
               }
             }
           }
@@ -1569,8 +1625,18 @@ async function synchronizeDeletedItems(courseId) {
           // Xóa tất cả file trong lesson khỏi Wasabi
           for (const file of lesson.files || []) {
             if (file.storage?.provider === "wasabi" && file.storage?.key) {
-              const deleted = await deleteFromWasabi(file.storage.key);
-              if (deleted) deletedFilesCount++;
+              try {
+                const deleted = await deleteFromWasabi(file.storage.key);
+                if (deleted) {
+                  deletedFilesCount++;
+                } else {
+                  failedDeletionsCount++;
+                  console.warn(`Không thể xóa file: ${file.storage.key} từ Wasabi`);
+                }
+              } catch (err) {
+                failedDeletionsCount++;
+                console.error(`Lỗi khi xóa file từ Wasabi: ${err.message}`);
+              }
             }
           }
 
@@ -1578,8 +1644,18 @@ async function synchronizeDeletedItems(courseId) {
           for (const subfolder of lesson.subfolders || []) {
             for (const file of subfolder.files || []) {
               if (file.storage?.provider === "wasabi" && file.storage?.key) {
-                const deleted = await deleteFromWasabi(file.storage.key);
-                if (deleted) deletedFilesCount++;
+                try {
+                  const deleted = await deleteFromWasabi(file.storage.key);
+                  if (deleted) {
+                    deletedFilesCount++;
+                  } else {
+                    failedDeletionsCount++;
+                    console.warn(`Không thể xóa file: ${file.storage.key} từ Wasabi`);
+                  }
+                } catch (err) {
+                  failedDeletionsCount++;
+                  console.error(`Lỗi khi xóa file từ Wasabi: ${err.message}`);
+                }
               }
             }
           }
@@ -1593,26 +1669,32 @@ async function synchronizeDeletedItems(courseId) {
         for (const file of lesson.files || []) {
           // Kiểm tra file có driveFileId hợp lệ không
           const driveFileId = file.driveFileId;
-          if (!driveFileId) {
-            // Nếu không có driveFileId, giữ lại file (không thể kiểm tra)
-            console.log(
-              `File "${file.name}" không có driveFileId, bỏ qua kiểm tra xóa`
-            );
-            updatedFiles.push(file);
-            continue;
-          }
+          const fileExists = driveFileId ? syncState.processedItems.files.has(driveFileId) : false;
 
-          // Kiểm tra xem file có tồn tại trong danh sách đã xử lý không
-          const fileExists = syncState.processedItems.files.has(driveFileId);
-          if (!fileExists) {
+          // Nếu không có driveFileId hoặc không tìm thấy trong danh sách đã xử lý -> xóa
+          if (!driveFileId || !fileExists) {
+            const reason = !driveFileId 
+              ? "không có driveFileId" 
+              : "không còn tồn tại trên Drive";
+            
             console.log(
-              `File "${file.name}" (ID: ${driveFileId}) đã bị xóa trên Drive, xóa khỏi hệ thống`
+              `File "${file.name}" (${reason}) đã bị xóa trên Drive, xóa khỏi hệ thống`
             );
 
-            // Xóa file từ Wasabi
+            // Xóa file từ Wasabi nếu có
             if (file.storage?.provider === "wasabi" && file.storage?.key) {
-              const deleted = await deleteFromWasabi(file.storage.key);
-              if (deleted) deletedFilesCount++;
+              try {
+                const deleted = await deleteFromWasabi(file.storage.key);
+                if (deleted) {
+                  deletedFilesCount++;
+                } else {
+                  failedDeletionsCount++;
+                  console.warn(`Không thể xóa file: ${file.storage.key} từ Wasabi`);
+                }
+              } catch (err) {
+                failedDeletionsCount++;
+                console.error(`Lỗi khi xóa file từ Wasabi: ${err.message}`);
+              }
             }
 
             hasChanges = true;
@@ -1633,8 +1715,18 @@ async function synchronizeDeletedItems(courseId) {
             // Xóa tất cả file trong subfolder khỏi Wasabi
             for (const file of subfolder.files || []) {
               if (file.storage?.provider === "wasabi" && file.storage?.key) {
-                const deleted = await deleteFromWasabi(file.storage.key);
-                if (deleted) deletedFilesCount++;
+                try {
+                  const deleted = await deleteFromWasabi(file.storage.key);
+                  if (deleted) {
+                    deletedFilesCount++;
+                  } else {
+                    failedDeletionsCount++;
+                    console.warn(`Không thể xóa file: ${file.storage.key} từ Wasabi`);
+                  }
+                } catch (err) {
+                  failedDeletionsCount++;
+                  console.error(`Lỗi khi xóa file từ Wasabi: ${err.message}`);
+                }
               }
             }
 
@@ -1647,26 +1739,32 @@ async function synchronizeDeletedItems(courseId) {
           for (const file of subfolder.files || []) {
             // Kiểm tra file có driveFileId hợp lệ không
             const driveFileId = file.driveFileId;
-            if (!driveFileId) {
-              // Nếu không có driveFileId, giữ lại file (không thể kiểm tra)
-              console.log(
-                `File "${file.name}" trong subfolder không có driveFileId, bỏ qua kiểm tra xóa`
-              );
-              updatedSubfolderFiles.push(file);
-              continue;
-            }
+            const fileExists = driveFileId ? syncState.processedItems.files.has(driveFileId) : false;
 
-            // Kiểm tra xem file có tồn tại trong danh sách đã xử lý không
-            const fileExists = syncState.processedItems.files.has(driveFileId);
-            if (!fileExists) {
+            // Nếu không có driveFileId hoặc không tìm thấy trong danh sách đã xử lý -> xóa
+            if (!driveFileId || !fileExists) {
+              const reason = !driveFileId 
+                ? "không có driveFileId" 
+                : "không còn tồn tại trên Drive";
+                
               console.log(
-                `File "${file.name}" (ID: ${driveFileId}) trong thư mục con "${subfolder.name}" đã bị xóa trên Drive, xóa khỏi hệ thống`
+                `File "${file.name}" (${reason}) trong thư mục con "${subfolder.name}" đã bị xóa trên Drive, xóa khỏi hệ thống`
               );
 
               // Xóa file từ Wasabi
               if (file.storage?.provider === "wasabi" && file.storage?.key) {
-                const deleted = await deleteFromWasabi(file.storage.key);
-                if (deleted) deletedFilesCount++;
+                try {
+                  const deleted = await deleteFromWasabi(file.storage.key);
+                  if (deleted) {
+                    deletedFilesCount++;
+                  } else {
+                    failedDeletionsCount++;
+                    console.warn(`Không thể xóa file: ${file.storage.key} từ Wasabi`);
+                  }
+                } catch (err) {
+                  failedDeletionsCount++;
+                  console.error(`Lỗi khi xóa file từ Wasabi: ${err.message}`);
+                }
               }
 
               hasChanges = true;
@@ -1711,17 +1809,17 @@ async function synchronizeDeletedItems(courseId) {
       });
 
       console.log(
-        `Đã cập nhật khóa học sau khi đồng bộ xóa. Đã xóa ${deletedFilesCount} file trên Wasabi.`
+        `Đã cập nhật khóa học sau khi đồng bộ xóa. Đã xóa ${deletedFilesCount} file trên Wasabi (${failedDeletionsCount} thất bại).`
       );
     } else {
       console.log("Không có mục nào bị xóa, không cần cập nhật");
     }
 
     console.log("=== Kết thúc đồng bộ các mục đã xóa ===\n");
-    return { hasChanges, deletedFilesCount };
+    return { hasChanges, deletedFilesCount, failedDeletionsCount };
   } catch (error) {
     console.error("Lỗi khi đồng bộ các mục đã xóa:", error);
-    return { hasChanges: false, deletedFilesCount: 0 };
+    return { hasChanges: false, deletedFilesCount: 0, failedDeletionsCount: 0 };
   }
 }
 
@@ -1936,7 +2034,7 @@ export async function POST(request) {
       );
 
       // Thực hiện đồng bộ xóa nếu được yêu cầu
-      let syncResult = false;
+      let syncResult = { hasChanges: false, deletedFilesCount: 0, failedDeletionsCount: 0 };
       if (enableSync && course.isExisting) {
         syncResult = await synchronizeDeletedItems(course.id);
       }
@@ -2026,10 +2124,12 @@ export async function POST(request) {
         structure: structure,
         courseId: course.id,
         syncPerformed: enableSync && course.isExisting,
-        hasRemovedItems: syncResult,
+        syncResult: syncResult,
         message: course.isExisting
           ? `Khóa học đã tồn tại, đã cập nhật nội dung${
-              syncResult ? " và đồng bộ các mục đã xóa" : ""
+              syncResult.hasChanges 
+                ? ` và đồng bộ xóa ${syncResult.deletedFilesCount} file (${syncResult.failedDeletionsCount} thất bại)` 
+                : ""
             }`
           : "Import khóa học mới thành công",
         stats: {
