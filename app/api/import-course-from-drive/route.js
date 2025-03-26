@@ -1550,7 +1550,7 @@ async function synchronizeDeletedItems(courseId) {
     const courseDoc = await courseRef.get();
     if (!courseDoc.exists) {
       console.log("Không tìm thấy khóa học, bỏ qua đồng bộ xóa");
-      return false;
+      return { hasChanges: false, deletedFilesCount: 0, failedDeletionsCount: 0 };
     }
 
     const courseData = courseDoc.data();
@@ -1669,16 +1669,11 @@ async function synchronizeDeletedItems(courseId) {
         for (const file of lesson.files || []) {
           // Kiểm tra file có driveFileId hợp lệ không
           const driveFileId = file.driveFileId;
-          const fileExists = driveFileId ? syncState.processedItems.files.has(driveFileId) : false;
-
-          // Nếu không có driveFileId hoặc không tìm thấy trong danh sách đã xử lý -> xóa
-          if (!driveFileId || !fileExists) {
-            const reason = !driveFileId 
-              ? "không có driveFileId" 
-              : "không còn tồn tại trên Drive";
-            
+          
+          // CHỈ xóa file khi có driveFileId và không tìm thấy trong items đã xử lý
+          if (driveFileId && !syncState.processedItems.files.has(driveFileId)) {
             console.log(
-              `File "${file.name}" (${reason}) đã bị xóa trên Drive, xóa khỏi hệ thống`
+              `File "${file.name}" (ID: ${driveFileId}) đã bị xóa trên Drive, xóa khỏi hệ thống`
             );
 
             // Xóa file từ Wasabi nếu có
@@ -1699,6 +1694,7 @@ async function synchronizeDeletedItems(courseId) {
 
             hasChanges = true;
           } else {
+            // Giữ lại file nếu không có driveFileId hoặc tìm thấy trong items đã xử lý
             updatedFiles.push(file);
           }
         }
@@ -1739,16 +1735,11 @@ async function synchronizeDeletedItems(courseId) {
           for (const file of subfolder.files || []) {
             // Kiểm tra file có driveFileId hợp lệ không
             const driveFileId = file.driveFileId;
-            const fileExists = driveFileId ? syncState.processedItems.files.has(driveFileId) : false;
-
-            // Nếu không có driveFileId hoặc không tìm thấy trong danh sách đã xử lý -> xóa
-            if (!driveFileId || !fileExists) {
-              const reason = !driveFileId 
-                ? "không có driveFileId" 
-                : "không còn tồn tại trên Drive";
-                
+            
+            // CHỈ xóa file khi có driveFileId và không tìm thấy trong items đã xử lý
+            if (driveFileId && !syncState.processedItems.files.has(driveFileId)) {
               console.log(
-                `File "${file.name}" (${reason}) trong thư mục con "${subfolder.name}" đã bị xóa trên Drive, xóa khỏi hệ thống`
+                `File "${file.name}" (ID: ${driveFileId}) trong thư mục con "${subfolder.name}" đã bị xóa trên Drive, xóa khỏi hệ thống`
               );
 
               // Xóa file từ Wasabi
@@ -1769,6 +1760,7 @@ async function synchronizeDeletedItems(courseId) {
 
               hasChanges = true;
             } else {
+              // Giữ lại file nếu không có driveFileId hoặc tìm thấy trong items đã xử lý
               updatedSubfolderFiles.push(file);
             }
           }
