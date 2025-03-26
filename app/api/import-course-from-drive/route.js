@@ -800,259 +800,208 @@ async function getOrCreateSubfolder(courseId, chapterId, lessonId, folderName) {
   }
 }
 
-async function addFileToLesson(
-  courseId,
-  chapterId,
-  lessonId,
-  file,
-  subfolderId = null
-) {
+// Hàm kiểm tra và xóa file trùng lặp trong bài học - cải tiến logic theo yêu cầu
+async function checkAndDeleteDuplicateFiles(courseId, chapterId, lessonId, newFileName, subfolderId = null) {
   try {
-    if (!courseId || !chapterId || !lessonId || !file) {
-      throw new Error("Thiếu thông tin cần thiết để thêm file");
-    }
-
-    const fileType = getFileType(file.mimeType);
-
-    const fileData = {
-      id: uuidv4(),
-      mimeType: file.mimeType,
-      name: file.name,
-      originalName: file.name,
-      type: fileType,
-      uploadTime: new Date().toISOString(),
-      driveFileId: file.id || null,
-      status: "active",
-      size: file.size?.toString() || "0",
-      modifiedTime: file.modifiedTime || new Date().toISOString(),
-    };
-
-    if (file.wasabi) {
-      fileData.storage = {
-        provider: "wasabi",
-        key: file.wasabi.key,
-        size: file.wasabi.size,
-        uploadTime: new Date().toISOString(),
-      };
-    } else {
-      const encryptedId = encryptId(file.id);
-      fileData.proxyUrl = `/api/proxy/files?id=${encryptedId}`;
-    }
-
+    console.log(`Kiểm tra trùng lặp cho file "${newFileName}" trong bài học ${lessonId}`);
+    
     const courseRef = db.collection("courses").doc(courseId);
     const courseDoc = await courseRef.get();
-
+    
     if (!courseDoc.exists) {
-      throw new Error("Không tìm thấy khóa học");
+      console.warn(`Không tìm thấy khóa học ${courseId} khi kiểm tra trùng lặp`);
+      return { needUpload: true, fileData: null };
     }
-
+    
     const courseData = courseDoc.data();
-    const chapter = courseData.chapters.find((c) => c.id === chapterId);
-
+    const chapter = courseData.chapters.find(c => c.id === chapterId);
+    
     if (!chapter) {
-      throw new Error("Không tìm thấy chapter");
+      console.warn(`Không tìm thấy chương ${chapterId} khi kiểm tra trùng lặp`);
+      return { needUpload: true, fileData: null };
     }
-
-    const lesson = chapter.lessons.find((l) => l.id === lessonId);
-
+    
+    const lesson = chapter.lessons.find(l => l.id === lessonId);
+    
     if (!lesson) {
-      throw new Error("Không tìm thấy lesson");
+      console.warn(`Không tìm thấy bài học ${lessonId} khi kiểm tra trùng lặp`);
+      return { needUpload: true, fileData: null };
     }
-
-    const updatedChapters = courseData.chapters.map((c) => {
-      if (c.id === chapterId) {
-        const updatedLessons = c.lessons.map((l) => {
-          if (l.id === lessonId) {
-            if (subfolderId) {
-              const updatedSubfolders = (l.subfolders || []).map((sf) => {
+    
+    let duplicateFiles = [];
+    let locationInfo = ""; // Thông tin vị trí cho log
+    
+    if (subfolderId) {
+      // Kiểm tra trong thư mục con cụ thể
+      const subfolder = lesson.subfolders?.find(sf => sf.id === subfolderId);
+      if (!subfolder) {
+        console.warn(`Không tìm thấy thư mục con ${subfolderId} khi kiểm tra trùng lặp`);
+        return { needUpload: true, fileData: null };
+      }
+      
+      locationInfo = `trong thư mục con "${subfolder.name}"`;
+      
+      // Tìm tất cả file trùng tên trong subfolder
+      duplicateFiles = subfolder.files?.filter(file => 
+        file.name === newFileName || file.originalName === newFileName
+      ) || [];
+    } else {
+      // Kiểm tra trong bài học
+      locationInfo = `trong bài học "${lesson.title}"`;
+      
+      duplicateFiles = lesson.files?.filter(file => 
+        file.name === newFileName || file.originalName === newFileName
+      ) || [];
+    }
+    
+    // Trường hợp 1: Không có file nào -> cần tải mới
+    if (duplicateFiles.length === 0) {
+      console.log(`Không tìm thấy file trùng lặp cho "${newFileName}" ${locationInfo}, cần tải mới`);
+      return { needUpload: true, fileData: null };
+    }
+    
+    // Trường hợp 2: Có 1 file duy nhất -> kiểm tra key Wasabi
+    if (duplicateFiles.length === 1) {
+      const file = duplicateFiles[0];
+      console.log(`Tìm thấy 1 file "${newFileName}" ${locationInfo}, kiểm tra key Wasabi`);
+      
+      if (file.storage?.provider === "wasabi" && file.storage?.key) {
+        // Kiểm tra file có thực sự tồn tại trên Wasabi không
+        const wasabiFileExists = await checkWasabiFile(file.storage.key);
+        
+        if (wasabiFileExists) {
+          console.log(`File "${newFileName}" đã có key Wasabi hợp lệ: ${file.storage.key}, không cần tải lại`);
+          return { needUpload: false, fileData: file };
+        } else {
+          console.log(`File "${newFileName}" có key Wasabi nhưng file không tồn tại trên Wasabi, cần tải lại`);
+          return { needUpload: true, fileData: file };
+        }
+      } else {
+        console.log(`File "${newFileName}" không có key Wasabi, cần tải lên Wasabi`);
+        return { needUpload: true, fileData: file };
+      }
+    }
+    
+    // Trường hợp 3: Có nhiều file trùng tên -> xóa bớt, chỉ giữ lại file đầu tiên
+    console.log(`Tìm thấy ${duplicateFiles.length} file trùng lặp với tên "${newFileName}" ${locationInfo}, xóa bớt`);
+    
+    // Giữ lại file đầu tiên
+    const keptFile = duplicateFiles[0];
+    const filesToDelete = duplicateFiles.slice(1);
+    
+    // Xóa các file trùng lặp còn lại khỏi Wasabi
+    for (const file of filesToDelete) {
+      if (file.storage?.provider === "wasabi" && file.storage?.key) {
+        await deleteFromWasabi(file.storage.key);
+        console.log(`Đã xóa file trùng lặp từ Wasabi: ${file.storage.key}`);
+      } else {
+        console.log(`File trùng lặp không có lưu trữ trên Wasabi hoặc không có key`);
+      }
+    }
+    
+    // Cập nhật database để xóa các file trùng lặp
+    if (subfolderId) {
+      // Xóa file trùng lặp trong thư mục con
+      const updatedChapters = courseData.chapters.map(c => {
+        if (c.id === chapterId) {
+          const updatedLessons = c.lessons.map(l => {
+            if (l.id === lessonId) {
+              const updatedSubfolders = l.subfolders.map(sf => {
                 if (sf.id === subfolderId) {
+                  // Lọc để chỉ giữ lại keptFile và các file khác tên
+                  const filteredFiles = sf.files.filter(file => 
+                    (file.id === keptFile.id) || 
+                    (file.name !== newFileName && file.originalName !== newFileName)
+                  );
+                  
+                  console.log(`Đã xóa ${sf.files.length - filteredFiles.length} file trùng lặp từ subfolder trong database`);
+                  
                   return {
                     ...sf,
-                    files: [...(sf.files || []), fileData],
-                    updatedAt: new Date().toISOString(),
+                    files: filteredFiles,
+                    updatedAt: new Date().toISOString()
                   };
                 }
                 return sf;
               });
-
+              
               return {
                 ...l,
                 subfolders: updatedSubfolders,
-                updatedAt: new Date().toISOString(),
-              };
-            } else {
-              return {
-                ...l,
-                files: [...(l.files || []), fileData],
-                updatedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
               };
             }
-          }
-          return l;
-        });
-        return { ...c, lessons: updatedLessons };
-      }
-      return c;
-    });
-
-    await courseRef.update({
-      chapters: updatedChapters,
-      updatedAt: new Date().toISOString(),
-    });
-
-    const location = subfolderId ? "subfolder" : "lesson";
-    console.log(
-      `Đã thêm file ${file.name} vào ${location} ${subfolderId || lessonId}`
-    );
-    return fileData;
-  } catch (error) {
-    console.error("Lỗi khi thêm file:", error);
-    throw error;
-  }
-}
-
-function getFileType(mimeType) {
-  const videoTypes = ["video/mp4", "video/webm", "video/ogg"];
-  const documentTypes = [
-    "application/pdf",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ];
-  const imageTypes = ["image/jpeg", "image/png", "image/gif"];
-
-  if (videoTypes.includes(mimeType)) return "video";
-  if (documentTypes.includes(mimeType)) return "document";
-  if (imageTypes.includes(mimeType)) return "image";
-  return "other";
-}
-
-// Khôi phục lại hàm checkFileExists về logic ban đầu
-async function checkFileExists(
-  courseId,
-  chapterId,
-  lessonId,
-  fileName,
-  subfolderName = null,
-  driveFileId = null
-) {
-  try {
-    // Tạo key cho cache - thêm thông tin subfolder và driveFileId
-    const cacheKey = `${courseId}_${chapterId}_${lessonId}_${
-      subfolderName || "root"
-    }_${fileName}_${driveFileId || ""}`;
-
-    // Kiểm tra cache trước
-    if (cache.fileChecks[cacheKey] !== undefined) {
-      return cache.fileChecks[cacheKey];
-    }
-
-    // Nếu đã cache dữ liệu khóa học, sử dụng từ cache
-    let courseData;
-    if (cache.courseData[courseId]) {
-      courseData = cache.courseData[courseId];
-    } else {
-      const courseRef = db.collection("courses").doc(courseId);
-      const courseDoc = await courseRef.get();
-
-      if (!courseDoc.exists) {
-        cache.fileChecks[cacheKey] = { exists: false, hasWasabi: false };
-        return { exists: false, hasWasabi: false };
-      }
-
-      courseData = courseDoc.data();
-      // Cache lại dữ liệu khóa học để sử dụng lần sau
-      cache.courseData[courseId] = courseData;
-    }
-
-    const chapter = courseData.chapters.find((c) => c.id === chapterId);
-
-    if (!chapter) {
-      cache.fileChecks[cacheKey] = { exists: false, hasWasabi: false };
-      return { exists: false, hasWasabi: false };
-    }
-
-    const lesson = chapter.lessons.find((l) => l.id === lessonId);
-
-    if (!lesson) {
-      cache.fileChecks[cacheKey] = { exists: false, hasWasabi: false };
-      return { exists: false, hasWasabi: false };
-    }
-
-    let fileFound = null;
-
-    if (subfolderName) {
-      // Kiểm tra file trong subfolder cụ thể
-      const targetSubfolder = lesson.subfolders?.find(
-        (sf) => sf.name === subfolderName
-      );
-      if (targetSubfolder) {
-        fileFound = targetSubfolder.files?.find((file) => {
-          // Nếu có driveFileId, kiểm tra cả tên và ID
-          if (driveFileId) {
-            return file.name === fileName && file.driveFileId === driveFileId;
-          }
-          return file.name === fileName;
-        });
-
-        if (fileFound) {
-          console.log(
-            `File "${fileName}" đã tồn tại trong subfolder "${subfolderName}"`
-          );
+            return l;
+          });
+          
+          return { ...c, lessons: updatedLessons };
         }
-      }
-    } else {
-      // Kiểm tra file trực tiếp trong lesson
-      fileFound = lesson.files?.find((file) => {
-        // Nếu có driveFileId, kiểm tra cả tên và ID
-        if (driveFileId) {
-          return file.name === fileName && file.driveFileId === driveFileId;
-        }
-        return file.name === fileName;
+        return c;
       });
-
-      if (fileFound) {
-        console.log(`File "${fileName}" đã tồn tại trực tiếp trong lesson`);
-      }
-    }
-
-    const result = {
-      exists: !!fileFound,
-      hasWasabi:
-        fileFound?.storage?.provider === "wasabi" && !!fileFound?.storage?.key,
-      fileData: fileFound,
-    };
-
-    if (result.exists) {
-      if (result.hasWasabi) {
-        console.log(
-          `File "${fileName}" đã có key Wasabi: ${fileFound.storage.key}`
-        );
-
-        // Kiểm tra thực tế xem file có tồn tại trên Wasabi không
-        const wasabiFileExists = await checkWasabiFile(fileFound.storage.key);
-        if (!wasabiFileExists) {
-          console.warn(
-            `File ${fileName} có key Wasabi nhưng không tìm thấy trên Wasabi, cần tải lại`
-          );
-          result.hasWasabi = false;
+      
+      await courseRef.update({
+        chapters: updatedChapters,
+        updatedAt: new Date().toISOString()
+      });
+    } else {
+      // Xóa file trùng lặp trong bài học
+      const updatedChapters = courseData.chapters.map(c => {
+        if (c.id === chapterId) {
+          const updatedLessons = c.lessons.map(l => {
+            if (l.id === lessonId) {
+              // Lọc để chỉ giữ lại keptFile và các file khác tên
+              const filteredFiles = l.files.filter(file => 
+                (file.id === keptFile.id) || 
+                (file.name !== newFileName && file.originalName !== newFileName)
+              );
+              
+              console.log(`Đã xóa ${l.files.length - filteredFiles.length} file trùng lặp từ lesson trong database`);
+              
+              return {
+                ...l,
+                files: filteredFiles,
+                updatedAt: new Date().toISOString()
+              };
+            }
+            return l;
+          });
+          
+          return { ...c, lessons: updatedLessons };
         }
-      } else {
-        console.log(
-          `File "${fileName}" tồn tại nhưng chưa có key Wasabi, cần tải lại`
-        );
-      }
+        return c;
+      });
+      
+      await courseRef.update({
+        chapters: updatedChapters,
+        updatedAt: new Date().toISOString()
+      });
     }
-
-    // Lưu kết quả vào cache
-    cache.fileChecks[cacheKey] = result;
-    return result;
+    
+    console.log(`Đã hoàn thành xử lý file trùng lặp cho "${newFileName}", còn lại 1 file duy nhất`);
+    
+    // Kiểm tra file còn lại có key Wasabi hợp lệ không
+    if (keptFile.storage?.provider === "wasabi" && keptFile.storage?.key) {
+      // Kiểm tra file có thực sự tồn tại trên Wasabi không
+      const wasabiFileExists = await checkWasabiFile(keptFile.storage.key);
+      
+      if (wasabiFileExists) {
+        console.log(`File còn lại "${newFileName}" đã có key Wasabi hợp lệ: ${keptFile.storage.key}, không cần tải lại`);
+        return { needUpload: false, fileData: keptFile };
+      } else {
+        console.log(`File còn lại "${newFileName}" có key Wasabi nhưng file không tồn tại trên Wasabi, cần tải lại`);
+        return { needUpload: true, fileData: keptFile };
+      }
+    } else {
+      console.log(`File còn lại "${newFileName}" không có key Wasabi, cần tải lên Wasabi`);
+      return { needUpload: true, fileData: keptFile };
+    }
   } catch (error) {
-    console.error("Lỗi khi kiểm tra file tồn tại:", error);
-    return { exists: false, hasWasabi: false };
+    console.error(`Lỗi khi xử lý file trùng lặp: ${error.message}`, error);
+    return { needUpload: true, fileData: null };
   }
 }
 
-// Sửa lại hàm processFiles để truyền đường dẫn thư mục cho uploadToWasabi
+// Cập nhật hàm processFiles để sử dụng logic mới
 async function processFiles(
   drive,
   validFiles,
@@ -1082,27 +1031,46 @@ async function processFiles(
         ? parentPath.split("/").pop()
         : null;
 
-    const fileCheckResult = await checkFileExists(
-      courseId,
-      parentId,
-      lessonId,
+    // Tìm subfolderId nếu có
+    let subfolderId = null;
+    if (subfolderName && parentType === "subfolder") {
+      const courseRef = db.collection("courses").doc(courseId);
+      const courseDoc = await courseRef.get();
+      
+      if (courseDoc.exists) {
+        const courseData = courseDoc.data();
+        const chapter = courseData.chapters.find(c => c.id === parentId);
+        
+        if (chapter) {
+          const lesson = chapter.lessons.find(l => l.id === lessonId);
+          
+          if (lesson) {
+            const subfolder = lesson.subfolders?.find(sf => sf.name === subfolderName);
+            if (subfolder) {
+              subfolderId = subfolder.id;
+            }
+          }
+        }
+      }
+    }
+
+    // Kiểm tra trùng lặp và xác định xem có cần tải lên không
+    const { needUpload, fileData } = await checkAndDeleteDuplicateFiles(
+      courseId, 
+      parentId, 
+      lessonId, 
       file.name,
-      subfolderName,
-      file.id // DriveFileId
+      subfolderId
     );
 
-    // Nếu file chưa tồn tại HOẶC đã tồn tại nhưng chưa có key Wasabi thì thêm vào danh sách xử lý
-    if (
-      !fileCheckResult.exists ||
-      (fileCheckResult.exists && !fileCheckResult.hasWasabi)
-    ) {
+    if (needUpload) {
       filesToProcess.push({
         ...file,
         folderPath: parentPath, // Thêm đường dẫn thư mục cho file
-        existingData: fileCheckResult.exists ? fileCheckResult.fileData : null,
+        existingData: fileData // Có thể là null hoặc file đang tồn tại cần cập nhật
       });
     } else {
-      console.log(`File ${file.name} đã tồn tại và có key Wasabi, bỏ qua.`);
+      console.log(`File ${file.name} đã tồn tại và có key Wasabi hợp lệ, bỏ qua.`);
     }
   }
 
@@ -1159,8 +1127,7 @@ async function processFiles(
                 : 0;
             stats.totalUploadTime +=
               parseFloat(uploadResult.uploadSpeed) > 0
-                ? parseFloat(uploadResult.fileSize) /
-                  parseFloat(uploadResult.uploadSpeed)
+                ? parseFloat(uploadResult.fileSize) / parseFloat(uploadResult.uploadSpeed)
                 : 0;
           }
 
@@ -1509,7 +1476,7 @@ async function processFolder(
 
     console.log(`=== Kết thúc xử lý thư mục ${currentPath || "gốc"} ===\n`);
   } catch (error) {
-    console.error(`Lỗi khi xử lý thư mục ${currentPath || "gốc"}:`, error);
+    console.error(`Lỗi khi xử lý thư mục ${parentPath || "gốc"}:`, error);
     throw error;
   }
 }
@@ -2096,4 +2063,284 @@ export async function POST(request) {
       { status: 500 }
     );
   }
+}
+
+// Thêm hàm kiểm tra file tồn tại trên Wasabi
+async function checkWasabiFile(key) {
+  if (!key) {
+    console.warn("Không có key file để kiểm tra trên Wasabi");
+    return false;
+  }
+
+  try {
+    console.log(`Kiểm tra file tồn tại trên Wasabi với key: ${key}`);
+
+    const command = new HeadObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+    });
+
+    try {
+      await s3Client.send(command);
+      console.log(`File tồn tại trên Wasabi: ${key}`);
+      return true;
+    } catch (error) {
+      if (error.name === 'NotFound' || error.Code === 'NotFound' || error.name === 'NoSuchKey') {
+        console.warn(`File không tồn tại trên Wasabi: ${key}`);
+        return false;
+      }
+      // Nếu lỗi khác không phải NotFound, coi như file có thể tồn tại
+      console.warn(`Lỗi khi kiểm tra file trên Wasabi: ${error.message}`);
+      return true;
+    }
+  } catch (error) {
+    console.error(`Lỗi khi kiểm tra file tồn tại trên Wasabi (${key}):`, error);
+    // Trong trường hợp lỗi, trả về true để tránh tải lại file không cần thiết
+    return true;
+  }
+}
+
+// Cập nhật hàm addFileToLesson để sử dụng logic mới
+async function addFileToLesson(
+  courseId,
+  chapterId,
+  lessonId,
+  file,
+  subfolderId = null
+) {
+  try {
+    if (!courseId || !chapterId || !lessonId || !file) {
+      throw new Error("Thiếu thông tin cần thiết để thêm file");
+    }
+
+    // Kiểm tra trùng lặp và xác định xem có cần tải lên không
+    const { needUpload, fileData } = await checkAndDeleteDuplicateFiles(
+      courseId, 
+      chapterId, 
+      lessonId, 
+      file.name,
+      subfolderId
+    );
+
+    // Nếu không cần tải lên và đã có file hiện có -> không cần làm gì thêm
+    if (!needUpload && fileData) {
+      console.log(`File ${file.name} đã tồn tại với key Wasabi hợp lệ, bỏ qua thêm file`);
+      return fileData;
+    }
+
+    // Nếu có file cũ cần cập nhật
+    if (needUpload && fileData) {
+      console.log(`Cập nhật file ${file.name} hiện có với key Wasabi mới`);
+      
+      // Nếu không có dữ liệu Wasabi mới, không thể cập nhật
+      if (!file.wasabi) {
+        console.warn(`Không có thông tin Wasabi để cập nhật file ${file.name}`);
+        return fileData;
+      }
+      
+      const updatedFile = {
+        ...fileData,
+        storage: {
+          provider: "wasabi",
+          key: file.wasabi.key,
+          size: file.wasabi.size,
+          uploadTime: new Date().toISOString(),
+        },
+        updatedAt: new Date().toISOString()
+      };
+
+      // Cập nhật file trong database
+      const courseRef = db.collection("courses").doc(courseId);
+      const courseDoc = await courseRef.get();
+      
+      if (!courseDoc.exists) {
+        throw new Error("Không tìm thấy khóa học");
+      }
+      
+      const courseData = courseDoc.data();
+      
+      if (subfolderId) {
+        // Cập nhật file trong subfolder
+        const updatedChapters = courseData.chapters.map(c => {
+          if (c.id === chapterId) {
+            const updatedLessons = c.lessons.map(l => {
+              if (l.id === lessonId) {
+                const updatedSubfolders = l.subfolders.map(sf => {
+                  if (sf.id === subfolderId) {
+                    const updatedFiles = sf.files.map(f => {
+                      if (f.id === fileData.id) {
+                        return updatedFile;
+                      }
+                      return f;
+                    });
+                    
+                    return { ...sf, files: updatedFiles, updatedAt: new Date().toISOString() };
+                  }
+                  return sf;
+                });
+                
+                return { ...l, subfolders: updatedSubfolders, updatedAt: new Date().toISOString() };
+              }
+              return l;
+            });
+            
+            return { ...c, lessons: updatedLessons };
+          }
+          return c;
+        });
+        
+        await courseRef.update({
+          chapters: updatedChapters,
+          updatedAt: new Date().toISOString()
+        });
+        
+        console.log(`Đã cập nhật key Wasabi cho file ${file.name} trong subfolder`);
+      } else {
+        // Cập nhật file trong lesson
+        const updatedChapters = courseData.chapters.map(c => {
+          if (c.id === chapterId) {
+            const updatedLessons = c.lessons.map(l => {
+              if (l.id === lessonId) {
+                const updatedFiles = l.files.map(f => {
+                  if (f.id === fileData.id) {
+                    return updatedFile;
+                  }
+                  return f;
+                });
+                
+                return { ...l, files: updatedFiles, updatedAt: new Date().toISOString() };
+              }
+              return l;
+            });
+            
+            return { ...c, lessons: updatedLessons };
+          }
+          return c;
+        });
+        
+        await courseRef.update({
+          chapters: updatedChapters,
+          updatedAt: new Date().toISOString()
+        });
+        
+        console.log(`Đã cập nhật key Wasabi cho file ${file.name} trong lesson`);
+      }
+      
+      return updatedFile;
+    }
+
+    // Trường hợp tạo file mới 
+    const fileType = getFileType(file.mimeType);
+
+    const newFileData = {
+      id: uuidv4(),
+      mimeType: file.mimeType,
+      name: file.name,
+      originalName: file.name,
+      type: fileType,
+      uploadTime: new Date().toISOString(),
+      driveFileId: file.id || null,
+      status: "active",
+      size: file.size?.toString() || "0",
+      modifiedTime: file.modifiedTime || new Date().toISOString(),
+    };
+
+    if (file.wasabi) {
+      newFileData.storage = {
+        provider: "wasabi",
+        key: file.wasabi.key,
+        size: file.wasabi.size,
+        uploadTime: new Date().toISOString(),
+      };
+    } else {
+      const encryptedId = encryptId(file.id);
+      newFileData.proxyUrl = `/api/proxy/files?id=${encryptedId}`;
+    }
+
+    const courseRef = db.collection("courses").doc(courseId);
+    const courseDoc = await courseRef.get();
+
+    if (!courseDoc.exists) {
+      throw new Error("Không tìm thấy khóa học");
+    }
+
+    const courseData = courseDoc.data();
+    const chapter = courseData.chapters.find((c) => c.id === chapterId);
+
+    if (!chapter) {
+      throw new Error("Không tìm thấy chapter");
+    }
+
+    const lesson = chapter.lessons.find((l) => l.id === lessonId);
+
+    if (!lesson) {
+      throw new Error("Không tìm thấy lesson");
+    }
+
+    const updatedChapters = courseData.chapters.map((c) => {
+      if (c.id === chapterId) {
+        const updatedLessons = c.lessons.map((l) => {
+          if (l.id === lessonId) {
+            if (subfolderId) {
+              const updatedSubfolders = (l.subfolders || []).map((sf) => {
+                if (sf.id === subfolderId) {
+                  return {
+                    ...sf,
+                    files: [...(sf.files || []), newFileData],
+                    updatedAt: new Date().toISOString(),
+                  };
+                }
+                return sf;
+              });
+
+              return {
+                ...l,
+                subfolders: updatedSubfolders,
+                updatedAt: new Date().toISOString(),
+              };
+            } else {
+              return {
+                ...l,
+                files: [...(l.files || []), newFileData],
+                updatedAt: new Date().toISOString(),
+              };
+            }
+          }
+          return l;
+        });
+        return { ...c, lessons: updatedLessons };
+      }
+      return c;
+    });
+
+    await courseRef.update({
+      chapters: updatedChapters,
+      updatedAt: new Date().toISOString(),
+    });
+
+    const location = subfolderId ? "subfolder" : "lesson";
+    console.log(
+      `Đã thêm file ${file.name} vào ${location} ${subfolderId || lessonId}`
+    );
+    return newFileData;
+  } catch (error) {
+    console.error("Lỗi khi thêm file:", error);
+    throw error;
+  }
+}
+
+// Thêm lại hàm getFileType - đã bị mất trong quá trình chỉnh sửa
+function getFileType(mimeType) {
+  const videoTypes = ["video/mp4", "video/webm", "video/ogg"];
+  const documentTypes = [
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ];
+  const imageTypes = ["image/jpeg", "image/png", "image/gif"];
+
+  if (videoTypes.includes(mimeType)) return "video";
+  if (documentTypes.includes(mimeType)) return "document";
+  if (imageTypes.includes(mimeType)) return "image";
+  return "other";
 }
