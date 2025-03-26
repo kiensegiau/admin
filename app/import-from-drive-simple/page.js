@@ -869,7 +869,7 @@ export default function ImportFromDriveSimple() {
                     /api/auth/google
                   </a>
                 </li>
-                <li>Nhấn nút "Xác thực với Google Drive"</li>
+                <li>Nhấn nút &quot;Xác thực với Google Drive&quot;</li>
                 <li>Đăng nhập và cấp quyền cho ứng dụng</li>
                 <li>Quay lại trang này và kiểm tra kết nối lại</li>
               </ol>
@@ -1060,7 +1060,7 @@ export default function ImportFromDriveSimple() {
                       {folderNameFromDrive && (
                         <div style={{ marginBottom: "16px" }}>
                           <Alert
-                            message={`Tên thư mục: "${folderNameFromDrive}"`}
+                            message={`Tên thư mục: &quot;${folderNameFromDrive}&quot;`}
                             type="success"
                             showIcon
                             style={{ marginBottom: "8px" }}
