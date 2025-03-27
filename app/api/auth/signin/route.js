@@ -23,7 +23,14 @@ export async function POST(request) {
 
     // Verify token để lấy thông tin user
     const decodedToken = await auth.verifyIdToken(idToken);
-    const isAdmin = decodedToken.email === process.env.ADMIN_EMAIL;
+    
+    // So sánh email sau khi đã chuẩn hóa
+    const userEmail = decodedToken.email?.trim().toLowerCase();
+    const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+    const isAdmin = userEmail === adminEmail;
+    
+    console.log(`🔐 Đăng nhập: Email=${decodedToken.email}, ADMIN_EMAIL=${process.env.ADMIN_EMAIL}, isAdmin=${isAdmin}`);
+    console.log(`📊 So sánh email: '${userEmail}' === '${adminEmail}'`);
 
     // Set cookie với các options phù hợp
     cookies().set("session", sessionCookie, {
@@ -34,7 +41,12 @@ export async function POST(request) {
       sameSite: "lax",
     });
 
-    return NextResponse.json({ success: true, isAdmin });
+    return NextResponse.json({ 
+      success: true, 
+      isAdmin,
+      email: decodedToken.email,
+      adminEmail: process.env.ADMIN_EMAIL,
+    });
   } catch (error) {
     console.error("Auth error:", error);
     if (error.code === "auth/invalid-id-token") {

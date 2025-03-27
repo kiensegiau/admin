@@ -42,6 +42,22 @@ export default function LoginPage() {
         throw new Error(data.error || "Có lỗi xảy ra khi đăng nhập");
       }
 
+      // Thêm kiểm tra chi tiết
+      console.log("Đăng nhập thành công:", data);
+
+      // Kiểm tra session đã được thiết lập
+      const tokenCheck = await fetch("/api/auth/check-token", {
+        method: "GET",
+        credentials: "include",
+      });
+      
+      const tokenData = await tokenCheck.json();
+      console.log("Kết quả kiểm tra token:", tokenData);
+      
+      if (!tokenCheck.ok || !tokenData.isAuthenticated) {
+        throw new Error("Phiên đăng nhập không hợp lệ, vui lòng thử lại");
+      }
+
       // Đợi 1 giây để đảm bảo cookie đã được set
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
@@ -50,10 +66,14 @@ export default function LoginPage() {
         await router.replace("/");
         toast.success("Đăng nhập thành công");
       } else {
-        toast.error("Tài khoản không có quyền truy cập");
+        // Log chi tiết hơn để debug
+        console.error("Email không khớp với ADMIN_EMAIL:", tokenData.email);
+        toast.error("Tài khoản không có quyền truy cập. Vui lòng liên hệ quản trị viên.");
       }
     } catch (error) {
       let errorMessage = "Không thể đăng nhập";
+
+      console.error("Lỗi đăng nhập:", error);
 
       switch (error.code) {
         case "auth/invalid-email":
@@ -67,6 +87,9 @@ export default function LoginPage() {
           break;
         case "auth/wrong-password":
           errorMessage = "Sai mật khẩu";
+          break;
+        case "auth/too-many-requests":
+          errorMessage = "Quá nhiều lần thử đăng nhập, vui lòng thử lại sau";
           break;
         default:
           errorMessage = error.message;
