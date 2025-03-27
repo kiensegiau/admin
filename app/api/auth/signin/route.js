@@ -36,7 +36,7 @@ export async function POST(request) {
     const cookieOptions = {
       maxAge: expiresIn / 1000, // Convert to seconds
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: false, // Tắt secure để hoạt động trên HTTP localhost
       path: "/",
       sameSite: "lax",
     };
@@ -48,7 +48,7 @@ export async function POST(request) {
     cookies().set("session_check", "true", {
       maxAge: expiresIn / 1000,
       httpOnly: false,
-      secure: process.env.NODE_ENV === "production",
+      secure: false, // Tắt secure để hoạt động trên HTTP localhost
       path: "/",
       sameSite: "lax",
     });

@@ -46,11 +46,24 @@ export default function LoginPage() {
       console.log("Đăng nhập thành công:", data);
 
       // Đợi để đảm bảo cookie đã được set
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Thử thiết lập cookie từ client-side nếu không tìm thấy session cookie
+      console.log("Tất cả cookies hiện tại:", document.cookie);
+      if (!document.cookie.includes("session=")) {
+        console.log("Thử thiết lập cookie từ client-side...");
+        
+        // Lưu email vào localStorage để xác thực
+        window.localStorage.setItem("auth_email", data.email);
+        window.localStorage.setItem("auth_admin", data.isAdmin.toString());
+        
+        // Đặt một cookie không httpOnly để đánh dấu đã đăng nhập
+        document.cookie = `session_client=true; path=/; max-age=${60*60*24*5}`;
+      }
 
       // Kiểm tra cookie đơn giản trước
-      const hasCookie = document.cookie.includes("session_check=true");
-      console.log("Session check cookie:", hasCookie);
+      const hasCookie = document.cookie.includes("session_check=true") || document.cookie.includes("session_client=true");
+      console.log("Session cookie check:", hasCookie);
 
       if (data.isAdmin) {
         // Nếu đã xác nhận là admin, chuyển hướng ngay

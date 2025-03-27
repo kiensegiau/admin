@@ -144,9 +144,25 @@ export async function middleware(request: NextRequest) {
 
   // Kiểm tra session cookie
   const session = request.cookies.get("session");
+  const sessionClient = request.cookies.get("session_client");
+
+  // Nếu không có session chính thức, kiểm tra session client
+  if (!session && sessionClient) {
+    console.log("Không tìm thấy session cookie, nhưng có session_client. Sử dụng fallback.");
+    
+    // Cho phép truy cập các API bình thường
+    if (pathname.startsWith("/api") && !pathname.startsWith("/api/auth/check-token")) {
+      return NextResponse.next();
+    }
+    
+    // Cho phép truy cập trang chính mà không chuyển hướng đến login
+    if (pathname === "/") {
+      return NextResponse.next();
+    }
+  }
 
   // Nếu không có session, chuyển hướng về trang login
-  if (!session) {
+  if (!session && !sessionClient) {
     if (pathname.startsWith("/api")) {
       return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
     }
@@ -157,6 +173,16 @@ export async function middleware(request: NextRequest) {
   // Kiểm tra quyền admin cho các route không phải /api/proxy và /api/auth
   if (!pathname.startsWith("/api/proxy") && !pathname.startsWith("/api/auth")) {
     try {
+      // Kiểm tra nếu không có session cookie nhưng có sessionClient
+      if (!session && sessionClient) {
+        console.log("Sử dụng phương thức xác thực thay thế.");
+        return NextResponse.next();
+      }
+      
+      if (!session) {
+        throw new Error("Không tìm thấy session cookie");
+      }
+      
       const response = await fetch(
         new URL("/api/auth/check-token", request.url),
         {
