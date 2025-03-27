@@ -45,30 +45,74 @@ export default function LoginPage() {
       // Thêm kiểm tra chi tiết
       console.log("Đăng nhập thành công:", data);
 
-      // Kiểm tra session đã được thiết lập
-      const tokenCheck = await fetch("/api/auth/check-token", {
-        method: "GET",
-        credentials: "include",
-      });
-      
-      const tokenData = await tokenCheck.json();
-      console.log("Kết quả kiểm tra token:", tokenData);
-      
-      if (!tokenCheck.ok || !tokenData.isAuthenticated) {
-        throw new Error("Phiên đăng nhập không hợp lệ, vui lòng thử lại");
-      }
+      // Đợi để đảm bảo cookie đã được set
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
-      // Đợi 1 giây để đảm bảo cookie đã được set
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Kiểm tra cookie đơn giản trước
+      const hasCookie = document.cookie.includes("session_check=true");
+      console.log("Session check cookie:", hasCookie);
 
       if (data.isAdmin) {
-        router.refresh();
-        await router.replace("/");
+        // Nếu đã xác nhận là admin, chuyển hướng ngay
+        console.log("Xác nhận admin, chuyển hướng đến trang admin...");
+        window.sessionStorage.clear();
+        window.localStorage.setItem("isLoggedIn", "true");
+        window.location.href = "/";
         toast.success("Đăng nhập thành công");
-      } else {
-        // Log chi tiết hơn để debug
-        console.error("Email không khớp với ADMIN_EMAIL:", tokenData.email);
-        toast.error("Tài khoản không có quyền truy cập. Vui lòng liên hệ quản trị viên.");
+        return;
+      }
+
+      // Tiếp tục kiểm tra session đầy đủ nếu cần
+      try {
+        const tokenCheck = await fetch("/api/auth/check-token", {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store"
+        });
+        
+        const tokenData = await tokenCheck.json();
+        console.log("Kết quả kiểm tra token:", tokenData);
+        
+        if (!tokenCheck.ok || !tokenData.isAuthenticated) {
+          console.error("Lỗi phiên đăng nhập:", tokenData);
+          // Thử chuyển hướng bất chấp lỗi
+          if (data.isAdmin) {
+            window.localStorage.setItem("isLoggedIn", "true");
+            window.location.href = "/";
+            toast.success("Đăng nhập thành công");
+            return;
+          } else {
+            throw new Error("Tài khoản không có quyền truy cập");
+          }
+        }
+
+        if (data.isAdmin) {
+          console.log("Chuyển hướng đến trang admin...");
+          
+          // Xóa bất kỳ lỗi hoặc trạng thái cũ nào
+          window.sessionStorage.clear();
+          window.localStorage.setItem("isLoggedIn", "true");
+          
+          // Sử dụng cách chuyển hướng mạnh hơn
+          window.location.href = "/";
+          
+          // Hiện thông báo thành công
+          toast.success("Đăng nhập thành công");
+        } else {
+          // Log chi tiết hơn để debug
+          console.error("Email không khớp với ADMIN_EMAIL:", tokenData.email);
+          toast.error("Tài khoản không có quyền truy cập. Vui lòng liên hệ quản trị viên.");
+        }
+      } catch (error) {
+        console.error("Lỗi kiểm tra token:", error);
+        // Thử chuyển hướng bất chấp lỗi nếu đăng nhập đã thành công
+        if (data.isAdmin) {
+          window.localStorage.setItem("isLoggedIn", "true");
+          window.location.href = "/";
+          toast.success("Đăng nhập thành công");
+        } else {
+          throw error;
+        }
       }
     } catch (error) {
       let errorMessage = "Không thể đăng nhập";

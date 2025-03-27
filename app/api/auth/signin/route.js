@@ -33,9 +33,21 @@ export async function POST(request) {
     console.log(`📊 So sánh email: '${userEmail}' === '${adminEmail}'`);
 
     // Set cookie với các options phù hợp
-    cookies().set("session", sessionCookie, {
+    const cookieOptions = {
       maxAge: expiresIn / 1000, // Convert to seconds
       httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      sameSite: "lax",
+    };
+
+    console.log("Setting cookie with options:", cookieOptions);
+    cookies().set("session", sessionCookie, cookieOptions);
+
+    // Thêm cookie không httpOnly để kiểm tra xem cookie đã được set hay chưa
+    cookies().set("session_check", "true", {
+      maxAge: expiresIn / 1000,
+      httpOnly: false,
       secure: process.env.NODE_ENV === "production",
       path: "/",
       sameSite: "lax",

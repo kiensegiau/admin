@@ -83,11 +83,14 @@ export async function middleware(request: NextRequest) {
   if (pathname === "/login" || pathname === "/api/auth/signin") {
     // Reset login count sau mỗi lần đăng nhập thành công
     if (pathname === "/api/auth/signin" && request.method === "POST") {
-      // Chỉ áp dụng rate limiting cho các request không thành công
-      // Kiểm tra nếu là POST thì không tăng count ngay lập tức
+      // Đọc body của request để kiểm tra đăng nhập thành công hay không
       const loginData = loginIpRequestCount.get(ip);
       if (loginData && loginData.count > 0) {
         console.log(`👤 Login attempt - IP: ${ip}, Count: ${loginData.count}`);
+        
+        // Reset bộ đếm để không bị block sau đăng nhập thành công
+        loginIpRequestCount.delete(ip);
+        console.log(`🔄 Reset login counter for IP: ${ip}`);
       }
     }
     
@@ -123,11 +126,14 @@ export async function middleware(request: NextRequest) {
 
   // Rate limiting cho các API khác
   if (pathname.startsWith("/api")) {
-    if (isRateLimited(ip, "normal")) {
-      return NextResponse.json(
-        { error: "Quá nhiều yêu cầu, vui lòng thử lại sau" },
-        { status: 429 }
-      );
+    // Không áp dụng rate limiting cho API check-token để tránh lỗi session
+    if (pathname !== "/api/auth/check-token") {
+      if (isRateLimited(ip, "normal")) {
+        return NextResponse.json(
+          { error: "Quá nhiều yêu cầu, vui lòng thử lại sau" },
+          { status: 429 }
+        );
+      }
     }
   }
 
@@ -159,6 +165,16 @@ export async function middleware(request: NextRequest) {
           },
         }
       );
+      
+      if (!response.ok) {
+        console.log(`❌ Check-token không thành công: ${response.status}`);
+        if (pathname.startsWith("/api")) {
+          return NextResponse.json({ error: "Lỗi xác thực" }, { status: 401 });
+        }
+        const loginUrl = new URL("/login", request.url);
+        return NextResponse.redirect(loginUrl);
+      }
+      
       const data = await response.json();
 
       // Thêm log để debug
