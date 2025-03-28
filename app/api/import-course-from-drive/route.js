@@ -41,6 +41,11 @@ const BUCKET_NAME = process.env.WASABI_BUCKET_NAME || "hocmai";
 const cache = {
   courseData: {},
   fileChecks: {},
+  // Thêm cấu trúc cache mới cho dữ liệu khóa học
+  courses: {}, // Lưu trữ dữ liệu khóa học theo ID
+  chapters: {}, // Lưu trữ dữ liệu chương theo courseId_chapterId
+  lessons: {}, // Lưu trữ dữ liệu bài học theo courseId_chapterId_lessonId
+  subfolders: {}, // Lưu trữ dữ liệu thư mục con theo courseId_lessonId_subfolderName
 };
 
 // Thêm cấu trúc dữ liệu để theo dõi các mục đã xử lý
@@ -52,6 +57,10 @@ const syncState = {
     subfolders: new Set(),
   },
   needSync: false,
+  // Thêm danh sách cập nhật hoãn lại
+  pendingUpdates: {
+    courses: {}, // courseId -> data cần cập nhật
+  },
 };
 
 // Hàm lấy ID từ Google Drive URL
@@ -436,41 +445,73 @@ function sanitizeFileName(fileName) {
   return sanitized;
 }
 
-// Thêm hàm kiểm tra và trả về khóa học nếu đã tồn tại hoặc tạo mới nếu chưa có
+// Cải tiến hàm kiểm tra và trả về khóa học - sử dụng cache
 async function getOrCreateCourse(name, driveUrl = null, driveFolderId = null) {
   try {
     if (!name || typeof name !== "string") {
       throw new Error("Tên khóa học không hợp lệ");
     }
 
-    // Kiểm tra xem khóa học đã tồn tại chưa
-    console.log(`Kiểm tra khóa học có tên "${name}" đã tồn tại chưa`);
-    const coursesRef = db.collection("courses");
-    const snapshot = await coursesRef.where("title", "==", name).get();
+    // Trước tiên, tìm trong cache những khóa học có cùng tên
+    const cachedCourseIds = Object.keys(cache.courses).filter(
+      courseId => cache.courses[courseId].title === name
+    );
+    
+    let courseDoc = null;
+    let foundCourseData = null;
+    let courseId = null;
+    
+    // Nếu tìm thấy trong cache
+    if (cachedCourseIds.length > 0) {
+      courseId = cachedCourseIds[0];
+      foundCourseData = cache.courses[courseId];
+      console.log(`Đã tìm thấy khóa học trong cache: ${courseId}`);
+    } else {
+      // Nếu không tìm thấy trong cache, kiểm tra từ Firestore
+      console.log(`Kiểm tra khóa học có tên "${name}" đã tồn tại chưa`);
+      const coursesRef = db.collection("courses");
+      const snapshot = await coursesRef.where("title", "==", name).get();
 
-    if (!snapshot.empty) {
-      // Khóa học đã tồn tại, trả về khóa học đầu tiên tìm thấy
-      const courseDoc = snapshot.docs[0];
-      const courseData = courseDoc.data();
-      console.log(`Đã tìm thấy khóa học: ${courseDoc.id}`);
+      if (!snapshot.empty) {
+        // Khóa học đã tồn tại, lấy khóa học đầu tiên tìm thấy
+        courseDoc = snapshot.docs[0];
+        courseId = courseDoc.id;
+        foundCourseData = courseDoc.data();
+        
+        // Lưu vào cache
+        cache.courses[courseId] = {...foundCourseData};
+        
+        console.log(`Đã tìm thấy khóa học: ${courseId}`);
+      }
+    }
 
+    // Nếu đã tìm thấy khóa học (từ cache hoặc Firestore)
+    if (foundCourseData) {
       // Cập nhật driveUrl nếu chưa có và có giá trị mới
-      if (driveUrl && !courseData.driveUrl) {
-        await courseDoc.ref.update({
+      if (driveUrl && !foundCourseData.driveUrl) {
+        const updates = {
           driveUrl: driveUrl,
           driveFolderId: driveFolderId,
           updatedAt: new Date().toISOString(),
-        });
+        };
+        
+        // Thêm vào danh sách cập nhật chờ
+        addPendingUpdate(courseId, updates);
+        
+        // Cập nhật lại cache
+        cache.courses[courseId] = {
+          ...cache.courses[courseId],
+          ...updates
+        };
+        
         console.log(`Đã cập nhật Drive URL cho khóa học hiện có: ${driveUrl}`);
-        courseData.driveUrl = driveUrl;
-        courseData.driveFolderId = driveFolderId;
       }
 
-      return { id: courseDoc.id, ...courseData, isExisting: true };
+      return { id: courseId, ...cache.courses[courseId], isExisting: true };
     }
 
     // Khóa học chưa tồn tại, tạo mới
-    const courseData = {
+    const newCourseData = {
       title: name,
       chapters: [],
       createdAt: new Date().toISOString(),
@@ -487,34 +528,37 @@ async function getOrCreateCourse(name, driveUrl = null, driveFolderId = null) {
 
     // Thêm driveUrl và driveFolderId nếu có
     if (driveUrl) {
-      courseData.driveUrl = driveUrl;
-      courseData.driveFolderId = driveFolderId;
+      newCourseData.driveUrl = driveUrl;
+      newCourseData.driveFolderId = driveFolderId;
     }
 
-    const courseRef = await db.collection("courses").add(courseData);
-    console.log("Đã tạo khóa học mới:", courseRef.id);
-    return { id: courseRef.id, ...courseData, isExisting: false };
+    const courseRef = await db.collection("courses").add(newCourseData);
+    courseId = courseRef.id;
+    
+    // Lưu vào cache
+    cache.courses[courseId] = {...newCourseData};
+    
+    console.log("Đã tạo khóa học mới:", courseId);
+    return { id: courseId, ...newCourseData, isExisting: false };
   } catch (error) {
     console.error("Lỗi khi kiểm tra/tạo khóa học:", error);
     throw new Error("Không thể kiểm tra/tạo khóa học: " + error.message);
   }
 }
 
-// Thêm hàm kiểm tra và trả về chương nếu đã tồn tại hoặc tạo mới nếu chưa có
+// Cải tiến hàm kiểm tra và trả về chương - sử dụng cache
 async function getOrCreateChapter(courseId, name) {
   try {
     if (!courseId || !name) {
       throw new Error("CourseId và tên chapter không được để trống");
     }
 
-    const courseRef = db.collection("courses").doc(courseId);
-    const courseDoc = await courseRef.get();
-
-    if (!courseDoc.exists) {
+    // Lấy dữ liệu khóa học từ cache hoặc Firestore
+    const courseData = await getCourseData(courseId);
+    
+    if (!courseData) {
       throw new Error("Không tìm thấy khóa học");
     }
-
-    const courseData = courseDoc.data();
 
     // Kiểm tra xem chương đã tồn tại chưa
     console.log(`Kiểm tra chương có tên "${name}" trong khóa học ${courseId}`);
@@ -525,6 +569,10 @@ async function getOrCreateChapter(courseId, name) {
     if (existingChapter) {
       // Chương đã tồn tại, trả về
       console.log(`Đã tìm thấy chương: ${existingChapter.id}`);
+      
+      // Lưu vào cache chapters
+      cache.chapters[`${courseId}_${existingChapter.id}`] = {...existingChapter};
+      
       return { ...existingChapter, isExisting: true };
     }
 
@@ -540,11 +588,23 @@ async function getOrCreateChapter(courseId, name) {
       totalLessons: 0,
     };
 
-    await courseRef.update({
-      chapters: [...(courseData.chapters || []), newChapter],
+    // Cập nhật mảng chapters
+    const updatedChapters = [...(courseData.chapters || []), newChapter];
+    
+    // Thêm vào danh sách cập nhật chờ xử lý
+    addPendingUpdate(courseId, {
+      chapters: updatedChapters,
       updatedAt: new Date().toISOString(),
-      totalChapters: (courseData.chapters?.length || 0) + 1,
+      totalChapters: updatedChapters.length,
     });
+    
+    // Cập nhật cache
+    cache.chapters[`${courseId}_${chapterId}`] = {...newChapter};
+    if (cache.courses[courseId]) {
+      cache.courses[courseId].chapters = updatedChapters;
+      cache.courses[courseId].updatedAt = new Date().toISOString();
+      cache.courses[courseId].totalChapters = updatedChapters.length;
+    }
 
     console.log(
       `Đã tạo chương mới: ${name} (ID: ${chapterId}) cho khóa học: ${courseId}`
@@ -556,29 +616,29 @@ async function getOrCreateChapter(courseId, name) {
   }
 }
 
-// Thêm hàm kiểm tra và trả về bài học nếu đã tồn tại hoặc tạo mới nếu chưa có
+// Cải tiến hàm kiểm tra và trả về bài học - sử dụng cache
 async function getOrCreateLesson(courseId, chapterId, name) {
   try {
     if (!courseId || !chapterId || !name) {
       throw new Error("CourseId, ChapterId và tên lesson không được để trống");
     }
 
-    const courseRef = db.collection("courses").doc(courseId);
-    const courseDoc = await courseRef.get();
-
-    if (!courseDoc.exists) {
+    // Lấy dữ liệu khóa học từ cache hoặc Firestore
+    const courseData = await getCourseData(courseId);
+    
+    if (!courseData) {
       throw new Error("Không tìm thấy khóa học");
     }
 
-    const courseData = courseDoc.data();
     const chapter = courseData.chapters.find((c) => c.id === chapterId);
-
+    
     if (!chapter) {
       throw new Error("Không tìm thấy chapter");
     }
 
-    // Kiểm tra xem bài học đã tồn tại chưa
+    // Kiểm tra xem bài học đã tồn tại chưa - trước hết tìm trong cache
     console.log(`Kiểm tra bài học có tên "${name}" trong chương ${chapterId}`);
+    
     const existingLesson = chapter.lessons.find(
       (lesson) => lesson.title === name
     );
@@ -586,6 +646,10 @@ async function getOrCreateLesson(courseId, chapterId, name) {
     if (existingLesson) {
       // Bài học đã tồn tại, trả về
       console.log(`Đã tìm thấy bài học: ${existingLesson.id}`);
+      
+      // Lưu vào cache
+      cache.lessons[`${courseId}_${chapterId}_${existingLesson.id}`] = {...existingLesson};
+      
       return { lessonId: existingLesson.id, chapterId, isExisting: true };
     }
 
@@ -601,23 +665,48 @@ async function getOrCreateLesson(courseId, chapterId, name) {
       updatedAt: new Date().toISOString(),
     };
 
+    // Cập nhật lại chapters
     const updatedChapters = courseData.chapters.map((chapter) => {
       if (chapter.id === chapterId) {
+        const updatedLessons = [...(chapter.lessons || []), newLesson];
         return {
           ...chapter,
-          lessons: [...(chapter.lessons || []), newLesson],
-          totalLessons: (chapter.lessons?.length || 0) + 1,
+          lessons: updatedLessons,
+          totalLessons: updatedLessons.length,
           updatedAt: new Date().toISOString(),
         };
       }
       return chapter;
     });
 
-    await courseRef.update({
+    // Tính tổng số bài học mới
+    const totalLessons = updatedChapters.reduce(
+      (sum, chapter) => sum + (chapter.lessons?.length || 0),
+      0
+    );
+
+    // Thêm vào danh sách cập nhật chờ xử lý
+    addPendingUpdate(courseId, {
       chapters: updatedChapters,
       updatedAt: new Date().toISOString(),
-      totalLessons: courseData.totalLessons + 1,
+      totalLessons: totalLessons,
     });
+    
+    // Cập nhật cache
+    cache.lessons[`${courseId}_${chapterId}_${lessonId}`] = {...newLesson};
+    if (cache.courses[courseId]) {
+      cache.courses[courseId].chapters = updatedChapters;
+      cache.courses[courseId].updatedAt = new Date().toISOString();
+      cache.courses[courseId].totalLessons = totalLessons;
+    }
+    
+    // Cập nhật cache chapter
+    if (cache.chapters[`${courseId}_${chapterId}`]) {
+      const updatedChapter = updatedChapters.find(c => c.id === chapterId);
+      if (updatedChapter) {
+        cache.chapters[`${courseId}_${chapterId}`] = {...updatedChapter};
+      }
+    }
 
     console.log(
       `Đã tạo bài học mới: ${name} (ID: ${lessonId}) trong chương: ${chapterId}`
@@ -735,22 +824,28 @@ async function getOrCreateSubfolder(courseId, chapterId, lessonId, folderName) {
       throw new Error("Thiếu thông tin cần thiết để tạo subfolder");
     }
 
-    const courseRef = db.collection("courses").doc(courseId);
-    const courseDoc = await courseRef.get();
+    // Kiểm tra trong cache trước
+    const cacheKey = `${courseId}_${lessonId}_${folderName}`;
+    if (cache.subfolders[cacheKey]) {
+      console.log(`Đã tìm thấy subfolder trong cache: ${folderName}`);
+      return cache.subfolders[cacheKey].id;
+    }
 
-    if (!courseDoc.exists) {
+    // Lấy dữ liệu khóa học từ cache
+    const courseData = await getCourseData(courseId);
+    
+    if (!courseData) {
       throw new Error("Không tìm thấy khóa học");
     }
 
-    const courseData = courseDoc.data();
     const chapter = courseData.chapters.find((c) => c.id === chapterId);
-
+    
     if (!chapter) {
       throw new Error("Không tìm thấy chapter");
     }
 
     const lesson = chapter.lessons.find((l) => l.id === lessonId);
-
+    
     if (!lesson) {
       throw new Error("Không tìm thấy lesson");
     }
@@ -766,6 +861,7 @@ async function getOrCreateSubfolder(courseId, chapterId, lessonId, folderName) {
         updatedAt: new Date().toISOString(),
       };
 
+      // Tạo cập nhật cho subfolders
       const updatedChapters = courseData.chapters.map((c) => {
         if (c.id === chapterId) {
           const updatedLessons = c.lessons.map((l) => {
@@ -783,14 +879,38 @@ async function getOrCreateSubfolder(courseId, chapterId, lessonId, folderName) {
         return c;
       });
 
-      await courseRef.update({
+      // Thêm vào danh sách cập nhật chờ xử lý
+      addPendingUpdate(courseId, {
         chapters: updatedChapters,
         updatedAt: new Date().toISOString(),
       });
+      
+      // Cập nhật cache
+      cache.subfolders[cacheKey] = {...subfolder};
+      
+      // Cập nhật cache khóa học
+      if (cache.courses[courseId]) {
+        cache.courses[courseId].chapters = updatedChapters;
+      }
+      
+      // Cập nhật cache bài học
+      const lessonCacheKey = `${courseId}_${chapterId}_${lessonId}`;
+      if (cache.lessons[lessonCacheKey]) {
+        const updatedLesson = updatedChapters
+          .find(c => c.id === chapterId)?.lessons
+          .find(l => l.id === lessonId);
+          
+        if (updatedLesson) {
+          cache.lessons[lessonCacheKey] = {...updatedLesson};
+        }
+      }
 
       console.log(
         `Đã tạo subfolder mới: ${folderName} trong lesson: ${lessonId}`
       );
+    } else {
+      // Lưu vào cache
+      cache.subfolders[cacheKey] = {...subfolder};
     }
 
     return subfolder.id;
@@ -1353,10 +1473,9 @@ async function processFolder(
   try {
     // Lấy tên khóa học nếu chưa có
     if (!courseName) {
-      const courseRef = db.collection("courses").doc(courseId);
-      const courseDoc = await courseRef.get();
-      if (courseDoc.exists) {
-        courseName = courseDoc.data().title || "Unknown Course";
+      const courseData = await getCourseData(courseId);
+      if (courseData) {
+        courseName = courseData.title || "Unknown Course";
       } else {
         courseName = "Unknown Course";
       }
@@ -1383,71 +1502,92 @@ async function processFolder(
       (f) => f.mimeType !== "application/vnd.google-apps.folder"
     );
 
-    // Xử lý các thư mục con
-    for (const folder of folders) {
-      const newPath = currentPath
-        ? `${currentPath}/${folder.name}`
-        : folder.name;
-      console.log(`Tạo đường dẫn mới: ${newPath}`);
+    // Thêm biến đếm để theo dõi
+    let processedFolderCount = 0;
 
-      // Hiển thị đường dẫn đã xử lý để kiểm tra
-      const sanitizedPath = sanitizeWasabiPath(newPath);
-      console.log(`Đường dẫn sau khi xử lý: ${sanitizedPath}`);
+    // Xử lý song song các thư mục con với số lượng giới hạn
+    const PARALLEL_FOLDERS = 3; // Số thư mục xử lý đồng thời
+    
+    for (let i = 0; i < folders.length; i += PARALLEL_FOLDERS) {
+      const folderBatch = folders.slice(i, i + PARALLEL_FOLDERS);
+      console.log(`Xử lý song song ${folderBatch.length} thư mục (batch ${i/PARALLEL_FOLDERS + 1}/${Math.ceil(folders.length/PARALLEL_FOLDERS)})`);
+      
+      // Tạo mảng các promises để xử lý các thư mục trong batch
+      const folderPromises = folderBatch.map(async (folder) => {
+        const newPath = currentPath
+          ? `${currentPath}/${folder.name}`
+          : folder.name;
+        console.log(`Tạo đường dẫn mới: ${newPath}`);
 
-      if (parentType === "course") {
-        // Kiểm tra và tạo/tái sử dụng chương
-        const chapter = await getOrCreateChapter(courseId, folder.name);
-        syncState.processedItems.chapters.add(chapter.id);
-        await processFolder(
-          drive,
-          folder.id,
-          courseId,
-          "chapter",
-          chapter.id,
-          null,
-          newPath,
-          courseName
-        );
-      } else if (parentType === "chapter") {
-        // Kiểm tra và tạo/tái sử dụng bài học
-        const { lessonId: newLessonId } = await getOrCreateLesson(
-          courseId,
-          parentId,
-          folder.name
-        );
-        syncState.processedItems.lessons.add(newLessonId);
-        await processFolder(
-          drive,
-          folder.id,
-          courseId,
-          "lesson",
-          parentId,
-          newLessonId,
-          newPath,
-          courseName
-        );
-      } else if (parentType === "lesson" || parentType === "subfolder") {
-        // Kiểm tra và tạo/tái sử dụng thư mục con
-        const subfolderName = folder.name;
-        const subfolderId = await getOrCreateSubfolder(
-          courseId,
-          parentId,
-          lessonId,
-          subfolderName
-        );
-        syncState.processedItems.subfolders.add(subfolderId);
+        // Hiển thị đường dẫn đã xử lý để kiểm tra
+        const sanitizedPath = sanitizeWasabiPath(newPath);
+        console.log(`Đường dẫn sau khi xử lý: ${sanitizedPath}`);
 
-        await processFolder(
-          drive,
-          folder.id,
-          courseId,
-          "subfolder",
-          parentId,
-          lessonId,
-          newPath,
-          courseName
-        );
-      }
+        if (parentType === "course") {
+          // Kiểm tra và tạo/tái sử dụng chương
+          const chapter = await getOrCreateChapter(courseId, folder.name);
+          syncState.processedItems.chapters.add(chapter.id);
+          await processFolder(
+            drive,
+            folder.id,
+            courseId,
+            "chapter",
+            chapter.id,
+            null,
+            newPath,
+            courseName
+          );
+        } else if (parentType === "chapter") {
+          // Kiểm tra và tạo/tái sử dụng bài học
+          const { lessonId: newLessonId } = await getOrCreateLesson(
+            courseId,
+            parentId,
+            folder.name
+          );
+          syncState.processedItems.lessons.add(newLessonId);
+          await processFolder(
+            drive,
+            folder.id,
+            courseId,
+            "lesson",
+            parentId,
+            newLessonId,
+            newPath,
+            courseName
+          );
+        } else if (parentType === "lesson" || parentType === "subfolder") {
+          // Kiểm tra và tạo/tái sử dụng thư mục con
+          const subfolderName = folder.name;
+          const subfolderId = await getOrCreateSubfolder(
+            courseId,
+            parentId,
+            lessonId,
+            subfolderName
+          );
+          syncState.processedItems.subfolders.add(subfolderId);
+
+          await processFolder(
+            drive,
+            folder.id,
+            courseId,
+            "subfolder",
+            parentId,
+            lessonId,
+            newPath,
+            courseName
+          );
+        }
+        
+        // Tăng biến đếm
+        processedFolderCount++;
+      });
+      
+      // Chờ tất cả thư mục trong batch hoàn thành
+      await Promise.all(folderPromises);
+      
+      // Áp dụng cập nhật hàng loạt sau mỗi batch thư mục để giảm số lần gọi API
+      console.log(`Áp dụng cập nhật sau khi xử lý batch ${i/PARALLEL_FOLDERS + 1}`);
+      await batchUpdateFirestore();
     }
 
     // Xử lý các file
@@ -1472,6 +1612,12 @@ async function processFolder(
           currentPath
         );
       }
+    }
+    
+    // Áp dụng cập nhật hàng loạt khi kết thúc xử lý thư mục
+    if (processedFolderCount > 0) {
+      console.log(`Áp dụng cập nhật sau khi xử lý xong thư mục ${currentPath}`);
+      await batchUpdateFirestore();
     }
 
     console.log(`=== Kết thúc xử lý thư mục ${currentPath || "gốc"} ===\n`);
@@ -1505,7 +1651,7 @@ async function deleteFromWasabi(key) {
   }
 }
 
-// Cập nhật hàm synchronizeDeletedItems để xóa file trên Wasabi
+// Cập nhật hàm synchronizeDeletedItems để xóa file trên Wasabi và tối ưu API
 async function synchronizeDeletedItems(courseId) {
   try {
     console.log("\n=== Bắt đầu đồng bộ các mục đã xóa ===");
@@ -1730,7 +1876,7 @@ export async function GET(request) {
   return NextResponse.json({ message: "API is working" });
 }
 
-// Sửa lại hàm chính để sử dụng getOrCreateCourse
+// Sửa lại hàm chính để sử dụng getOrCreateCourse và cache/batch
 export async function POST(request) {
   // Lưu hàm gốc vào biến ngoài phạm vi try-catch
   const originalUploadToWasabi = uploadToWasabi;
@@ -1785,8 +1931,7 @@ export async function POST(request) {
     };
 
     // Làm mới cache trước khi bắt đầu import
-    cache.fileChecks = {};
-    cache.courseData = {};
+    clearCache();
 
     const folderId = extractDriveId(driveUrl);
     console.log("Folder ID:", folderId);
@@ -1872,15 +2017,15 @@ export async function POST(request) {
       syncState.processedItems.files.clear();
       syncState.processedItems.subfolders.clear();
       syncState.needSync = enableSync;
+      syncState.pendingUpdates.courses = {}; // Reset pending updates
 
       let course;
 
       if (courseId) {
         // Nếu có courseId, kiểm tra và sử dụng khóa học hiện có
-        const courseRef = db.collection("courses").doc(courseId);
-        const courseDoc = await courseRef.get();
-
-        if (!courseDoc.exists) {
+        const courseData = await getCourseData(courseId, true); // true để bắt buộc lấy dữ liệu mới
+        
+        if (!courseData) {
           return NextResponse.json(
             {
               success: false,
@@ -1890,17 +2035,29 @@ export async function POST(request) {
           );
         }
 
-        course = { id: courseId, ...courseDoc.data(), isExisting: true };
+        course = { id: courseId, ...courseData, isExisting: true };
         console.log(`Đã tìm thấy khóa học: ${course.id} (${course.title})`);
 
         // Cập nhật URL Drive nếu chưa có
         if (!course.driveUrl) {
-          await courseRef.update({
+          addPendingUpdate(courseId, {
             driveUrl: driveUrl,
             driveFolderId: folderId,
             updatedAt: new Date().toISOString(),
           });
+          
+          // Cập nhật cache
+          cache.courses[courseId] = {
+            ...cache.courses[courseId],
+            driveUrl: driveUrl,
+            driveFolderId: folderId,
+            updatedAt: new Date().toISOString(),
+          };
+          
           console.log(`Đã cập nhật Drive URL cho khóa học: ${driveUrl}`);
+          
+          // Áp dụng cập nhật ngay
+          await batchUpdateFirestore();
         }
       } else {
         // Nếu không có courseId, tạo khóa học mới
@@ -1913,13 +2070,24 @@ export async function POST(request) {
 
         // Cập nhật Drive URL cho khóa học mới hoặc hiện có
         if (!course.driveUrl) {
-          const courseRef = db.collection("courses").doc(course.id);
-          await courseRef.update({
+          addPendingUpdate(course.id, {
             driveUrl: driveUrl,
             driveFolderId: folderId,
             updatedAt: new Date().toISOString(),
           });
+          
+          // Cập nhật cache
+          cache.courses[course.id] = {
+            ...cache.courses[course.id],
+            driveUrl: driveUrl,
+            driveFolderId: folderId,
+            updatedAt: new Date().toISOString(),
+          };
+          
           console.log(`Đã cập nhật Drive URL cho khóa học: ${driveUrl}`);
+          
+          // Áp dụng cập nhật ngay
+          await batchUpdateFirestore();
         }
       }
 
@@ -1934,6 +2102,9 @@ export async function POST(request) {
         "",
         course.title
       );
+      
+      // Áp dụng bất kỳ cập nhật chờ nào còn lại
+      await batchUpdateFirestore();
 
       // Thực hiện đồng bộ xóa nếu được yêu cầu
       let syncResult = false;
@@ -1941,9 +2112,8 @@ export async function POST(request) {
         syncResult = await synchronizeDeletedItems(course.id);
       }
 
-      const courseRef = db.collection("courses").doc(course.id);
-      const courseDoc = await courseRef.get();
-      const courseData = courseDoc.data();
+      // Lấy dữ liệu khóa học mới nhất từ cache
+      const courseData = cache.courses[course.id] || await getCourseData(course.id, true);
 
       if (!courseData) {
         throw new Error("Không thể lấy dữ liệu khóa học sau khi import");
@@ -2052,6 +2222,9 @@ export async function POST(request) {
     } finally {
       // Đảm bảo khôi phục lại hàm uploadToWasabi gốc trong mọi trường hợp
       uploadToWasabi = originalUploadToWasabi;
+      
+      // Làm sạch cache để giải phóng bộ nhớ
+      clearCache();
     }
   } catch (error) {
     console.error("Lỗi khi import khóa học:", error);
@@ -2343,4 +2516,106 @@ function getFileType(mimeType) {
   if (documentTypes.includes(mimeType)) return "document";
   if (imageTypes.includes(mimeType)) return "image";
   return "other";
+}
+
+// Thêm hàm lấy dữ liệu khóa học từ cache hoặc Firestore
+async function getCourseData(courseId, forceFresh = false) {
+  // Nếu đã có trong cache và không yêu cầu dữ liệu mới
+  if (!forceFresh && cache.courses[courseId]) {
+    return { ...cache.courses[courseId] };
+  }
+  
+  // Nếu không có trong cache hoặc yêu cầu dữ liệu mới, đọc từ Firestore
+  const courseRef = db.collection("courses").doc(courseId);
+  const courseDoc = await courseRef.get();
+  
+  if (!courseDoc.exists) {
+    return null;
+  }
+  
+  const courseData = courseDoc.data();
+  
+  // Lưu vào cache
+  cache.courses[courseId] = { ...courseData };
+  
+  return { ...courseData };
+}
+
+// Thêm hàm để xóa cache
+function clearCache() {
+  cache.courseData = {};
+  cache.fileChecks = {};
+  cache.courses = {};
+  cache.chapters = {};
+  cache.lessons = {};
+  cache.subfolders = {};
+}
+
+// Thêm hàm để áp dụng các cập nhật đã hoãn
+async function applyPendingUpdates() {
+  // Cập nhật các khóa học đã thay đổi
+  for (const courseId in syncState.pendingUpdates.courses) {
+    const updates = syncState.pendingUpdates.courses[courseId];
+    if (updates) {
+      const courseRef = db.collection("courses").doc(courseId);
+      await courseRef.update(updates);
+      console.log(`Đã áp dụng cập nhật cho khóa học ${courseId}`);
+      
+      // Cập nhật lại cache
+      const updatedCourse = await getCourseData(courseId, true);
+      cache.courses[courseId] = updatedCourse;
+    }
+  }
+  
+  // Đặt lại danh sách cập nhật
+  syncState.pendingUpdates.courses = {};
+}
+
+// Hàm thêm cập nhật vào danh sách chờ
+function addPendingUpdate(courseId, updates) {
+  if (!syncState.pendingUpdates.courses[courseId]) {
+    syncState.pendingUpdates.courses[courseId] = {};
+  }
+  
+  // Gộp các cập nhật
+  Object.assign(syncState.pendingUpdates.courses[courseId], updates);
+}
+
+// Hàm thêm cập nhật cho chapter, gộp nhiều cập nhật nhỏ thành một lần lớn
+function addChapterUpdate(courseId, updatedChapters) {
+  addPendingUpdate(courseId, {
+    chapters: updatedChapters,
+    updatedAt: new Date().toISOString(),
+    // Cập nhật thống kê tổng số
+    totalChapters: updatedChapters.length,
+    totalLessons: updatedChapters.reduce(
+      (total, chapter) => total + (chapter.lessons?.length || 0), 
+      0
+    ),
+  });
+  
+  // Cập nhật cache của course
+  if (cache.courses[courseId]) {
+    cache.courses[courseId].chapters = updatedChapters;
+    cache.courses[courseId].updatedAt = new Date().toISOString();
+    cache.courses[courseId].totalChapters = updatedChapters.length;
+    cache.courses[courseId].totalLessons = updatedChapters.reduce(
+      (total, chapter) => total + (chapter.lessons?.length || 0), 
+      0
+    );
+  }
+}
+
+// Hàm thực hiện cập nhật hàng loạt Firestore
+async function batchUpdateFirestore() {
+  try {
+    // Áp dụng các cập nhật đã chờ
+    await applyPendingUpdates();
+    
+    console.log("Đã áp dụng tất cả cập nhật hàng loạt vào Firestore");
+    return true;
+  } catch (error) {
+    console.error("Lỗi khi thực hiện cập nhật hàng loạt:", error);
+    return false;
+  }
 }
