@@ -9,6 +9,8 @@ const PUBLIC_ROUTES = [
   "/api/auth/signin",
   "/api/auth/signout",
   "/api/auth/check-token",
+  "/api/courses/bulk-update",
+  "/api/courses/update",
 ];
 
 // Rate limiting

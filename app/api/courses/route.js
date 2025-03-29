@@ -27,6 +27,8 @@ export async function GET(request) {
         driveFolderId: courseData.driveFolderId || null,
         price: courseData.price || 0,
         teacher: courseData.teacher || "",
+        subject: courseData.subject || "other",
+        grade: courseData.grade || "grade10",
       });
     });
 

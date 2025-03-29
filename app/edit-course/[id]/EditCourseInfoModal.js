@@ -17,9 +17,15 @@ const SUBJECTS = [
   { value: "biology", label: "Sinh học" },
   { value: "literature", label: "Ngữ văn" },
   { value: "english", label: "Tiếng Anh" },
+  { value: "english_cert", label: "Luyện thi chứng chỉ tiếng Anh (IELTS, TOEFL, TOEIC)" },
+  { value: "japanese", label: "Tiếng Nhật" },
+  { value: "korean", label: "Tiếng Hàn" },
+  { value: "chinese", label: "Tiếng Trung" },
   { value: "history", label: "Lịch sử" },
   { value: "geography", label: "Địa lý" },
   { value: "informatics", label: "Tin học" },
+  { value: "assessment", label: "Ôn thi đánh giá năng lực" },
+  { value: "eleo", label: "Thi ELEO" },
   { value: "other", label: "Khác" },
 ];
 
