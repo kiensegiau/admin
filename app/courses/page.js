@@ -47,6 +47,39 @@ const { Content } = Layout;
 const { confirm } = Modal;
 const { Search } = Input;
 
+// Hàm sửa lỗi encoding tiếng Việt
+const fixVietnameseEncoding = (text) => {
+  if (!text) return "";
+  
+  // Các cặp ký tự bị lỗi encoding và giá trị đúng
+  const replacements = {
+    "Ã": "Á", "Ã": "Á", "Ã€": "À", "Ã": "Ả", "Ã": "Ã", "Ã": "Ạ",
+    "ã": "á", "ã": "à", "ã": "ả", "ã": "ã", "ã": "ạ",
+    "Ä": "Â", "Ä‚": "Ă",
+    "Ãª": "ê", "Æ°": "ư", "Æ¡": "ơ",
+    "Ã´": "ô", "Ã¹": "ù", "Ã¬": "ì",
+    "á»": "ố", "á»": "ồ", "á»": "ổ", "á»": "ỗ", "á»": "ộ",
+    "á»": "ớ", "á»": "ờ", "á»": "ở", "á»": "ỡ", "á»": "ợ",
+    "á»": "ứ", "á»": "ừ", "á»": "ử", "á»": "ữ", "á»": "ự",
+    "á»": "ế", "á»": "ề", "á»": "ể", "á»": "ễ", "á»": "ệ",
+    "Ã½": "ý", "á»³": "ỳ", "á»·": "ỷ", "á»¹": "ỵ",
+    "Ä'": "đ", "Ä": "Đ",
+    "ThÃ¡": "Thá", "ThÃ": "Thà", "ThÃ£": "Thã", "ThÃ¢": "Thâ",
+    "TrÆ°á»": "Trườ", "TrÆ°á»": "Trưở", "TrÆ°á»": "Trưỡ",
+    "KhÃ³": "Khó", "KhÃ´": "Không", "ToÃ¡": "Toá", "ToÃ¡n": "Toán",
+    "Tiáº¿": "Tiế", "Tiáº¿ng": "Tiếng",
+    "TOÃN": "TOÁN", "VÄ‚N": "VĂN", "Äá»": "ĐỖ", "Äá»¨C": "ĐỨC"
+  };
+  
+  // Thay thế các ký tự lỗi
+  let result = text;
+  for (const [wrongChar, correctChar] of Object.entries(replacements)) {
+    result = result.replace(new RegExp(wrongChar, 'g'), correctChar);
+  }
+  
+  return result;
+};
+
 // Thêm danh sách môn học giống với EditCourseInfoModal.js
 const SUBJECTS = [
   { value: "math", label: "Toán học" },
@@ -127,18 +160,29 @@ export default function CoursesPage() {
   });
   const [showFilters, setShowFilters] = useState(false);
   const [filterForm] = Form.useForm();
+  
+  // Thêm state để biết khi nào dữ liệu đã tải xong và sẵn sàng để lọc
+  const [dataLoaded, setDataLoaded] = useState(false);
 
+  // Tải dữ liệu khóa học
   useEffect(() => {
     fetchCourses();
   }, []);
 
-  // Effect để áp dụng bộ lọc và sắp xếp
+  // Effect riêng để áp dụng bộ lọc sau khi dữ liệu đã tải xong
   useEffect(() => {
-    applyFiltersAndSort();
-  }, [courses, filters, sortConfig, searchText]);
+    if (dataLoaded) {
+      console.log("Áp dụng bộ lọc sau khi dữ liệu đã tải:", filters);
+      console.log("Dữ liệu gốc courses:", courses.length);
+      applyFiltersAndSort();
+    }
+  }, [dataLoaded, courses, filters, sortConfig, searchText]);
 
   const fetchCourses = async () => {
     try {
+      setLoading(true);
+      setDataLoaded(false);
+      
       const response = await fetch("/api/courses");
       const data = await response.json();
 
@@ -147,35 +191,203 @@ export default function CoursesPage() {
       }
 
       // Kiểm tra dữ liệu nhận được
-      console.log("Dữ liệu khóa học từ API:", data.data);
+      console.log("Dữ liệu khóa học từ API:", data.data?.length || 0, "khóa học");
 
-      // Đảm bảo tất cả các trường đều có giá trị
-      const formattedCourses = data.data.map((course) => ({
-        ...course,
-        price: course.price || 0,
-        teacher: course.teacher || "",
-      }));
+      // Đảm bảo tất cả các trường đều có giá trị mặc định và xử lý lỗi encoding
+      const formattedCourses = data.data.map((course) => {
+        // Kiểm tra và chuẩn hóa các trường dữ liệu
+        const formattedCourse = {
+          ...course,
+          title: fixVietnameseEncoding(course.title) || "Khóa học không tên",
+          price: typeof course.price === 'number' ? course.price : 0,
+          discountPrice: typeof course.discountPrice === 'number' ? course.discountPrice : 0,
+          teacher: fixVietnameseEncoding(course.teacher) || "",
+          // Nhận dạng môn học từ tiêu đề nếu subject là "other"
+          subject: detectSubjectFromTitle(course.title, course.subject),
+          grade: detectGradeFromTitle(course.title, course.grade),
+          chaptersCount: typeof course.chaptersCount === 'number' ? course.chaptersCount : 0,
+          lessonsCount: typeof course.lessonsCount === 'number' ? course.lessonsCount : 0,
+          status: course.status || "draft",
+          updatedAt: course.updatedAt || new Date().toISOString(),
+        };
+        
+        // Xác nhận rằng các trường quan trọng đều có kiểu dữ liệu đúng
+        formattedCourse.price = Number(formattedCourse.price);
+        formattedCourse.discountPrice = Number(formattedCourse.discountPrice);
+        
+        return formattedCourse;
+      });
 
+      console.log("Dữ liệu sau khi format:", formattedCourses.length, "khóa học");
+      
+      // Kiểm tra giá trị thực tế của các trường subject và grade
+      const subjectValues = {};
+      const gradeValues = {};
+      
+      formattedCourses.forEach(course => {
+        if (course.subject) {
+          subjectValues[course.subject] = (subjectValues[course.subject] || 0) + 1;
+        }
+        if (course.grade) {
+          gradeValues[course.grade] = (gradeValues[course.grade] || 0) + 1;
+        }
+      });
+      
+      console.log("Giá trị subject trong dữ liệu:", subjectValues);
+      console.log("Giá trị grade trong dữ liệu:", gradeValues);
+      
       setCourses(formattedCourses);
       setFilteredCourses(formattedCourses);
+      
+      // Đánh dấu dữ liệu đã tải xong
+      setDataLoaded(true);
     } catch (error) {
       console.error("Error fetching courses:", error);
       message.error("Không thể tải danh sách khóa học: " + (error.message || ""));
+      setDataLoaded(true); // Vẫn đánh dấu đã tải xong để có thể hiển thị UI
     } finally {
       setLoading(false);
     }
   };
 
+  // Hàm nhận dạng môn học từ tiêu đề khóa học
+  const detectSubjectFromTitle = (title, existingSubject) => {
+    if (!title) return existingSubject || "other";
+    
+    const normalizedTitle = title.toLowerCase();
+    
+    // Các từ khóa để nhận dạng môn học
+    const keywords = {
+      "toán": "math",
+      "toan": "math",
+      "toá": "math",
+      "vật lý": "physics",
+      "vat ly": "physics",
+      "lí": "physics",
+      "ly": "physics",
+      "hóa": "chemistry", 
+      "hoa": "chemistry",
+      "sinh": "biology",
+      "sinh học": "biology",
+      "văn": "literature",
+      "van": "literature",
+      "ngữ văn": "literature",
+      "tiếng anh": "english",
+      "tieng anh": "english",
+      "anh": "english",
+      "english": "english",
+      "ielts": "english_cert",
+      "toefl": "english_cert",
+      "toeic": "english_cert",
+      "tiếng nhật": "japanese",
+      "nhật": "japanese",
+      "nhat": "japanese",
+      "tiếng trung": "chinese",
+      "trung": "chinese",
+      "tiếng hàn": "korean",
+      "hàn": "korean",
+      "han": "korean",
+      "lịch sử": "history",
+      "lich su": "history",
+      "sử": "history",
+      "su": "history",
+      "địa": "geography",
+      "dia": "geography",
+      "địa lý": "geography",
+      "tin": "informatics",
+      "tin học": "informatics",
+      "đánh giá năng lực": "assessment",
+      "danh gia nang luc": "assessment",
+      "đgnl": "assessment",
+      "năng lực": "assessment",
+      "nang luc": "assessment",
+      "tư duy": "assessment",
+      "tu duy": "assessment",
+      "tsa": "assessment",
+      "eleo": "eleo"
+    };
+    
+    // Kiểm tra từng từ khóa
+    for (const [keyword, subject] of Object.entries(keywords)) {
+      if (normalizedTitle.includes(keyword)) {
+        return subject;
+      }
+    }
+    
+    // Trả về giá trị mặc định nếu không phát hiện
+    return existingSubject || "other";
+  };
+
+  // Hàm nhận dạng lớp từ tiêu đề khóa học
+  const detectGradeFromTitle = (title, existingGrade) => {
+    if (!title) return existingGrade || "other";
+    
+    const normalizedTitle = title.toLowerCase();
+    
+    // Các từ khóa để nhận dạng lớp
+    const gradeKeywords = {
+      "lớp 6": "grade6",
+      "lop 6": "grade6",
+      "2k11": "grade6",
+      "2011": "grade6",
+      "lớp 7": "grade7",
+      "lop 7": "grade7",
+      "2k10": "grade7",
+      "2010": "grade7",
+      "lớp 8": "grade8",
+      "lop 8": "grade8",
+      "2k9": "grade8",
+      "2009": "grade8",
+      "lớp 9": "grade9",
+      "lop 9": "grade9",
+      "2k8": "grade9",
+      "2008": "grade9",
+      "lớp 10": "grade10",
+      "lop 10": "grade10",
+      "2k7": "grade10",
+      "2007": "grade10",
+      "lớp 11": "grade11",
+      "lop 11": "grade11",
+      "2k6": "grade11",
+      "2006": "grade11",
+      "lớp 12": "grade12",
+      "lop 12": "grade12",
+      "2k5": "grade12",
+      "2005": "grade12",
+      "đại học": "other",
+      "dai hoc": "other"
+    };
+    
+    // Kiểm tra từng từ khóa
+    for (const [keyword, grade] of Object.entries(gradeKeywords)) {
+      if (normalizedTitle.includes(keyword)) {
+        return grade;
+      }
+    }
+    
+    // Trả về giá trị mặc định nếu không phát hiện
+    return existingGrade || "other";
+  };
+
+  // Hàm định dạng giá
   const formatPrice = (price) => {
     if (!price && price !== 0) return "0";
     return price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   };
-
+  
   const applyFiltersAndSort = () => {
+    // Ghi log cho debugging
+    console.log("Bắt đầu applyFiltersAndSort");
+    console.log("- Số khóa học gốc:", courses.length);
+    console.log("- Filters hiện tại:", JSON.stringify(filters));
+    console.log("- Tìm kiếm:", searchText);
+    
     let result = [...courses];
+    let filterApplied = false;
     
     // Áp dụng tìm kiếm nếu có
     if (searchText && searchText.trim() !== "") {
+      filterApplied = true;
       const lowercasedQuery = searchText.toLowerCase().trim();
       result = result.filter(
         (course) =>
@@ -184,63 +396,135 @@ export default function CoursesPage() {
           (course.teacher && course.teacher.toLowerCase().includes(lowercasedQuery)) ||
           (course.price && course.price.toString().includes(lowercasedQuery))
       );
+      console.log("- Sau khi lọc theo tìm kiếm:", result.length);
     }
     
-    // Áp dụng các bộ lọc
+    // Áp dụng lọc theo môn học
     if (filters.subject && filters.subject.length > 0) {
-      result = result.filter(course => filters.subject.includes(course.subject));
+      filterApplied = true;
+      const before = result.length;
+      
+      // Debug: hiển thị chi tiết các giá trị subject trong dữ liệu
+      console.log("- Debug subject values trước khi lọc:");
+      const subjectCounts = {};
+      result.forEach(course => {
+        if (!subjectCounts[course.subject || "undefined"]) {
+          subjectCounts[course.subject || "undefined"] = 0;
+        }
+        subjectCounts[course.subject || "undefined"]++;
+      });
+      console.log(subjectCounts);
+      
+      result = result.filter(course => {
+        const hasMatchingSubject = course.subject && filters.subject.includes(course.subject);
+        if (!hasMatchingSubject && course.subject) {
+          console.log(`- Course không khớp: title=${course.title}, subject=${course.subject}, filter=${filters.subject}`);
+        }
+        return hasMatchingSubject;
+      });
+      console.log(`- Sau khi lọc theo môn học (${filters.subject.join(',')}):`, result.length, `(trước: ${before})`);
     }
     
+    // Áp dụng lọc theo lớp
     if (filters.grade && filters.grade.length > 0) {
-      result = result.filter(course => filters.grade.includes(course.grade));
+      filterApplied = true;
+      const before = result.length;
+      
+      // Debug: hiển thị chi tiết các giá trị grade trong dữ liệu
+      console.log("- Debug grade values trước khi lọc:");
+      const gradeCounts = {};
+      result.forEach(course => {
+        if (!gradeCounts[course.grade || "undefined"]) {
+          gradeCounts[course.grade || "undefined"] = 0;
+        }
+        gradeCounts[course.grade || "undefined"]++;
+      });
+      console.log(gradeCounts);
+      
+      result = result.filter(course => {
+        const hasMatchingGrade = course.grade && filters.grade.includes(course.grade);
+        return hasMatchingGrade;
+      });
+      console.log(`- Sau khi lọc theo lớp (${filters.grade.join(',')}):`, result.length, `(trước: ${before})`);
     }
     
+    // Áp dụng lọc theo giáo viên
     if (filters.teacher && filters.teacher.length > 0) {
-      result = result.filter(course => filters.teacher.includes(course.teacher));
+      filterApplied = true;
+      const before = result.length;
+      result = result.filter(course => {
+        const hasMatchingTeacher = course.teacher && filters.teacher.includes(course.teacher);
+        return hasMatchingTeacher;
+      });
+      console.log(`- Sau khi lọc theo giáo viên (${filters.teacher.join(',')}):`, result.length, `(trước: ${before})`);
     }
     
+    // Áp dụng lọc theo khoảng giá
     if (filters.priceRange) {
       const [min, max] = filters.priceRange;
-      if (min !== null) {
-        result = result.filter(course => course.price >= min);
+      if (min !== null && min !== undefined) {
+        filterApplied = true;
+        const before = result.length;
+        result = result.filter(course => course.price && Number(course.price) >= min);
+        console.log(`- Sau khi lọc giá tối thiểu (${min}):`, result.length, `(trước: ${before})`);
       }
-      if (max !== null) {
-        result = result.filter(course => course.price <= max);
+      if (max !== null && max !== undefined) {
+        filterApplied = true;
+        const before = result.length;
+        result = result.filter(course => course.price && Number(course.price) <= max);
+        console.log(`- Sau khi lọc giá tối đa (${max}):`, result.length, `(trước: ${before})`);
       }
     }
     
     // Áp dụng sắp xếp
     if (sortConfig.field) {
       result.sort((a, b) => {
-        if (a[sortConfig.field] === null) return 1;
-        if (b[sortConfig.field] === null) return -1;
+        // Xử lý trường hợp giá trị null hoặc undefined
+        if (a[sortConfig.field] === null || a[sortConfig.field] === undefined) return 1;
+        if (b[sortConfig.field] === null || b[sortConfig.field] === undefined) return -1;
         
         let comparison = 0;
-        if (sortConfig.field === 'price') {
-          comparison = a.price - b.price;
+        if (sortConfig.field === 'price' || sortConfig.field === 'discountPrice') {
+          // Đảm bảo so sánh số
+          const aValue = Number(a[sortConfig.field]) || 0;
+          const bValue = Number(b[sortConfig.field]) || 0;
+          comparison = aValue - bValue;
         } else if (sortConfig.field === 'updatedAt') {
-          comparison = new Date(a.updatedAt) - new Date(b.updatedAt);
-        } else {
-          if (a[sortConfig.field] < b[sortConfig.field]) {
-            comparison = -1;
-          } else if (a[sortConfig.field] > b[sortConfig.field]) {
-            comparison = 1;
+          // Xử lý so sánh ngày
+          try {
+            const aDate = new Date(a.updatedAt || 0);
+            const bDate = new Date(b.updatedAt || 0);
+            comparison = aDate - bDate;
+          } catch (error) {
+            console.error("Lỗi khi so sánh ngày:", error);
+            comparison = 0;
           }
+        } else {
+          // So sánh chuỗi an toàn
+          const aValue = String(a[sortConfig.field] || '');
+          const bValue = String(b[sortConfig.field] || '');
+          comparison = aValue.localeCompare(bValue);
         }
         
         return sortConfig.direction === 'ascend' ? comparison : -comparison;
       });
+      console.log(`- Sau khi sắp xếp theo ${sortConfig.field}:`, result.length);
     }
+    
+    console.log("- Kết quả cuối cùng:", result.length, "khóa học");
+    console.log("- Đã có lọc:", filterApplied);
     
     setFilteredCourses(result);
   };
 
   const handleSearch = (value) => {
+    console.log("Thiết lập tìm kiếm:", value);
     setSearchText(value);
   };
   
-  // Hàm xử lý áp dụng bộ lọc
+  // Hàm xử lý áp dụng bộ lọc từ modal
   const applyFilters = (values) => {
+    console.log("Áp dụng bộ lọc từ modal:", values);
     const newFilters = {
       subject: values.subject || [],
       grade: values.grade || [],
@@ -252,26 +536,84 @@ export default function CoursesPage() {
     setShowFilters(false);
   };
   
-  // Hàm xử lý đặt lại bộ lọc
+  // Hàm xử lý đặt lại bộ lọc từ panel bộ lọc
   const resetFilters = () => {
+    // Reset form
     filterForm.resetFields();
+    
+    // Reset state bộ lọc
+    const newFilters = {
+      subject: [],
+      grade: [],
+      priceRange: null,
+      teacher: [],
+    };
+    
+    setFilters(newFilters);
+    console.log("Đặt lại tất cả bộ lọc:", newFilters);
+    setShowFilters(false);
+  };
+  
+  // Reset tất cả bộ lọc và quay về trạng thái ban đầu
+  const resetAllFilters = () => {
+    console.log("Reset toàn bộ bộ lọc");
+    
     setFilters({
       subject: [],
       grade: [],
       priceRange: null,
       teacher: [],
     });
-    setShowFilters(false);
+    setSearchText("");
+    setSortConfig({
+      field: 'updatedAt',
+      direction: 'descend',
+    });
+    if(filterForm) {
+      filterForm.resetFields();
+    }
+    
+    // Đặt trực tiếp filteredCourses về courses
+    setFilteredCourses([...courses]);
   };
   
   // Hàm xử lý thay đổi sắp xếp
   const handleSortChange = (item) => {
     const [field, direction] = item.key.split('-');
+    console.log(`Thiết lập sắp xếp theo ${field}, hướng ${direction}`);
     setSortConfig({
       field,
       direction,
     });
   };
+  
+  // Xử lý chọn môn học
+  const handleSubjectChange = (subject, checked) => {
+    console.log(`Chọn môn học ${subject}: ${checked}`);
+    const newFilters = {...filters};
+    
+    if (checked) {
+      newFilters.subject = [subject];
+    } else {
+      newFilters.subject = newFilters.subject.filter(s => s !== subject);
+    }
+    
+    setFilters(newFilters);
+  }
+  
+  // Xử lý chọn lớp
+  const handleGradeChange = (grade, checked) => {
+    console.log(`Chọn lớp ${grade}: ${checked}`);
+    const newFilters = {...filters};
+    
+    if (checked) {
+      newFilters.grade = [grade];
+    } else {
+      newFilters.grade = newFilters.grade.filter(g => g !== grade);
+    }
+    
+    setFilters(newFilters);
+  }
   
   // Tạo menu sắp xếp
   const sortMenu = (
@@ -294,9 +636,11 @@ export default function CoursesPage() {
   );
   
   // Tạo danh sách giáo viên duy nhất
-  const uniqueTeachers = Array.from(new Set(courses.map(course => course.teacher)))
-    .filter(teacher => teacher)
-    .map(teacher => ({ value: teacher, label: teacher }));
+  const uniqueTeachers = Array.from(
+    new Set(courses.filter(course => course.teacher).map(course => course.teacher))
+  )
+  .filter(teacher => teacher)
+  .map(teacher => ({ value: teacher, label: teacher }));
 
   const handleDelete = async (id, title) => {
     confirm({
@@ -376,11 +720,11 @@ export default function CoursesPage() {
       if (editField === 'price') {
         updateData.price = values.price;
       } else if (editField === 'teacher') {
-        updateData.teacher = values.teacher;
+        updateData.teacher = values.teacher || "";
       } else if (editField === 'subject') {
-        updateData.subject = values.subject;
+        updateData.subject = values.subject || "other";
       } else if (editField === 'grade') {
-        updateData.grade = values.grade;
+        updateData.grade = values.grade || "other";
       }
 
       console.log("Dữ liệu gửi đi:", updateData);
@@ -1370,8 +1714,10 @@ export default function CoursesPage() {
 
   // Hàm format tên môn học
   const formatSubject = (value) => {
+    if (!value) return "Chưa có thông tin";
+    
     const subject = SUBJECTS.find(item => item.value === value);
-    return subject ? subject.label : value || "Chưa có thông tin";
+    return subject ? subject.label : value;
   };
 
   // Hàm format tên lớp
@@ -1660,7 +2006,7 @@ export default function CoursesPage() {
         <Row gutter={[16, 16]} className="mb-6">
           <Col xs={24} md={12}>
             <Title level={2} style={{ margin: 0 }}>
-              Quản lý khóa học
+              Quản lý khóa học ({filteredCourses.length}/{courses.length})
             </Title>
           </Col>
           <Col xs={24} md={12} className="flex justify-end items-center gap-2">
@@ -1672,6 +2018,7 @@ export default function CoursesPage() {
               onSearch={handleSearch}
               onChange={(e) => handleSearch(e.target.value)}
               style={{ maxWidth: 400 }}
+              value={searchText}
             />
             <Button
               type="default"
@@ -1690,6 +2037,17 @@ export default function CoursesPage() {
                 </Space>
               </Button>
             </Dropdown>
+            {(filters.subject.length > 0 || filters.grade.length > 0 || 
+              filters.teacher.length > 0 || filters.priceRange || searchText) && (
+              <Button
+                type="primary"
+                icon={<CloseOutlined />}
+                size="large"
+                onClick={resetAllFilters}
+              >
+                Xóa lọc
+              </Button>
+            )}
             {selectedRowKeys.length > 0 && (
               <Button
                 type="primary"
@@ -1763,7 +2121,7 @@ export default function CoursesPage() {
                   Giá: {filters.priceRange[0] ? formatPrice(filters.priceRange[0]) : '0'} - {filters.priceRange[1] ? formatPrice(filters.priceRange[1]) : 'Không giới hạn'} VNĐ
                 </Tag>
               )}
-              <Button size="small" type="link" onClick={resetFilters}>
+              <Button size="small" type="link" onClick={resetAllFilters}>
                 Xóa tất cả bộ lọc
               </Button>
             </Space>
@@ -1776,32 +2134,26 @@ export default function CoursesPage() {
           <Space size={[8, 8]} wrap>
             <Tag.CheckableTag
               checked={!filters.subject.length}
-              onChange={() => setFilters({...filters, subject: []})}
+              onChange={() => {
+                const newFilters = {...filters, subject: []};
+                setFilters(newFilters);
+                console.log("Đặt lại bộ lọc môn học:", newFilters);
+              }}
               style={{ border: '1px solid #d9d9d9', padding: '4px 8px' }}
             >
               Tất cả môn
             </Tag.CheckableTag>
-            {[
-              "math", 
-              "physics", 
-              "chemistry", 
-              "biology", 
-              "literature", 
-              "english", 
-              "english_cert",
-              "japanese",
-              "assessment"
-            ].map(subject => (
+            {/* Hiển thị các bộ lọc dựa trên giá trị thực tế */}
+            {Object.keys(
+              courses.reduce((acc, course) => {
+                if (course.subject) acc[course.subject] = true;
+                return acc;
+              }, {})
+            ).map(subject => (
               <Tag.CheckableTag
                 key={subject}
                 checked={filters.subject.includes(subject)}
-                onChange={checked => {
-                  if (checked) {
-                    setFilters({...filters, subject: [subject]});
-                  } else {
-                    setFilters({...filters, subject: filters.subject.filter(s => s !== subject)});
-                  }
-                }}
+                onChange={checked => handleSubjectChange(subject, checked)}
                 style={{ border: '1px solid #d9d9d9', padding: '4px 8px' }}
               >
                 {formatSubject(subject)}
@@ -1824,7 +2176,11 @@ export default function CoursesPage() {
           <Space size={[8, 8]} wrap>
             <Tag.CheckableTag
               checked={!filters.grade.length}
-              onChange={() => setFilters({...filters, grade: []})}
+              onChange={() => {
+                const newFilters = {...filters, grade: []};
+                setFilters(newFilters);
+                console.log("Đặt lại bộ lọc lớp:", newFilters);
+              }}
               style={{ border: '1px solid #d9d9d9', padding: '4px 8px' }}
             >
               Tất cả lớp
@@ -1833,13 +2189,7 @@ export default function CoursesPage() {
               <Tag.CheckableTag
                 key={grade.value}
                 checked={filters.grade.includes(grade.value)}
-                onChange={checked => {
-                  if (checked) {
-                    setFilters({...filters, grade: [grade.value]});
-                  } else {
-                    setFilters({...filters, grade: filters.grade.filter(g => g !== grade.value)});
-                  }
-                }}
+                onChange={checked => handleGradeChange(grade.value, checked)}
                 style={{ border: '1px solid #d9d9d9', padding: '4px 8px' }}
               >
                 {grade.label}
