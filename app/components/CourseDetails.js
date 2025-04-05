@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../firebase";
 import { toast } from "sonner";
 
 export default function CourseDetails({ course, onClose }) {
   const [editedCourse, setEditedCourse] = useState(course);
   const [isEditing, setIsEditing] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -13,13 +12,32 @@ export default function CourseDetails({ course, onClose }) {
   };
 
   const handleSave = async () => {
+    setIsLoading(true);
     try {
-      await updateDoc(doc(db, "courses", editedCourse.id), editedCourse);
+      const response = await fetch(`/api/courses/${editedCourse.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: editedCourse.title,
+          description: editedCourse.description,
+          price: Number(editedCourse.price),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Không thể cập nhật thông tin khóa học");
+      }
+
       toast.success("Thông tin khóa học đã được cập nhật");
       setIsEditing(false);
     } catch (error) {
       console.error("Lỗi khi cập nhật khóa học:", error);
-      toast.error("Không thể cập nhật thông tin khóa học");
+      toast.error(error.message || "Không thể cập nhật thông tin khóa học");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -66,12 +84,14 @@ export default function CourseDetails({ course, onClose }) {
               <button
                 onClick={handleSave}
                 className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mr-2"
+                disabled={isLoading}
               >
-                Lưu
+                {isLoading ? "Đang lưu..." : "Lưu"}
               </button>
               <button
                 onClick={() => setIsEditing(false)}
                 className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
+                disabled={isLoading}
               >
                 Hủy
               </button>
@@ -87,6 +107,7 @@ export default function CourseDetails({ course, onClose }) {
           <button
             onClick={onClose}
             className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
+            disabled={isLoading}
           >
             Đóng
           </button>

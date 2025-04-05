@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase-admin";
+import { ObjectId, findOneDocument, updateDocument } from "@/lib/db";
 import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 export const dynamic = "force-dynamic";
@@ -65,17 +65,14 @@ export async function POST(request) {
     );
 
     // Lấy thông tin khóa học
-    const courseRef = db.collection("courses").doc(courseId);
-    const courseDoc = await courseRef.get();
-
-    if (!courseDoc.exists) {
+    const courseData = await findOneDocument("courses", { _id: new ObjectId(courseId) });
+    if (!courseData) {
       return NextResponse.json(
         { error: "Không tìm thấy khóa học" },
         { status: 404 }
       );
     }
 
-    const courseData = courseDoc.data();
     let deletedFiles = 0;
     let updatedFiles = 0;
 
@@ -218,7 +215,7 @@ export async function POST(request) {
     }
 
     // Cập nhật dữ liệu trong Firestore
-    await courseRef.update({
+    await updateDocument("courses", { _id: new ObjectId(courseId) }, {
       chapters: updatedChapters,
       updatedAt: new Date().toISOString(),
     });

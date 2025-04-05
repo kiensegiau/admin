@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase-admin";
+import { ObjectId, findOneDocument } from "@/lib/db";
 import axios from "axios";
 import { S3Client, HeadObjectCommand } from "@aws-sdk/client-s3";
 import {
@@ -77,17 +77,15 @@ export async function POST(request) {
     );
 
     // Lấy thông tin khóa học
-    const courseRef = db.collection("courses").doc(courseId);
-    const courseDoc = await courseRef.get();
+    const courseData = await findOneDocument("courses", { _id: new ObjectId(courseId) });
 
-    if (!courseDoc.exists) {
+    if (!courseData) {
       return NextResponse.json(
         { error: "Không tìm thấy khóa học" },
         { status: 404 }
       );
     }
 
-    const courseData = courseDoc.data();
     console.log(`Đang kiểm tra khóa học: ${courseData.title}`);
 
     // Chuẩn bị Google Drive API nếu cần autoFix
@@ -681,9 +679,11 @@ export async function POST(request) {
         }
 
         // Cập nhật lại khóa học
-        await courseRef.update({
-          chapters: updatedChapters,
-          updatedAt: new Date().toISOString(),
+        await findOneDocument("courses", { _id: new ObjectId(courseId) }, {
+          $set: {
+            chapters: updatedChapters,
+            updatedAt: new Date().toISOString(),
+          },
         });
 
         console.log(

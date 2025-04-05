@@ -1,5 +1,4 @@
-import { doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
-import { db } from '../firebase';
+import { ObjectId, findOneDocument, updateDocument } from '@/lib/db';
 import { google } from 'googleapis';
 
 export async function importCourseFromDrive(folderId, courseId, accessToken) {
@@ -34,9 +33,10 @@ export async function importCourseFromDrive(folderId, courseId, accessToken) {
 }
 
 async function createChapter(courseId, chapterName) {
-  const courseRef = doc(db, 'courses', courseId);
-  const courseDoc = await getDoc(courseRef);
-  const courseData = courseDoc.data();
+  const courseData = await findOneDocument('courses', { _id: new ObjectId(courseId) });
+  if (!courseData) {
+    throw new Error(`Không tìm thấy khóa học với ID: ${courseId}`);
+  }
   
   const newChapter = {
     id: Date.now().toString(),
@@ -44,17 +44,19 @@ async function createChapter(courseId, chapterName) {
     lessons: []
   };
 
-  await updateDoc(courseRef, {
-    chapters: arrayUnion(newChapter)
-  });
+  await updateDocument('courses', 
+    { _id: new ObjectId(courseId) },
+    { $push: { chapters: newChapter } }
+  );
 
   return newChapter.id;
 }
 
 async function createLesson(courseId, chapterId, lessonName) {
-  const courseRef = doc(db, 'courses', courseId);
-  const courseDoc = await getDoc(courseRef);
-  const courseData = courseDoc.data();
+  const courseData = await findOneDocument('courses', { _id: new ObjectId(courseId) });
+  if (!courseData) {
+    throw new Error(`Không tìm thấy khóa học với ID: ${courseId}`);
+  }
 
   const newLesson = {
     id: Date.now().toString(),
@@ -72,32 +74,52 @@ async function createLesson(courseId, chapterId, lessonName) {
     return chapter;
   });
 
-  await updateDoc(courseRef, { chapters: updatedChapters });
+  await updateDocument('courses', 
+    { _id: new ObjectId(courseId) },
+    { $set: { chapters: updatedChapters } }
+  );
 
   return newLesson.id;
 }
 
 async function addFileToLesson(courseId, lessonId, file) {
-  const courseRef = doc(db, 'courses', courseId);
-  const courseDoc = await getDoc(courseRef);
-  const courseData = courseDoc.data();
+  const courseData = await findOneDocument('courses', { _id: new ObjectId(courseId) });
+  if (!courseData) {
+    throw new Error(`Không tìm thấy khóa học với ID: ${courseId}`);
+  }
 
-  const updatedChapters = courseData.chapters.map(chapter => ({
-    ...chapter,
-    lessons: chapter.lessons.map(lesson => {
+  // Tìm chapter chứa lesson cần cập nhật
+  let chapterId = null;
+  let targetChapterIndex = -1;
+  let targetLessonIndex = -1;
+
+  courseData.chapters.forEach((chapter, chapterIndex) => {
+    chapter.lessons.forEach((lesson, lessonIndex) => {
       if (lesson.id === lessonId) {
-        return {
-          ...lesson,
-          files: [...lesson.files, {
-            name: file.name,
-            driveFileId: file.id,
-            type: file.mimeType
-          }]
-        };
+        chapterId = chapter.id;
+        targetChapterIndex = chapterIndex;
+        targetLessonIndex = lessonIndex;
       }
-      return lesson;
-    })
-  }));
+    });
+  });
 
-  await updateDoc(courseRef, { chapters: updatedChapters });
+  if (targetChapterIndex === -1 || targetLessonIndex === -1) {
+    throw new Error(`Không tìm thấy lesson với ID: ${lessonId}`);
+  }
+
+  // Tạo nested path cho việc cập nhật
+  const updatePath = `chapters.${targetChapterIndex}.lessons.${targetLessonIndex}.files`;
+  
+  // Tạo file mới để thêm vào
+  const newFile = {
+    name: file.name,
+    driveFileId: file.id,
+    type: file.mimeType
+  };
+
+  // Cập nhật file vào lesson
+  await updateDocument('courses', 
+    { _id: new ObjectId(courseId) },
+    { $push: { [updatePath]: newFile } }
+  );
 }

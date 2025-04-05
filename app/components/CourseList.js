@@ -1,7 +1,5 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
-import { collection, getDocs, deleteDoc, doc } from "firebase/firestore";
-import { db } from "../firebase";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Spin } from "antd";
@@ -33,13 +31,17 @@ const CourseList = () => {
   const fetchCourses = useCallback(async () => {
     setLoading(true);
     try {
-      const querySnapshot = await getDocs(collection(db, "courses"));
-      setCourses(
-        querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-      );
+      const response = await fetch("/api/courses");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Không thể tải danh sách khóa học");
+      }
+      
+      const data = await response.json();
+      setCourses(data.data || []);
     } catch (error) {
       console.error("Lỗi khi lấy danh sách khóa học:", error);
-      toast.error("Không thể tải danh sách khóa học");
+      toast.error(error.message || "Không thể tải danh sách khóa học");
     } finally {
       setLoading(false);
     }
@@ -52,14 +54,26 @@ const CourseList = () => {
   const deleteCourse = useCallback(async (courseId) => {
     if (window.confirm("Bạn có chắc chắn muốn xóa khóa học này?")) {
       try {
-        await deleteDoc(doc(db, "courses", courseId));
+        const response = await fetch("/api/courses/delete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ courseId }),
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || "Không thể xóa khóa học");
+        }
+        
         setCourses((prevCourses) =>
           prevCourses.filter((course) => course.id !== courseId)
         );
         toast.success("Khóa học đã được xóa");
       } catch (error) {
         console.error("Lỗi khi xóa khóa học:", error);
-        toast.error("Không thể xóa khóa học");
+        toast.error(error.message || "Không thể xóa khóa học");
       }
     }
   }, []);

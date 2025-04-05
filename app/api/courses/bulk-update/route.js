@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase-admin";
+import { ObjectId, updateDocuments } from "@/lib/db";
 
 export async function POST(request) {
   try {
@@ -25,47 +25,47 @@ export async function POST(request) {
 
     // Khởi tạo đối tượng chứa thông tin cần cập nhật
     const updateData = {
-      updatedAt: new Date().toISOString(),
+      $set: {
+        updatedAt: new Date()
+      }
     };
 
     // Thêm giá nếu có
     if (price !== undefined && price !== null) {
-      updateData.price = Number(price);
+      updateData.$set.price = Number(price);
     }
 
     // Thêm thông tin giáo viên nếu có
     if (teacher !== undefined && teacher !== null) {
-      updateData.teacher = teacher;
+      updateData.$set.teacher = teacher;
     }
     
     // Thêm thông tin môn học nếu có
     if (subject !== undefined && subject !== null) {
-      updateData.subject = subject;
+      updateData.$set.subject = subject;
     }
     
     // Thêm thông tin lớp nếu có
     if (grade !== undefined && grade !== null) {
-      updateData.grade = grade;
+      updateData.$set.grade = grade;
     }
 
-    // Tạo batch để cập nhật nhiều document cùng lúc
-    const batch = db.batch();
+    // Chuyển đổi danh sách ID thành mảng ObjectId
+    const courseObjectIds = courseIds.map(id => new ObjectId(id));
 
-    // Thêm mỗi document vào batch
-    for (const courseId of courseIds) {
-      const courseRef = db.collection("courses").doc(courseId);
-      batch.update(courseRef, updateData);
-    }
+    // Thực hiện cập nhật hàng loạt trong MongoDB
+    const result = await updateDocuments(
+      "courses",
+      { _id: { $in: courseObjectIds } },
+      updateData
+    );
 
-    // Thực hiện cập nhật hàng loạt
-    await batch.commit();
-
-    console.log(`Đã cập nhật ${courseIds.length} khóa học`);
+    console.log(`Đã cập nhật ${result.modifiedCount} khóa học`);
 
     return NextResponse.json({
       success: true,
-      updatedCount: courseIds.length,
-      message: `Đã cập nhật ${courseIds.length} khóa học thành công`
+      updatedCount: result.modifiedCount,
+      message: `Đã cập nhật ${result.modifiedCount} khóa học thành công`
     });
   } catch (error) {
     console.error("Lỗi khi cập nhật hàng loạt:", error);

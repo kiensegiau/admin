@@ -1,6 +1,4 @@
 import { useState, useEffect } from "react";
-import { updateDoc, doc, getDoc } from "firebase/firestore";
-import { db } from "../firebase";
 import { toast } from "sonner";
 import { Spin } from 'antd';
 
@@ -23,11 +21,18 @@ export default function ChapterList({ courseId, chapters, onSelectLesson, onAddL
 
     setLoading(true);
     try {
-      const courseRef = doc(db, "courses", courseId);
-      const courseDoc = await getDoc(courseRef);
-      const updatedChapters = courseDoc.data().chapters.filter(chapter => chapter.id !== chapterId);
-
-      await updateDoc(courseRef, { chapters: updatedChapters });
+      // Gọi API để xóa chương
+      const response = await fetch(`/api/courses/${courseId}/chapters/${chapterId}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Không thể xóa chương");
+      }
+      
+      // Cập nhật giao diện
+      const updatedChapters = chapters.filter(chapter => chapter.id !== chapterId);
       onUpdateChapters(updatedChapters);
       
       if (expandedChapter === chapterId) {
@@ -37,7 +42,7 @@ export default function ChapterList({ courseId, chapters, onSelectLesson, onAddL
       toast.success("Chương đã được xóa");
     } catch (error) {
       console.error("Lỗi khi xóa chương:", error);
-      toast.error("Không thể xóa chương");
+      toast.error(error.message || "Không thể xóa chương");
     } finally {
       setLoading(false);
     }
@@ -48,19 +53,27 @@ export default function ChapterList({ courseId, chapters, onSelectLesson, onAddL
 
     setLoading(true);
     try {
-      const courseRef = doc(db, "courses", courseId);
-      const courseDoc = await getDoc(courseRef);
-      const updatedChapters = courseDoc.data().chapters.map(chapter => 
+      // Gọi API để xóa bài học
+      const response = await fetch(`/api/courses/${courseId}/chapters/${chapterId}/lessons/${lessonId}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Không thể xóa bài học");
+      }
+      
+      // Cập nhật giao diện
+      const updatedChapters = chapters.map(chapter => 
         chapter.id === chapterId 
           ? { ...chapter, lessons: chapter.lessons.filter(lesson => lesson.id !== lessonId) }
           : chapter
       );
-      await updateDoc(courseRef, { chapters: updatedChapters });
       onUpdateChapters(updatedChapters);
       toast.success("Bài học đã được xóa");
     } catch (error) {
       console.error("Lỗi khi xóa bài học:", error);
-      toast.error("Không thể xóa bài học");
+      toast.error(error.message || "Không thể xóa bài học");
     } finally {
       setLoading(false);
     }

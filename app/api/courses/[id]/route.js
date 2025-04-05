@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import { findOneDocument } from "@/lib/db";
+import { ObjectId, findOneDocument, updateDocument, deleteDocument } from "@/lib/db";
 import { CourseAdapter } from "@/lib/adapters/course-adapter";
 
 export async function GET(request, { params }) {
@@ -64,16 +63,25 @@ export async function PATCH(request, { params }) {
 
     // Cập nhật thông tin cơ bản của khóa học
     const updateData = {
-      ...data,
-      updatedAt: new Date()
+      $set: {
+        ...data,
+        updatedAt: new Date()
+      }
     };
 
-    // Cập nhật trong MongoDB
-    await fetch(`/api/mongodb?collection=courses&id=${courseId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updateData)
-    });
+    // Cập nhật trực tiếp trong MongoDB
+    const result = await updateDocument(
+      "courses", 
+      { _id: new ObjectId(courseId) }, 
+      updateData
+    );
+
+    if (result.modifiedCount === 0) {
+      return NextResponse.json(
+        { error: "Không có thay đổi hoặc không tìm thấy khóa học" },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -100,13 +108,23 @@ export async function DELETE(request, { params }) {
     }
 
     // Xóa cả bản ghi trong collections courses và courseContents
-    await fetch(`/api/mongodb?collection=courses&id=${courseId}`, {
-      method: "DELETE"
-    });
+    const deleteResult = await deleteDocument(
+      "courses", 
+      { _id: new ObjectId(courseId) }
+    );
     
-    await fetch(`/api/mongodb?collection=courseContents&query=${encodeURIComponent(JSON.stringify({ courseId: new ObjectId(courseId) }))}`, {
-      method: "DELETE"
-    });
+    if (deleteResult.deletedCount === 0) {
+      return NextResponse.json(
+        { error: "Không tìm thấy khóa học để xóa" },
+        { status: 404 }
+      );
+    }
+    
+    // Xóa nội dung khóa học
+    await deleteDocument(
+      "courseContents", 
+      { courseId: new ObjectId(courseId) }
+    );
 
     return NextResponse.json({
       success: true,

@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase-admin";
+import { ObjectId, findOneDocument, deleteDocument } from "@/lib/db";
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 // Khởi tạo Wasabi client
@@ -93,40 +93,50 @@ export async function POST(request) {
       );
     }
 
-    if (!db) {
-      throw new Error("Firestore chưa được khởi tạo");
-    }
+    // Lấy dữ liệu khóa học từ MongoDB trước khi xóa
+    const courseData = await findOneDocument("courses", { 
+      _id: new ObjectId(courseId) 
+    });
 
-    // Lấy dữ liệu khóa học trước khi xóa
-    const courseRef = db.collection("courses").doc(courseId);
-    const courseDoc = await courseRef.get();
-
-    if (!courseDoc.exists) {
+    if (!courseData) {
       return NextResponse.json(
         { error: "Không tìm thấy khóa học" },
         { status: 404 }
       );
     }
 
-    const courseData = courseDoc.data();
     console.log(`Bắt đầu xóa khóa học: ${courseData.title} (${courseId})`);
+
+    // Lấy nội dung khóa học từ MongoDB
+    const courseContent = await findOneDocument("courseContents", {
+      courseId: new ObjectId(courseId)
+    });
 
     // Thu thập tất cả file cần xóa
     const allFiles = [];
 
-    // Duyệt qua từng chương
-    for (const chapter of courseData.chapters || []) {
-      // Duyệt qua từng bài học
-      for (const lesson of chapter.lessons || []) {
-        // Thu thập file trong lesson
-        if (lesson.files && lesson.files.length > 0) {
-          allFiles.push(...lesson.files);
-        }
+    if (courseContent) {
+      // Duyệt qua từng chương (section)
+      for (const section of courseContent.sections || []) {
+        // Duyệt qua từng bài học
+        for (const lesson of section.lessons || []) {
+          // Thu thập file trong lesson
+          if (lesson.content && lesson.content.files && lesson.content.files.length > 0) {
+            allFiles.push(...lesson.content.files);
+          }
 
-        // Thu thập file trong subfolder
-        for (const subfolder of lesson.subfolders || []) {
-          if (subfolder.files && subfolder.files.length > 0) {
-            allFiles.push(...subfolder.files);
+          // Thu thập file trong metadata nếu có
+          if (lesson.metadata && lesson.metadata.files && lesson.metadata.files.length > 0) {
+            allFiles.push(...lesson.metadata.files);
+          }
+
+          // Thu thập file trong subfolder từ metadata
+          if (lesson.metadata && lesson.metadata.subfolders) {
+            for (const subfolder of lesson.metadata.subfolders) {
+              if (subfolder.files && subfolder.files.length > 0) {
+                allFiles.push(...subfolder.files);
+              }
+            }
           }
         }
       }
@@ -145,8 +155,13 @@ export async function POST(request) {
       } giây`
     );
 
-    // Sau khi xóa tất cả file, xóa document khóa học
-    await courseRef.delete();
+    // Sau khi xóa tất cả file, xóa document khóa học và nội dung khóa học
+    await deleteDocument("courses", { _id: new ObjectId(courseId) });
+    
+    if (courseContent) {
+      await deleteDocument("courseContents", { courseId: new ObjectId(courseId) });
+    }
+    
     console.log(`Đã xóa khóa học: ${courseData.title} (${courseId})`);
 
     return NextResponse.json({

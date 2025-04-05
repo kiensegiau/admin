@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase-admin";
+import { ObjectId, findOneDocument, updateDocument } from "@/lib/db";
 import { extractDriveId } from "@/app/utils/serverDriveUtils";
 import {
   initializeDriveClient,
@@ -31,17 +31,16 @@ export async function POST(request) {
     }
 
     // Kiểm tra khóa học tồn tại
-    const courseRef = db.collection("courses").doc(courseId);
-    const courseDoc = await courseRef.get();
+    const courseData = await findOneDocument("courses", { 
+      _id: new ObjectId(courseId) 
+    });
 
-    if (!courseDoc.exists) {
+    if (!courseData) {
       return NextResponse.json(
         { error: "Không tìm thấy khóa học" },
         { status: 404 }
       );
     }
-
-    const courseData = courseDoc.data();
 
     // Khởi tạo Google Drive client và lấy thông tin thư mục
     try {
@@ -61,20 +60,26 @@ export async function POST(request) {
 
       // Cập nhật thông tin khóa học
       const updateData = {
-        driveUrl: driveUrl,
-        driveFolderId: folderId,
-        updatedAt: new Date().toISOString(),
+        $set: {
+          driveUrl: driveUrl,
+          driveFolderId: folderId,
+          updatedAt: new Date(),
+        }
       };
 
       // Cập nhật tiêu đề nếu được yêu cầu hoặc nếu tiêu đề hiện tại đang trống
       let titleUpdated = false;
       if (updateTitle || !courseData.title) {
-        updateData.title = folderInfo.name;
+        updateData.$set.title = folderInfo.name;
         titleUpdated = true;
       }
 
       // Cập nhật Drive URL trong database
-      await courseRef.update(updateData);
+      await updateDocument(
+        "courses",
+        { _id: new ObjectId(courseId) },
+        updateData
+      );
 
       console.log(
         `Đã cập nhật Drive URL cho khóa học ${courseId}: ${driveUrl}`
@@ -97,11 +102,17 @@ export async function POST(request) {
       console.error("Lỗi khi lấy thông tin từ Google Drive:", error);
 
       // Vẫn cập nhật Drive URL nếu không thể lấy thông tin từ Drive
-      await courseRef.update({
-        driveUrl: driveUrl,
-        driveFolderId: folderId,
-        updatedAt: new Date().toISOString(),
-      });
+      await updateDocument(
+        "courses",
+        { _id: new ObjectId(courseId) },
+        {
+          $set: {
+            driveUrl: driveUrl,
+            driveFolderId: folderId,
+            updatedAt: new Date(),
+          }
+        }
+      );
 
       return NextResponse.json({
         success: true,

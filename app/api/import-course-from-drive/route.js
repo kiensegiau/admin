@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase-admin";
 import { v4 as uuidv4 } from "uuid";
 import { readTokens } from "@/lib/tokenStorage";
 import { encryptId } from "@/lib/encryption";
@@ -481,11 +480,9 @@ async function processFiles(
     // Tìm subfolderId nếu có
     let subfolderId = null;
     if (subfolderName && parentType === "subfolder") {
-      const courseRef = db.collection("courses").doc(courseId);
-      const courseDoc = await courseRef.get();
+      const courseData = await findOneDocument("courses", { _id: new ObjectId(courseId) });
       
-      if (courseDoc.exists) {
-        const courseData = courseDoc.data();
+      if (courseData) {
         const chapter = courseData.chapters.find(c => c.id === parentId);
         
         if (chapter) {
@@ -615,9 +612,10 @@ async function processFiles(
             // Nếu đã tồn tại, cập nhật thông tin lưu trữ
             if (isUpdate) {
               // Tìm và cập nhật file trong database
-              const courseRef = db.collection("courses").doc(courseId);
-              const courseDoc = await courseRef.get();
-              const courseData = courseDoc.data();
+              const courseData = await findOneDocument("courses", { _id: new ObjectId(courseId) });
+              if (!courseData) {
+                throw new Error(`Không tìm thấy khóa học với ID: ${courseId}`);
+              }
 
               const chapter = courseData.chapters.find(
                 (c) => c.id === parentId
@@ -669,10 +667,16 @@ async function processFiles(
                   return c;
                 });
 
-                await courseRef.update({
-                  chapters: updatedChapters,
-                  updatedAt: new Date().toISOString(),
-                });
+                await updateDocument(
+                  "courses",
+                  { _id: new ObjectId(courseId) },
+                  {
+                    $set: {
+                      chapters: updatedChapters,
+                      updatedAt: new Date().toISOString(),
+                    }
+                  }
+                );
                 console.log(
                   `Đã cập nhật key Wasabi cho file ${file.name} trong subfolder`
                 );
@@ -706,10 +710,16 @@ async function processFiles(
                   return c;
                 });
 
-                await courseRef.update({
-                  chapters: updatedChapters,
-                  updatedAt: new Date().toISOString(),
-                });
+                await updateDocument(
+                  "courses",
+                  { _id: new ObjectId(courseId) },
+                  {
+                    $set: {
+                      chapters: updatedChapters,
+                      updatedAt: new Date().toISOString(),
+                    }
+                  }
+                );
                 console.log(
                   `Đã cập nhật key Wasabi cho file ${file.name} trong lesson`
                 );
@@ -799,10 +809,9 @@ async function processFolder(
   try {
     // Lấy tên khóa học nếu chưa có
     if (!courseName) {
-      const courseRef = db.collection("courses").doc(courseId);
-      const courseDoc = await courseRef.get();
-      if (courseDoc.exists) {
-        courseName = courseDoc.data().title || "Unknown Course";
+      const courseData = await findOneDocument("courses", { _id: new ObjectId(courseId) });
+      if (courseData) {
+        courseName = courseData.title || "Unknown Course";
       } else {
         courseName = "Unknown Course";
       }
@@ -1172,31 +1181,27 @@ export async function POST(request) {
 
       if (courseId) {
         // Nếu có courseId, kiểm tra và sử dụng khóa học hiện có
-        const courseRef = db.collection("courses").doc(courseId);
-        const courseDoc = await courseRef.get();
-
-        if (!courseDoc.exists) {
-          return NextResponse.json(
-            {
-              success: false,
-              error: "Không tìm thấy khóa học với ID đã cung cấp",
-            },
-            { status: 404 }
-          );
+        const courseData = await findOneDocument("courses", { _id: new ObjectId(courseId) });
+        if (!courseData) {
+          throw new Error(`Không tìm thấy khóa học với ID: ${courseId}`);
         }
 
-        course = { id: courseId, ...courseDoc.data(), isExisting: true };
+        course = { id: courseId, ...courseData, isExisting: true };
         console.log(`Đã tìm thấy khóa học: ${course.id} (${course.title})`);
 
         // Cập nhật URL Drive nếu chưa có
-        if (!course.driveUrl) {
-          await courseRef.update({
-            driveUrl: driveUrl,
-            driveFolderId: folderId,
-            updatedAt: new Date().toISOString(),
-          });
-          console.log(`Đã cập nhật Drive URL cho khóa học: ${driveUrl}`);
-        }
+        await updateDocument(
+          "courses",
+          { _id: new ObjectId(courseId) },
+          {
+            $set: {
+              driveUrl: driveUrl,
+              driveFolderId: folderId,
+              updatedAt: new Date()
+            }
+          }
+        );
+        console.log(`Đã cập nhật Drive URL cho khóa học: ${driveUrl}`);
       } else {
         // Nếu không có courseId, tạo khóa học mới
         course = await getOrCreateCourse(folderInfo.name, driveUrl, folderId);
@@ -1207,15 +1212,18 @@ export async function POST(request) {
         );
 
         // Cập nhật Drive URL cho khóa học mới hoặc hiện có
-        if (!course.driveUrl) {
-          const courseRef = db.collection("courses").doc(course.id);
-          await courseRef.update({
-            driveUrl: driveUrl,
-            driveFolderId: folderId,
-            updatedAt: new Date().toISOString(),
-          });
-          console.log(`Đã cập nhật Drive URL cho khóa học: ${driveUrl}`);
-        }
+        await updateDocument(
+          "courses",
+          { _id: new ObjectId(course.id) },
+          {
+            $set: {
+              driveUrl: driveUrl,
+              driveFolderId: folderId,
+              updatedAt: new Date()
+            }
+          }
+        );
+        console.log(`Đã cập nhật Drive URL cho khóa học: ${driveUrl}`);
       }
 
       // Truyền tên khóa học vào lần gọi đầu tiên của processFolder
@@ -1236,12 +1244,9 @@ export async function POST(request) {
         syncResult = await synchronizeDeletedItems(course.id);
       }
 
-      const courseRef = db.collection("courses").doc(course.id);
-      const courseDoc = await courseRef.get();
-      const courseData = courseDoc.data();
-
+      const courseData = await findOneDocument("courses", { _id: new ObjectId(course.id) });
       if (!courseData) {
-        throw new Error("Không thể lấy dữ liệu khóa học sau khi import");
+        throw new Error(`Không thể lấy dữ liệu khóa học sau khi import`);
       }
 
       const structure = {
