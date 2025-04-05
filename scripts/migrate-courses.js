@@ -56,10 +56,10 @@ class CourseAdapter {
     try {
       console.log(`Đang xử lý: ${legacyCourse.title}`);
       
-      // 1. Tạo document trong collection courses
+      // 1. Tách thông tin chung vào collection courses
       const courseData = {
         title: legacyCourse.title,
-        slug: slugify(legacyCourse.title, { lower: true }),
+        slug: legacyCourse.slug || slugify(legacyCourse.title, { lower: true }),
         description: legacyCourse.description || "",
         shortDescription: legacyCourse.shortDescription || "",
         thumbnail: legacyCourse.thumbnail || "",
@@ -72,176 +72,32 @@ class CourseAdapter {
         teacherId: legacyCourse.teacherId,
         createdAt: legacyCourse.createdAt ? new Date(legacyCourse.createdAt) : new Date(),
         updatedAt: new Date(),
+        firebaseId: legacyCourse.id
       };
       
+      // Lưu vào collection courses
       const result = await db.insertDocument("courses", courseData);
       const courseId = result.insertedId;
       
-      // 2. Chuyển đổi chapters thành sections
-      const sections = Array.isArray(legacyCourse.chapters) ? legacyCourse.chapters.map((chapter, index) => {
-        console.log(`  - Xử lý chapter: ${chapter.title}`);
-        return {
-          title: chapter.title,
-          order: index + 1,
-          lessons: Array.isArray(chapter.lessons) ? chapter.lessons.map((lesson, lessonIndex) => {
-            console.log(`    + Xử lý lesson: ${lesson.title}`);
-            return {
-              title: lesson.title,
-              description: lesson.description || "",
-              type: this._determineLessonType(lesson),
-              content: this._determineLessonContent(lesson),
-              duration: this._calculateDuration(lesson),
-              order: lessonIndex + 1,
-              isPreview: lesson.isPreview || false,
-              metadata: this._extractMetadata(lesson),
-            };
-          }) : [],
-        };
-      }) : [];
-      
-      // 3. Tạo document trong collection courseContents
-      const totalLessons = this._countTotalLessons(sections);
-      const totalDuration = this._calculateTotalDuration(sections);
-      
-      await db.insertDocument("courseContents", {
-        courseId,
-        sections,
-        totalLessons,
-        totalDuration,
+      // 2. Tách nội dung chi tiết vào collection courseContents
+      // Giữ nguyên cấu trúc chapters & lessons từ Firebase
+      const courseContentsData = {
+        courseId: courseId,
+        // Giữ nguyên cấu trúc chapters từ Firebase
+        chapters: legacyCourse.chapters || [],
         createdAt: new Date(),
         updatedAt: new Date(),
-      });
+        firebaseId: legacyCourse.id
+      };
+      
+      // Lưu vào collection courseContents
+      await db.insertDocument("courseContents", courseContentsData);
       
       return courseId.toString();
     } catch (error) {
       console.error("Error importing course from legacy structure:", error);
       throw error;
     }
-  }
-  
-  // --- Private methods ---
-  
-  /**
-   * Xác định loại bài học dựa trên dữ liệu
-   * @private
-   */
-  static _determineLessonType(lesson) {
-    if (!lesson.files || lesson.files.length === 0) {
-      return "text";
-    }
-    
-    // Ưu tiên video
-    const videoFile = lesson.files.find(file => 
-      file.mimeType && file.mimeType.startsWith('video/')
-    );
-    
-    if (videoFile) return "video";
-    
-    // Tiếp theo là audio
-    const audioFile = lesson.files.find(file => 
-      file.mimeType && file.mimeType.startsWith('audio/')
-    );
-    
-    if (audioFile) return "audio";
-    
-    // Tiếp theo là pdf
-    const pdfFile = lesson.files.find(file => 
-      file.mimeType === 'application/pdf'
-    );
-    
-    if (pdfFile) return "pdf";
-    
-    // Mặc định là text
-    return "text";
-  }
-  
-  /**
-   * Xác định nội dung bài học dựa trên dữ liệu
-   * @private
-   */
-  static _determineLessonContent(lesson) {
-    if (!lesson.files || lesson.files.length === 0) {
-      return "";
-    }
-    
-    // Dựa vào loại bài học để lấy URL phù hợp
-    const type = this._determineLessonType(lesson);
-    
-    if (type === "video") {
-      const videoFile = lesson.files.find(file => 
-        file.mimeType && file.mimeType.startsWith('video/')
-      );
-      return videoFile.storage?.key || videoFile.proxyUrl || "";
-    }
-    
-    if (type === "audio") {
-      const audioFile = lesson.files.find(file => 
-        file.mimeType && file.mimeType.startsWith('audio/')
-      );
-      return audioFile.storage?.key || audioFile.proxyUrl || "";
-    }
-    
-    if (type === "pdf") {
-      const pdfFile = lesson.files.find(file => 
-        file.mimeType === 'application/pdf'
-      );
-      return pdfFile.storage?.key || pdfFile.proxyUrl || "";
-    }
-    
-    return "";
-  }
-  
-  /**
-   * Tính toán thời lượng bài học
-   * @private
-   */
-  static _calculateDuration(lesson) {
-    // Thời lượng chỉ áp dụng cho video/audio
-    return 0;
-  }
-  
-  /**
-   * Trích xuất metadata từ bài học
-   * @private
-   */
-  static _extractMetadata(lesson) {
-    const metadata = {};
-    
-    if (lesson.files && lesson.files.length > 0) {
-      const mainFile = lesson.files[0];
-      metadata.originalName = mainFile.name;
-      metadata.mimeType = mainFile.mimeType;
-      metadata.size = mainFile.size;
-      metadata.driveFileId = mainFile.driveFileId;
-      
-      if (mainFile.storage) {
-        metadata.wasabiKey = mainFile.storage.key;
-      }
-    }
-    
-    return metadata;
-  }
-  
-  /**
-   * Đếm tổng số bài học
-   * @private
-   */
-  static _countTotalLessons(sections) {
-    return sections.reduce((total, section) => {
-      return total + section.lessons.length;
-    }, 0);
-  }
-  
-  /**
-   * Tính toán tổng thời lượng khóa học
-   * @private
-   */
-  static _calculateTotalDuration(sections) {
-    return sections.reduce((total, section) => {
-      return total + section.lessons.reduce((lessonTotal, lesson) => {
-        return lessonTotal + (lesson.duration || 0);
-      }, 0);
-    }, 0);
   }
 }
 
