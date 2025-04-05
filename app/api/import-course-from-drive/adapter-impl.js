@@ -13,12 +13,16 @@ import { getFileType } from './utils';
  * @returns {Promise<Object>} - Thông tin khóa học
  */
 export async function getOrCreateCourse(name, driveUrl = null, driveFolderId = null) {
-  // Tìm khóa học theo tên trong MongoDB
+  // Tìm khóa học chính xác theo tên trong MongoDB
   const existingCourses = await fetch(`/api/courses?search=${encodeURIComponent(name)}`).then(res => res.json());
   
+  // Lọc để chỉ lấy các khóa học có tên chính xác khớp với name
+  const exactMatch = existingCourses.data?.filter(course => course.title === name);
+  
   // Nếu đã tồn tại, trả về khóa học đầu tiên tìm thấy
-  if (existingCourses.data && existingCourses.data.length > 0) {
-    const course = existingCourses.data[0];
+  if (exactMatch && exactMatch.length > 0) {
+    const course = exactMatch[0];
+    console.log(`Tìm thấy khóa học đã tồn tại: ${course.title} (${course.id})`);
     
     // Cập nhật thông tin Drive nếu cần
     if (driveUrl || driveFolderId) {
@@ -36,32 +40,36 @@ export async function getOrCreateCourse(name, driveUrl = null, driveFolderId = n
     
     return {
       id: course.id,
-      name: course.title,
+      title: course.title,
+      isExisting: true
     };
   }
   
-  // Nếu chưa có, tạo khóa học mới
-  const newCourse = {
+  // Nếu chưa có, tạo khóa học mới sử dụng API tạo khóa học có kiểm tra trùng lặp
+  const newCourseData = {
     title: name,
-    description: "",
-    shortDescription: "",
-    thumbnail: "",
-    price: 0,
-    status: "draft",
-    featured: false,
-    driveFolderId,
     driveUrl,
+    driveFolderId,
+    price: 0,
+    status: "draft"
   };
   
-  const result = await fetch('/api/courses', {
+  const result = await fetch('/api/courses/create', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(newCourse),
+    body: JSON.stringify(newCourseData),
   }).then(res => res.json());
+  
+  if (!result.success) {
+    throw new Error(result.error || 'Không thể tạo khóa học mới');
+  }
+  
+  console.log(`Đã tạo khóa học mới: ${result.course.title} (${result.course.id})`);
   
   return {
     id: result.course.id,
-    name: result.course.title,
+    title: result.course.title,
+    isExisting: false
   };
 }
 

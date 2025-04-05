@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase-admin";
-import { findDocuments, findOneDocument } from "@/lib/db";
-import { ObjectId } from "mongodb";
+import { findDocuments } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +8,7 @@ export async function GET(request) {
     const searchParams = request.nextUrl.searchParams;
     const search = searchParams.get('search');
 
-    // Tìm khóa học trong MongoDB thay vì Firestore
+    // Tìm khóa học trong MongoDB
     let query = {};
     
     if (search) {
@@ -46,18 +44,13 @@ export async function GET(request) {
     
     console.log(`Tìm thấy ${courses.length} khóa học, sau khi loại bỏ trùng lặp còn ${uniqueCourses.length}`);
 
-    // Lấy dữ liệu nội dung khóa học (chapters/lessons) từ collection courseContents
-    const formattedCourses = await Promise.all(uniqueCourses.map(async course => {
-      // Tìm nội dung khóa học tương ứng
-      const courseContent = await findOneDocument("courseContents", { 
-        courseId: course._id 
-      });
-      
+    // Chỉ format dữ liệu cần thiết cho danh sách khóa học, không truy vấn thêm courseContents
+    const formattedCourses = uniqueCourses.map(course => {
       return {
         id: course._id.toString(),
         title: course.title || "Khóa học không tên",
-        chaptersCount: courseContent ? courseContent.sections.length : 0,
-        lessonsCount: courseContent ? courseContent.totalLessons : 0,
+        chaptersCount: course.chaptersCount || 0,
+        lessonsCount: course.lessonsCount || 0,
         updatedAt: course.updatedAt,
         status: course.status || "draft",
         driveUrl: course.driveUrl || null,
@@ -70,7 +63,7 @@ export async function GET(request) {
         thumbnail: course.thumbnail || "",
         shortDescription: course.shortDescription || "",
       };
-    }));
+    });
 
     // Sắp xếp khóa học theo thời gian cập nhật mới nhất
     formattedCourses.sort((a, b) => {

@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from "next/server";
 import { CourseAdapter } from "@/lib/adapters/course-adapter";
 import slugify from "slugify";
+import { findDocuments } from "@/lib/db";
 
 export async function POST(request) {
   try {
@@ -11,6 +12,21 @@ export async function POST(request) {
     if (!title) {
       return NextResponse.json(
         { error: "Tên khóa học không được để trống" },
+        { status: 400 }
+      );
+    }
+
+    // Kiểm tra xem đã tồn tại khóa học với tiêu đề này chưa
+    const existingCourses = await findDocuments("courses", { 
+      title: title 
+    });
+
+    if (existingCourses && existingCourses.length > 0) {
+      return NextResponse.json(
+        { 
+          error: "Đã tồn tại khóa học với tiêu đề này. Vui lòng chọn tiêu đề khác hoặc sửa khóa học hiện có.",
+          existingCourseId: existingCourses[0]._id.toString()
+        },
         { status: 400 }
       );
     }

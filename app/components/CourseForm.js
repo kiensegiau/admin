@@ -52,7 +52,7 @@ export default function CourseForm() {
         chapters: [],
       };
 
-      const response = await fetch("/api/courses/add", {
+      const response = await fetch("/api/courses/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
