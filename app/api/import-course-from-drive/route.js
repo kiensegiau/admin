@@ -480,10 +480,11 @@ async function processFiles(
     // Tìm subfolderId nếu có
     let subfolderId = null;
     if (subfolderName && parentType === "subfolder") {
-      const courseData = await findOneDocument("courses", { _id: new ObjectId(courseId) });
+      // Thay đổi từ courses sang courseContents để lấy dữ liệu chapters
+      const courseContent = await findOneDocument("courseContents", { courseId: new ObjectId(courseId) });
       
-      if (courseData) {
-        const chapter = courseData.chapters.find(c => c.id === parentId);
+      if (courseContent && courseContent.chapters) {
+        const chapter = courseContent.chapters.find(c => c.id === parentId);
         
         if (chapter) {
           const lesson = chapter.lessons.find(l => l.id === lessonId);
@@ -595,6 +596,13 @@ async function processFiles(
 
           if (isSubfolder && parentPath) {
             const subfolderName = parentPath.split("/").pop();
+            const newSubfolder = {
+              id: folderId, // Sử dụng folderId từ Google Drive để tham chiếu
+              name: subfolderName,
+              files: [],
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            };
             subfolderId = await getOrCreateSubfolder(
               courseId,
               parentId,
@@ -612,12 +620,12 @@ async function processFiles(
             // Nếu đã tồn tại, cập nhật thông tin lưu trữ
             if (isUpdate) {
               // Tìm và cập nhật file trong database
-              const courseData = await findOneDocument("courses", { _id: new ObjectId(courseId) });
-              if (!courseData) {
-                throw new Error(`Không tìm thấy khóa học với ID: ${courseId}`);
+              const courseContent = await findOneDocument("courseContents", { courseId: new ObjectId(courseId) });
+              if (!courseContent) {
+                throw new Error(`Không tìm thấy nội dung khóa học với ID: ${courseId}`);
               }
 
-              const chapter = courseData.chapters.find(
+              const chapter = courseContent.chapters.find(
                 (c) => c.id === parentId
               );
               if (!chapter) {
@@ -631,9 +639,11 @@ async function processFiles(
                 return;
               }
 
+              const currentTime = new Date().toISOString();
+
               if (subfolderId) {
                 // Cập nhật file trong subfolder
-                const updatedChapters = courseData.chapters.map((c) => {
+                const updatedChapters = courseContent.chapters.map((c) => {
                   if (c.id === parentId) {
                     const updatedLessons = c.lessons.map((l) => {
                       if (l.id === lessonId) {
@@ -641,24 +651,27 @@ async function processFiles(
                           if (sf.name === subfolderName) {
                             const updatedFiles = sf.files.map((f) => {
                               if (f.id === file.existingData.id) {
+                                // Đối tượng cập nhật đồng nhất với db.json
                                 return {
                                   ...f,
                                   storage: {
                                     provider: "wasabi",
                                     key: uploadResult.key,
-                                    size: uploadResult.size,
-                                    uploadTime: new Date().toISOString(),
+                                    size: { "$numberInt": uploadResult.size.toString() },
+                                    uploadTime: currentTime
                                   },
-                                  updatedAt: new Date().toISOString(),
+                                  uploadTime: currentTime,
+                                  modifiedTime: currentTime,
+                                  size: uploadResult.size.toString()
                                 };
                               }
                               return f;
                             });
-                            return { ...sf, files: updatedFiles };
+                            return { ...sf, files: updatedFiles, updatedAt: currentTime };
                           }
                           return sf;
                         });
-                        return { ...l, subfolders: updatedSubfolders };
+                        return { ...l, subfolders: updatedSubfolders, updatedAt: currentTime };
                       }
                       return l;
                     });
@@ -668,12 +681,12 @@ async function processFiles(
                 });
 
                 await updateDocument(
-                  "courses",
-                  { _id: new ObjectId(courseId) },
+                  "courseContents",
+                  { courseId: new ObjectId(courseId) },
                   {
                     $set: {
                       chapters: updatedChapters,
-                      updatedAt: new Date().toISOString(),
+                      updatedAt: currentTime
                     }
                   }
                 );
@@ -682,26 +695,29 @@ async function processFiles(
                 );
               } else {
                 // Cập nhật file trong lesson
-                const updatedChapters = courseData.chapters.map((c) => {
+                const updatedChapters = courseContent.chapters.map((c) => {
                   if (c.id === parentId) {
                     const updatedLessons = c.lessons.map((l) => {
                       if (l.id === lessonId) {
                         const updatedFiles = l.files.map((f) => {
                           if (f.id === file.existingData.id) {
+                            // Đối tượng cập nhật đồng nhất với db.json
                             return {
                               ...f,
                               storage: {
                                 provider: "wasabi",
                                 key: uploadResult.key,
-                                size: uploadResult.size,
-                                uploadTime: new Date().toISOString(),
+                                size: { "$numberInt": uploadResult.size.toString() },
+                                uploadTime: currentTime
                               },
-                              updatedAt: new Date().toISOString(),
+                              uploadTime: currentTime,
+                              modifiedTime: currentTime,
+                              size: uploadResult.size.toString()
                             };
                           }
                           return f;
                         });
-                        return { ...l, files: updatedFiles };
+                        return { ...l, files: updatedFiles, updatedAt: currentTime };
                       }
                       return l;
                     });
@@ -711,12 +727,12 @@ async function processFiles(
                 });
 
                 await updateDocument(
-                  "courses",
-                  { _id: new ObjectId(courseId) },
+                  "courseContents",
+                  { courseId: new ObjectId(courseId) },
                   {
                     $set: {
                       chapters: updatedChapters,
-                      updatedAt: new Date().toISOString(),
+                      updatedAt: currentTime
                     }
                   }
                 );
@@ -728,10 +744,14 @@ async function processFiles(
               // Thêm file mới với thông tin Wasabi
               const fileWithWasabi = {
                 ...file,
-                wasabi: {
+                storage: {
+                  provider: "wasabi",
                   key: uploadResult.key,
-                  size: uploadResult.size,
+                  size: { "$numberInt": uploadResult.size.toString() },
+                  uploadTime: new Date().toISOString()
                 },
+                size: uploadResult.size.toString(),
+                modifiedTime: new Date().toISOString()
               };
 
               await addFileToLesson(
@@ -865,23 +885,24 @@ async function processFolder(
         );
       } else if (parentType === "chapter") {
         // Kiểm tra và tạo/tái sử dụng bài học
-        const { lessonId: newLessonId } = await getOrCreateLesson(
+        const lesson = await getOrCreateLesson(
           courseId,
           parentId,
           folder.name
         );
-        syncState.processedItems.lessons.add(newLessonId);
+        syncState.processedItems.lessons.add(lesson.id);
         await processFolder(
           drive,
           folder.id,
           courseId,
           "lesson",
           parentId,
-          newLessonId,
+          lesson.id,
           newPath,
           courseName
         );
-      } else if (parentType === "lesson" || parentType === "subfolder") {
+      } else if ((parentType === "lesson" || parentType === "subfolder") && lessonId) {
+        // Thêm kiểm tra lessonId có tồn tại không
         // Kiểm tra và tạo/tái sử dụng thư mục con
         const subfolderName = folder.name;
         const subfolderId = await getOrCreateSubfolder(

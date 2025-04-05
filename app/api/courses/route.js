@@ -44,24 +44,27 @@ export async function GET(request) {
     
     console.log(`Tìm thấy ${courses.length} khóa học, sau khi loại bỏ trùng lặp còn ${uniqueCourses.length}`);
 
-    // Chỉ format dữ liệu cần thiết cho danh sách khóa học, không truy vấn thêm courseContents
+    // Format dữ liệu đồng nhất 100% với cấu trúc trong db.json
     const formattedCourses = uniqueCourses.map(course => {
       return {
         id: course._id.toString(),
         title: course.title || "Khóa học không tên",
-        chaptersCount: course.chaptersCount || 0,
-        lessonsCount: course.lessonsCount || 0,
-        updatedAt: course.updatedAt,
-        status: course.status || "draft",
-        driveUrl: course.driveUrl || null,
-        driveFolderId: course.driveFolderId || null,
+        slug: course.slug || "",
+        description: course.description || "",
+        shortDescription: course.shortDescription || "",
+        thumbnail: course.thumbnail || "",
         price: course.price || 0,
         discountPrice: course.discountPrice || 0,
-        teacher: course.teacher || "",
-        subject: course.subject || "other",
-        grade: course.grade || "grade10",
-        thumbnail: course.thumbnail || "",
-        shortDescription: course.shortDescription || "",
+        status: course.status || "draft",
+        featured: course.featured || false,
+        driveFolderId: course.driveFolderId || null,
+        driveUrl: course.driveUrl || null,
+        teacherId: course.teacherId || null,
+        totalLessons: course.totalLessons || 0,
+        chapters: course.chapters || [],
+        createdAt: course.createdAt,
+        updatedAt: course.updatedAt,
+        firebaseId: course.firebaseId || null
       };
     });
 

@@ -1,0 +1,1020 @@
+{
+    "_id": { "$oid": "67f1566de90ef341ca761efb" },
+    "courseId": { "$oid": "67f154b53ddcddd10bd0ba60" },
+    "chapters": [
+      {
+        "lessons": [
+          {
+            "files": [],
+            "subfolders": [
+              {
+                "files": [
+                  {
+                    "id": "ba156eaa-e260-4e34-8108-43cd6521f845",
+                    "mimeType": "application/pdf",
+                    "name": "39901_Buoi_1_1715745278.pdf",
+                    "originalName": "39901_Buoi_1_1715745278.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:21:51.983Z",
+                    "driveFileId": "1rhI0A29UcVKpal0A3yYO3bxhjmYxwN5h",
+                    "status": "active",
+                    "size": "1326774",
+                    "modifiedTime": "2025-03-28T00:21:51.983Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:4eeb9c7125c40372f7b3915faa04ce0511fefe47f035c238a10f657dad3ce4fcb27b10a13e91ee3d4aa5fc5d989fe9ce"
+                  },
+                  {
+                    "id": "aff45dd2-7b62-498c-ab5b-6b0adc7d63f5",
+                    "mimeType": "application/pdf",
+                    "name": "39901_Buoi_1_-__Dap_an_1715745339.pdf",
+                    "originalName": "39901_Buoi_1_-__Dap_an_1715745339.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:21:53.108Z",
+                    "driveFileId": "1WpQN57uSWTa_OZz7G5reBLIgs7T35rQB",
+                    "status": "active",
+                    "size": "1391964",
+                    "modifiedTime": "2025-03-28T00:21:53.108Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:f5a74dda1ab5a3ecefa5ab5f5f940a56d61af7e1e3fba75cdf3c27fcbc7cdca5b94efca6e94cf064794704d81321a017"
+                  },
+                  {
+                    "id": "b521ce7b-fa21-43ac-92bd-a06660a9fd1d",
+                    "mimeType": "video/mp4",
+                    "name": "BUỔI 1 CÔNG THỨC PHÂN TỬ HỢP CHẤT HỮU CƠ_720p.mp4",
+                    "originalName": "BUỔI 1 CÔNG THỨC PHÂN TỬ HỢP CHẤT HỮU CƠ_720p.mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:22:49.029Z",
+                    "driveFileId": "1U5m_3jFAxqCwAPvB-vpFvBpPp19NiHK7",
+                    "status": "active",
+                    "size": "476867942",
+                    "modifiedTime": "2025-03-28T00:22:49.029Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-1-Công-thức-phân-tử-hợp-chất-Hữu-cơ/1743121351827-5c17193c-BUỔI-1-CÔNG-THỨC-PHÂN-TỬ-HỢP-CHẤT-HỮU-CƠ_720p.mp4",
+                      "size": { "$numberInt": "476867942" },
+                      "uploadTime": "2025-03-28T00:22:49.029Z"
+                    }
+                  }
+                ],
+                "id": "1e14bff4-476b-45b5-8b76-d2de8b485ca1",
+                "name": "Buổi 1 Công thức phân tử hợp chất Hữu cơ",
+                "createdAt": "2025-03-28T00:21:45.436Z",
+                "updatedAt": "2025-03-28T00:22:49.060Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "4b0f02fa-cc3f-487c-81fe-779c5397aa11",
+                    "mimeType": "application/pdf",
+                    "name": "39910_Buoi_10_1715745755.pdf",
+                    "originalName": "39910_Buoi_10_1715745755.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:22:53.029Z",
+                    "driveFileId": "1eEAAM_PR9vWOOp1Dcxtic2uRvfOP1jv2",
+                    "status": "active",
+                    "size": "540316",
+                    "modifiedTime": "2025-03-28T00:22:53.029Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-10-Carboxylic-acid/1743121372841-9d504a40-39910_Buoi_10_1715745755.pdf",
+                      "size": { "$numberInt": "540316" },
+                      "uploadTime": "2025-03-28T00:22:53.029Z"
+                    }
+                  },
+                  {
+                    "id": "df90f5f1-1e61-47ee-b90f-89bcc444b45d",
+                    "mimeType": "application/pdf",
+                    "name": "39910_Buoi_10_-__Dap_an_1715745765.pdf",
+                    "originalName": "39910_Buoi_10_-__Dap_an_1715745765.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:22:53.294Z",
+                    "driveFileId": "1YVpdAAWVvrAk6PWo6y3Ezo51oK3Ebv19",
+                    "status": "active",
+                    "size": "598810",
+                    "modifiedTime": "2025-03-28T00:22:53.294Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-10-Carboxylic-acid/1743121373029-791a3419-39910_Buoi_10_-__Dap_an_1715745765.pdf",
+                      "size": { "$numberInt": "598810" },
+                      "uploadTime": "2025-03-28T00:22:53.294Z"
+                    }
+                  },
+                  {
+                    "id": "b676665f-a8ac-4e75-bf69-c26020122d3c",
+                    "mimeType": "video/mp4",
+                    "name": "[LỚP HÓA THẦY THUẬN 2K7] Buổi 10- Carboxylic acid-(720p).mp4",
+                    "originalName": "[LỚP HÓA THẦY THUẬN 2K7] Buổi 10- Carboxylic acid-(720p).mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:24:05.389Z",
+                    "driveFileId": "1sgpoTpDv_PGn5xgPlcCKD2vKTrnRmUSZ",
+                    "status": "active",
+                    "size": "611019930",
+                    "modifiedTime": "2025-03-28T00:24:05.389Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-10-Carboxylic-acid/1743121429842-027747a1-[LỚP-HÓA-THẦY-THUẬN-2K7]-Buổi-10-Carboxylic-acid-(720p).mp4",
+                      "size": { "$numberInt": "611019930" },
+                      "uploadTime": "2025-03-28T00:24:05.389Z"
+                    }
+                  }
+                ],
+                "id": "f524f3eb-801d-47d8-8912-0f01b409100c",
+                "name": "Buổi 10 Carboxylic acid",
+                "createdAt": "2025-03-28T00:22:49.122Z",
+                "updatedAt": "2025-03-28T00:24:05.420Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "517892f6-2268-4a3b-91b8-5d712761cae7",
+                    "mimeType": "application/pdf",
+                    "name": "39902_Buoi_2_1715745372.pdf",
+                    "originalName": "39902_Buoi_2_1715745372.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:24:10.452Z",
+                    "driveFileId": "1qEBCCt-DPRBNJ_e3DuHl4jPB3YMU-75N",
+                    "status": "active",
+                    "size": "933153",
+                    "modifiedTime": "2025-03-28T00:24:10.452Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-2-Cấu-tạo-Hóa-học-hợp-chất-Hữu-cơ/1743121450327-7bb8f248-39902_Buoi_2_1715745372.pdf",
+                      "size": { "$numberInt": "933153" },
+                      "uploadTime": "2025-03-28T00:24:10.452Z"
+                    }
+                  },
+                  {
+                    "id": "a0b5fd0e-aa3c-430c-b783-ab5cbdf24477",
+                    "mimeType": "application/pdf",
+                    "name": "39902_Buoi_2_-_Dap_an_1715745384.pdf",
+                    "originalName": "39902_Buoi_2_-_Dap_an_1715745384.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:24:13.295Z",
+                    "driveFileId": "1BpTV0ORjOhOd1ir_nyZBDSim538-8jE1",
+                    "status": "active",
+                    "size": "1044088",
+                    "modifiedTime": "2025-03-28T00:24:13.295Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-2-Cấu-tạo-Hóa-học-hợp-chất-Hữu-cơ/1743121453092-609b6806-39902_Buoi_2_-_Dap_an_1715745384.pdf",
+                      "size": { "$numberInt": "1044088" },
+                      "uploadTime": "2025-03-28T00:24:13.295Z"
+                    }
+                  },
+                  {
+                    "id": "d836eae2-c17f-4552-8bee-a33118348392",
+                    "mimeType": "video/mp4",
+                    "name": "BUỔI 7 CẤU TẠO HÓA HỌC HỢP CHẤT HỮU CƠ_720p.mp4",
+                    "originalName": "BUỔI 7 CẤU TẠO HÓA HỌC HỢP CHẤT HỮU CƠ_720p.mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:24:51.373Z",
+                    "driveFileId": "1GmcCcy4-GIRKBxn7tHgLiFHB4eTfnovE",
+                    "status": "active",
+                    "size": "449204135",
+                    "modifiedTime": "2025-03-28T00:24:51.373Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:6478238e5278d1e8ad1e30a41345a0beafe4508b8dc0f77004bb6b4ae47fa6bb13fde5349fa4c3cd55d07e00add7b342"
+                  }
+                ],
+                "id": "cf184d9e-d487-480b-ad55-4e26ec1d6bc4",
+                "name": "Buổi 2 Cấu tạo Hóa học hợp chất Hữu cơ",
+                "createdAt": "2025-03-28T00:24:05.467Z",
+                "updatedAt": "2025-03-28T00:24:51.404Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "9ff20ef1-53e9-4502-a7e9-54fa96c837d0",
+                    "mimeType": "application/pdf",
+                    "name": "39903_Buoi_3_-_Dap_an_1715745418.pdf",
+                    "originalName": "39903_Buoi_3_-_Dap_an_1715745418.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:24:56.732Z",
+                    "driveFileId": "1Xf2yLAQKjOvUXGQ_gOQluAT2TlOqzFq0",
+                    "status": "active",
+                    "size": "875140",
+                    "modifiedTime": "2025-03-28T00:24:56.732Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-3-Alkane/1743121494951-4a53d7ff-39903_Buoi_3_-_Dap_an_1715745418.pdf",
+                      "size": { "$numberInt": "875140" },
+                      "uploadTime": "2025-03-28T00:24:56.732Z"
+                    }
+                  },
+                  {
+                    "id": "ba7b8d7b-6dc9-4a6f-87e7-c5da048b90a1",
+                    "mimeType": "application/pdf",
+                    "name": "39903_Buoi_3_1715745409.pdf",
+                    "originalName": "39903_Buoi_3_1715745409.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:24:57.169Z",
+                    "driveFileId": "1QZP9Js0t3qlICegZuI848mZTb5S_Eqhf",
+                    "status": "active",
+                    "size": "711763",
+                    "modifiedTime": "2025-03-28T00:24:57.169Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-3-Alkane/1743121496966-4ab426d6-39903_Buoi_3_1715745409.pdf",
+                      "size": { "$numberInt": "711763" },
+                      "uploadTime": "2025-03-28T00:24:57.169Z"
+                    }
+                  },
+                  {
+                    "id": "0e4aec91-beac-4c49-aa43-c8ecc5f05514",
+                    "mimeType": "video/mp4",
+                    "name": "[LỚP HÓA THẦY THUẬN 2K7] BUỔI 1_ ANKANE-(720p).mp4",
+                    "originalName": "[LỚP HÓA THẦY THUẬN 2K7] BUỔI 1_ ANKANE-(720p).mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:26:20.155Z",
+                    "driveFileId": "1e9KAOIk4jhvefeFLnxjZ_zNHGsUmXb8R",
+                    "status": "active",
+                    "size": "683284853",
+                    "modifiedTime": "2025-03-28T00:26:20.155Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-3-Alkane/1743121564686-8c69cf46-[LỚP-HÓA-THẦY-THUẬN-2K7]-BUỔI-1_-ANKANE-(720p).mp4",
+                      "size": { "$numberInt": "683284853" },
+                      "uploadTime": "2025-03-28T00:26:20.155Z"
+                    }
+                  }
+                ],
+                "id": "f0333aa8-98e6-438f-b0c6-cf4d9c7c008b",
+                "name": "Buổi 3 Alkane",
+                "createdAt": "2025-03-28T00:24:51.451Z",
+                "updatedAt": "2025-03-28T00:26:20.186Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "4fe49834-f879-4bb9-9323-1f9083fdac25",
+                    "mimeType": "application/pdf",
+                    "name": "39904_Buoi_4_1715745468.pdf",
+                    "originalName": "39904_Buoi_4_1715745468.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:26:25.873Z",
+                    "driveFileId": "1Ohz4xoHahcjcY0wHD_S1pnDSSQBzbdpv",
+                    "status": "active",
+                    "size": "699838",
+                    "modifiedTime": "2025-03-28T00:26:25.873Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-4-Hidrocarbon-không-no/1743121585764-a2d0b9e8-39904_Buoi_4_1715745468.pdf",
+                      "size": { "$numberInt": "699838" },
+                      "uploadTime": "2025-03-28T00:26:25.873Z"
+                    }
+                  },
+                  {
+                    "id": "1f39b068-e2a5-47d7-8222-a7cab5189336",
+                    "mimeType": "application/pdf",
+                    "name": "39904_Buoi_4_-__Dap_an_1715745476.pdf",
+                    "originalName": "39904_Buoi_4_-__Dap_an_1715745476.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:26:26.467Z",
+                    "driveFileId": "1J_fX3P0UOoj2PcXMNG950Ctnfr5-HMOL",
+                    "status": "active",
+                    "size": "1029798",
+                    "modifiedTime": "2025-03-28T00:26:26.467Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-4-Hidrocarbon-không-no/1743121586295-3c632dd1-39904_Buoi_4_-__Dap_an_1715745476.pdf",
+                      "size": { "$numberInt": "1029798" },
+                      "uploadTime": "2025-03-28T00:26:26.467Z"
+                    }
+                  },
+                  {
+                    "id": "0ea5461c-21f9-43a7-9535-3fb1b0a6d980",
+                    "mimeType": "video/mp4",
+                    "name": "[LỚP HÓA THẦY THUẬN 2K7] BUỔI 3_ HYDROCARBON KHÔNG NO-(720p).mp4",
+                    "originalName": "[LỚP HÓA THẦY THUẬN 2K7] BUỔI 3_ HYDROCARBON KHÔNG NO-(720p).mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:27:04.951Z",
+                    "driveFileId": "1pXQKz3cbingRnZhR-HiQM4b6ShnfKcp3",
+                    "status": "active",
+                    "size": "447854967",
+                    "modifiedTime": "2025-03-28T00:27:04.951Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:bf3e792adadb7543d1e0e94683dcf91b8ac0bc2bf5bbcf58cb92b5e9a359d06418c265bbe00b881cb09b97264b0f4566"
+                  }
+                ],
+                "id": "cc8223cf-0c19-4afb-ab2e-7de3acfa0d36",
+                "name": "Buổi 4 Hidrocarbon không no",
+                "createdAt": "2025-03-28T00:26:20.249Z",
+                "updatedAt": "2025-03-28T00:27:04.966Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "c45ae77b-5bf8-4d7c-87cb-d929120055e5",
+                    "mimeType": "application/pdf",
+                    "name": "39905_Buoi_5_1715745510.pdf",
+                    "originalName": "39905_Buoi_5_1715745510.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:27:09.451Z",
+                    "driveFileId": "13JtL_kPpatus80g01iF3p1iGWHoC7yf5",
+                    "status": "active",
+                    "size": "626479",
+                    "modifiedTime": "2025-03-28T00:27:09.451Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-5-Hidrocarbon-thơm/1743121629310-c5415257-39905_Buoi_5_1715745510.pdf",
+                      "size": { "$numberInt": "626479" },
+                      "uploadTime": "2025-03-28T00:27:09.451Z"
+                    }
+                  },
+                  {
+                    "id": "78d775a7-c92f-4ea9-81a5-f2fb621ea1c3",
+                    "mimeType": "application/pdf",
+                    "name": "39905_Buoi_5_-_Dap_an_1715745523.pdf",
+                    "originalName": "39905_Buoi_5_-_Dap_an_1715745523.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:27:11.138Z",
+                    "driveFileId": "1ihInV1PzwxIoDM9_wKUbly-hE7xyXGQb",
+                    "status": "active",
+                    "size": "716475",
+                    "modifiedTime": "2025-03-28T00:27:11.138Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-5-Hidrocarbon-thơm/1743121630997-92dd435d-39905_Buoi_5_-_Dap_an_1715745523.pdf",
+                      "size": { "$numberInt": "716475" },
+                      "uploadTime": "2025-03-28T00:27:11.138Z"
+                    }
+                  },
+                  {
+                    "id": "28bc227b-f6dc-45e3-8f5b-9e111ffc5e89",
+                    "mimeType": "video/mp4",
+                    "name": "[LỚP HÓA THẦY THUẬN 2K7 LỚP 11] BUỔI 5- HYDROCARBON THƠM.mp4",
+                    "originalName": "[LỚP HÓA THẦY THUẬN 2K7 LỚP 11] BUỔI 5- HYDROCARBON THƠM.mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:27:37.701Z",
+                    "driveFileId": "1tiJMK73O-BRGLikvNcQjUU3pIas5hpRK",
+                    "status": "active",
+                    "size": "305400343",
+                    "modifiedTime": "2025-03-28T00:27:37.701Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:63298b9d5e65d9b8517d5854cb44f17d013ec1b628ad703d64e27762f772f789646b63d52cb140c3f5c5cb4082be9af1"
+                  }
+                ],
+                "id": "4381f4a6-98c3-408d-a420-216d555b9d5f",
+                "name": "Buổi 5 Hidrocarbon thơm",
+                "createdAt": "2025-03-28T00:27:05.091Z",
+                "updatedAt": "2025-03-28T00:27:37.716Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "09dcd7e8-4084-40cf-9917-6d5393f2f1c9",
+                    "mimeType": "application/pdf",
+                    "name": "39906_Buoi_6_-__Dap_an_1715745563.pdf",
+                    "originalName": "39906_Buoi_6_-__Dap_an_1715745563.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:27:42.466Z",
+                    "driveFileId": "1gJLHvDaLc-hxeUwQQoKraIvsZgdKxsM-",
+                    "status": "active",
+                    "size": "851667",
+                    "modifiedTime": "2025-03-28T00:27:42.466Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-6-Dẫn-Xuất-Halogen/1743121662263-ea98d683-39906_Buoi_6_-__Dap_an_1715745563.pdf",
+                      "size": { "$numberInt": "851667" },
+                      "uploadTime": "2025-03-28T00:27:42.466Z"
+                    }
+                  },
+                  {
+                    "id": "3081db6a-e281-46f9-ba4f-1268d20fda77",
+                    "mimeType": "video/mp4",
+                    "name": "LỚP HÓA THẦY THUẬN 2K7 BUỔI 6 DẪN XUẤT HALOGEN_v720P.mp4",
+                    "originalName": "LỚP HÓA THẦY THUẬN 2K7 BUỔI 6 DẪN XUẤT HALOGEN_v720P.mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:28:05.154Z",
+                    "driveFileId": "1HDgm3Uj5n9hvPKMeVoIZghp1d0rdJET4",
+                    "status": "active",
+                    "size": "339936012",
+                    "modifiedTime": "2025-03-28T00:28:05.154Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:f5f1ac8f481bbe2035a17d2b000129f24280ba022889b3dcdbb26d9376fbdba08a10b3c9fe7259183d13d36b0f90c89d"
+                  },
+                  {
+                    "id": "97e01bdb-c031-4d89-831e-186870558bef",
+                    "mimeType": "application/pdf",
+                    "name": "39906_Buoi_6_1715745551.pdf",
+                    "originalName": "39906_Buoi_6_1715745551.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-29T10:55:25.227Z",
+                    "driveFileId": "1OWwdO0USrOHjUCCyDxv34ijdwDn1WVus",
+                    "status": "active",
+                    "size": "720405",
+                    "modifiedTime": "2025-03-29T10:55:25.227Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-6-Dẫn-Xuất-Halogen/1743245724688-15028246-39906_Buoi_6_1715745551.pdf",
+                      "size": { "$numberInt": "720405" },
+                      "uploadTime": "2025-03-29T10:55:25.227Z"
+                    }
+                  }
+                ],
+                "id": "ccfef94a-d82b-4e8a-9980-c610474bf8ba",
+                "name": "Buổi 6 Dẫn Xuất Halogen",
+                "createdAt": "2025-03-28T00:27:37.779Z",
+                "updatedAt": "2025-03-29T10:55:25.349Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "5c36c259-ae95-40aa-9bde-87bdad0f4be4",
+                    "mimeType": "application/pdf",
+                    "name": "39907_Buoi_7_1715745591.pdf",
+                    "originalName": "39907_Buoi_7_1715745591.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:28:10.248Z",
+                    "driveFileId": "16dbtimAjTtPwisn799M_QtMCZaBSFCrM",
+                    "status": "active",
+                    "size": "755631",
+                    "modifiedTime": "2025-03-28T00:28:10.248Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-7-Alcohol/1743121690060-075f88de-39907_Buoi_7_1715745591.pdf",
+                      "size": { "$numberInt": "755631" },
+                      "uploadTime": "2025-03-28T00:28:10.248Z"
+                    }
+                  },
+                  {
+                    "id": "e991079c-15dc-408d-84c5-983bab4ebc2b",
+                    "mimeType": "application/pdf",
+                    "name": "39907_Buoi_7_-_Dap_an_1715745602.pdf",
+                    "originalName": "39907_Buoi_7_-_Dap_an_1715745602.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:28:11.060Z",
+                    "driveFileId": "18yYru3y7ODfVi2zHmlfdYk6Od0KzruMo",
+                    "status": "active",
+                    "size": "852554",
+                    "modifiedTime": "2025-03-28T00:28:11.060Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-7-Alcohol/1743121690872-b4dee21d-39907_Buoi_7_-_Dap_an_1715745602.pdf",
+                      "size": { "$numberInt": "852554" },
+                      "uploadTime": "2025-03-28T00:28:11.060Z"
+                    }
+                  },
+                  {
+                    "id": "d9bce4a7-2618-4db5-87c6-841cb29b0cc6",
+                    "mimeType": "video/mp4",
+                    "name": "[LỚP HÓA THẦY THUẬN 2K7] Buổi 7_ Alcohol-(720p).mp4",
+                    "originalName": "[LỚP HÓA THẦY THUẬN 2K7] Buổi 7_ Alcohol-(720p).mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:30:34.904Z",
+                    "driveFileId": "16Wgi3w43ae6sWwsvCTZ2ek7CRCBBORlj",
+                    "status": "active",
+                    "size": "634821078",
+                    "modifiedTime": "2025-03-28T00:30:34.904Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:4fe20bea59e93fc9eef6d7552607b698405b574727da7aea015b28d9f6c2f1d8d2a3b65dd9b901963f760cc2ff18c139"
+                  }
+                ],
+                "id": "6d0550d3-280a-4cf8-984f-07597f37371a",
+                "name": "Buổi 7 Alcohol",
+                "createdAt": "2025-03-28T00:28:05.216Z",
+                "updatedAt": "2025-03-28T00:30:34.935Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "41303ef4-7fee-42d5-ab85-05355812666e",
+                    "mimeType": "application/pdf",
+                    "name": "39908_Buoi_8_1715745627.pdf",
+                    "originalName": "39908_Buoi_8_1715745627.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:30:41.076Z",
+                    "driveFileId": "1Gaakot-g2sYiQ0liTJAuIya78PuJ8DNX",
+                    "status": "active",
+                    "size": "792247",
+                    "modifiedTime": "2025-03-28T00:30:41.076Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-8-Phenol/1743121840919-e10009d3-39908_Buoi_8_1715745627.pdf",
+                      "size": { "$numberInt": "792247" },
+                      "uploadTime": "2025-03-28T00:30:41.076Z"
+                    }
+                  },
+                  {
+                    "id": "0496af64-c8cc-46d9-b1a2-025f4ec40123",
+                    "mimeType": "application/pdf",
+                    "name": "39908_Buoi_8_-__Dap_an_1715745636.pdf",
+                    "originalName": "39908_Buoi_8_-__Dap_an_1715745636.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:30:41.576Z",
+                    "driveFileId": "1_4F3C9MyYNHXvHTi9gpALi9EV1WhYMMG",
+                    "status": "active",
+                    "size": "1017289",
+                    "modifiedTime": "2025-03-28T00:30:41.576Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-8-Phenol/1743121841435-ba659019-39908_Buoi_8_-__Dap_an_1715745636.pdf",
+                      "size": { "$numberInt": "1017289" },
+                      "uploadTime": "2025-03-28T00:30:41.576Z"
+                    }
+                  },
+                  {
+                    "id": "d56b3cdb-1ad5-4052-ac67-1b47f4280264",
+                    "mimeType": "video/mp4",
+                    "name": "[LỚP HÓA THẦY THUẬN 2K7] BUỔI 5_ PHENOL-(720p).mp4",
+                    "originalName": "[LỚP HÓA THẦY THUẬN 2K7] BUỔI 5_ PHENOL-(720p).mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:32:07.077Z",
+                    "driveFileId": "1j6fAlIME90vqirmDcoIb0DbCto6rbJQ4",
+                    "status": "active",
+                    "size": "354926450",
+                    "modifiedTime": "2025-03-28T00:32:07.077Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:d6ff91b7eab094bbfe26f452393a05be646888ede79cba052159368351409dfb2073d098c89fdf919a3e12fd02cab427"
+                  }
+                ],
+                "id": "263dc056-eae6-491f-be8e-7eee3f21293f",
+                "name": "Buổi 8 Phenol",
+                "createdAt": "2025-03-28T00:30:35.201Z",
+                "updatedAt": "2025-03-28T00:32:07.108Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "e0620f7b-b671-4620-afd0-987bd737564f",
+                    "mimeType": "application/pdf",
+                    "name": "39909_Buoi_9_-__Dap_an_1715745681.pdf",
+                    "originalName": "39909_Buoi_9_-__Dap_an_1715745681.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:32:12.108Z",
+                    "driveFileId": "1lYnPh5Ix3DtKCnxdKueWKceebM9arSpj",
+                    "status": "active",
+                    "size": "661846",
+                    "modifiedTime": "2025-03-28T00:32:12.108Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-9-Hợp-chất-Carbonyl/1743121931967-667ab6cd-39909_Buoi_9_-__Dap_an_1715745681.pdf",
+                      "size": { "$numberInt": "661846" },
+                      "uploadTime": "2025-03-28T00:32:12.108Z"
+                    }
+                  },
+                  {
+                    "id": "918b0ee1-28f1-46ea-810d-0194ccb2e9a6",
+                    "mimeType": "application/pdf",
+                    "name": "39909_Buoi_9_1715745670.pdf",
+                    "originalName": "39909_Buoi_9_1715745670.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:32:13.561Z",
+                    "driveFileId": "1q2WnU-GdhQ4g51BcxN96Vf4gd7LjU8Ra",
+                    "status": "active",
+                    "size": "585885",
+                    "modifiedTime": "2025-03-28T00:32:13.561Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-HỮU-CƠ/Buổi-9-Hợp-chất-Carbonyl/1743121933280-2cd24062-39909_Buoi_9_1715745670.pdf",
+                      "size": { "$numberInt": "585885" },
+                      "uploadTime": "2025-03-28T00:32:13.561Z"
+                    }
+                  },
+                  {
+                    "id": "6f5c4974-d346-43c1-bf6e-e6ede8fb9f4c",
+                    "mimeType": "video/mp4",
+                    "name": "[LỚP HÓA THẦY THUẬN 2K7] Buổi 9- Hợp chất Carbonyl-(720p).mp4",
+                    "originalName": "[LỚP HÓA THẦY THUẬN 2K7] Buổi 9- Hợp chất Carbonyl-(720p).mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:35:20.983Z",
+                    "driveFileId": "1S9l697IZ1YQpozcg1ACOXFRrp1aN6piM",
+                    "status": "active",
+                    "size": "615083845",
+                    "modifiedTime": "2025-03-28T00:35:20.983Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:c3d36bdcbae30ff6746d186bd264a45e82a6250421416a9041663a4bdaf85fd868a25f58e3719e109e3af0c0674cb563"
+                  }
+                ],
+                "id": "6ab66bf4-0f40-4d82-83ce-70912338d662",
+                "name": "Buổi 9 Hợp chất Carbonyl",
+                "createdAt": "2025-03-28T00:32:07.155Z",
+                "updatedAt": "2025-03-28T00:35:20.998Z"
+              }
+            ],
+            "id": "6207f28c-4830-4cc3-b84e-b2c770b48fd7",
+            "title": "NỀN TẢNG HỮU CƠ",
+            "order": { "$numberInt": "1" },
+            "createdAt": "2025-03-28T00:21:44.858Z",
+            "updatedAt": "2025-03-29T10:55:25.349Z"
+          },
+          {
+            "files": [],
+            "subfolders": [
+              {
+                "files": [
+                  {
+                    "id": "a253e263-a328-42b1-acc4-db691c5bab9f",
+                    "mimeType": "application/pdf",
+                    "name": "39891_Buoi_1_1715743400.pdf",
+                    "originalName": "39891_Buoi_1_1715743400.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:35:32.217Z",
+                    "driveFileId": "1EaFeqzfZbkkxj8qwgqDjzNInl4XWqhG9",
+                    "status": "active",
+                    "size": "831600",
+                    "modifiedTime": "2025-03-28T00:35:32.217Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-VÔ-CƠ/Buổi-1-Một-số-khái-niệm-cơ-bản-trong-hóa-học/1743122131905-89fe8094-39891_Buoi_1_1715743400.pdf",
+                      "size": { "$numberInt": "831600" },
+                      "uploadTime": "2025-03-28T00:35:32.217Z"
+                    }
+                  },
+                  {
+                    "id": "68271b76-da5f-4185-878f-2e18e67396d2",
+                    "mimeType": "application/pdf",
+                    "name": "39891_Buoi_1_-__Dap_an_1715743424.pdf",
+                    "originalName": "39891_Buoi_1_-__Dap_an_1715743424.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:35:36.045Z",
+                    "driveFileId": "1D4JOkyP_Q634IAmogOrTFRs5u3yS78-O",
+                    "status": "active",
+                    "size": "2100276",
+                    "modifiedTime": "2025-03-28T00:35:36.045Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-VÔ-CƠ/Buổi-1-Một-số-khái-niệm-cơ-bản-trong-hóa-học/1743122135405-7ef4aa15-39891_Buoi_1_-__Dap_an_1715743424.pdf",
+                      "size": { "$numberInt": "2100276" },
+                      "uploadTime": "2025-03-28T00:35:36.045Z"
+                    }
+                  },
+                  {
+                    "id": "caf046f7-d569-4f1c-867d-bc8060092039",
+                    "mimeType": "video/mp4",
+                    "name": "BUỔI 1- CÁC KHÁI NIỆM CĂN BẢN HÓA HỌC.mp4",
+                    "originalName": "BUỔI 1- CÁC KHÁI NIỆM CĂN BẢN HÓA HỌC.mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:39:16.873Z",
+                    "driveFileId": "12-yixTm3CArsdC1yXV8bJqzF2rHehd0-",
+                    "status": "active",
+                    "size": "707757985",
+                    "modifiedTime": "2025-03-28T00:39:16.873Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:e8ae05c68c4dbafc933bd686e881084746f12cd2449ab00d76ddeb246f4e574336c2c88b0302417f5a6de8f547e14346"
+                  }
+                ],
+                "id": "9cdcbc97-4771-4a41-bc34-5dcd778b5f3c",
+                "name": "Buổi 1 Một số khái niệm cơ bản trong hóa học",
+                "createdAt": "2025-03-28T00:35:21.702Z",
+                "updatedAt": "2025-03-28T00:39:16.919Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "8e852d02-b373-46b6-bdfd-b00cc564b124",
+                    "mimeType": "video/mp4",
+                    "name": "Buổi 10- Tính biến thiên Enthanlpy trong phản ứng Hóa học.mp4",
+                    "originalName": "Buổi 10- Tính biến thiên Enthanlpy trong phản ứng Hóa học.mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:41:52.577Z",
+                    "driveFileId": "1MnL-mMvxrfXgM-Mltfr3mT4Drp6qyMaT",
+                    "status": "active",
+                    "size": "467646411",
+                    "modifiedTime": "2025-03-28T00:41:52.577Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:712e232c466ef546545f0a50b3094f4885d904aa82251014fb12609398116831583d49156f1efede5b1145f43f8f9088"
+                  }
+                ],
+                "id": "2d4cb987-8fe0-4a66-a624-c6acbabee4c9",
+                "name": "Buổi 10 Tính biến thiên Enthanlpy trong phản ứng Hóa học",
+                "createdAt": "2025-03-28T00:39:16.982Z",
+                "updatedAt": "2025-03-28T00:41:52.592Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "b030bdc7-5a32-439b-a1be-ec778141bb38",
+                    "mimeType": "application/pdf",
+                    "name": "39892_Buoi_2_1715743810.pdf",
+                    "originalName": "39892_Buoi_2_1715743810.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:42:00.608Z",
+                    "driveFileId": "1KZcwV6ddVoXrg7pIDck8Cl1ihYIZV4g_",
+                    "status": "active",
+                    "size": "891053",
+                    "modifiedTime": "2025-03-28T00:42:00.608Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-VÔ-CƠ/Buổi-2-Phân-loại-các-chất-vô-cơ.-Tính-chất-hóa-học-Kim-loại-–-phi-kim/1743122520342-a0c1baab-39892_Buoi_2_1715743810.pdf",
+                      "size": { "$numberInt": "891053" },
+                      "uploadTime": "2025-03-28T00:42:00.608Z"
+                    }
+                  },
+                  {
+                    "id": "f753ad85-4f17-4d0e-af7b-efc1f482b09d",
+                    "mimeType": "application/pdf",
+                    "name": "39892_Buoi_2_-_Dap_an_1715743833.pdf",
+                    "originalName": "39892_Buoi_2_-_Dap_an_1715743833.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:42:03.670Z",
+                    "driveFileId": "1TcsO1-XkBWTacrNPlIXW53yea3x4BsyA",
+                    "status": "active",
+                    "size": "2085482",
+                    "modifiedTime": "2025-03-28T00:42:03.670Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-VÔ-CƠ/Buổi-2-Phân-loại-các-chất-vô-cơ.-Tính-chất-hóa-học-Kim-loại-–-phi-kim/1743122523483-9ef90f58-39892_Buoi_2_-_Dap_an_1715743833.pdf",
+                      "size": { "$numberInt": "2085482" },
+                      "uploadTime": "2025-03-28T00:42:03.670Z"
+                    }
+                  },
+                  {
+                    "id": "3139ba31-fe1a-4ecd-b6b9-6471e7453f9a",
+                    "mimeType": "video/mp4",
+                    "name": "BÀI 2- CÁC LOẠI HỢP CHẤT VÔ CƠ.mp4",
+                    "originalName": "BÀI 2- CÁC LOẠI HỢP CHẤT VÔ CƠ.mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:45:17.122Z",
+                    "driveFileId": "1GATpv74epQOsEASWLpQBDYnKlLPQnHbD",
+                    "status": "active",
+                    "size": "451222935",
+                    "modifiedTime": "2025-03-28T00:45:17.122Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:3bc086486790a0189d418bd29596df6833a4f044feeea999eb1970daa1f36d0b74b9d41fea892c4beaba980cfb77dc49"
+                  }
+                ],
+                "id": "56ab9ffe-d7dc-4106-9659-3149fda06229",
+                "name": "Buổi 2 Phân loại các chất vô cơ. Tính chất hóa học Kim loại – phi kim",
+                "createdAt": "2025-03-28T00:41:52.764Z",
+                "updatedAt": "2025-03-28T00:45:17.169Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "4cadc14f-054f-4db6-8a91-5621439a91cd",
+                    "mimeType": "application/pdf",
+                    "name": "39893_Buoi_3_1715743933.pdf",
+                    "originalName": "39893_Buoi_3_1715743933.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:45:27.294Z",
+                    "driveFileId": "1O9x821TyVlQCOXKoEMZy8SpfXZEPoUZy",
+                    "status": "active",
+                    "size": "662136",
+                    "modifiedTime": "2025-03-28T00:45:27.294Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-VÔ-CƠ/Buổi-3-Tính-chất-hóa-học-của-oxide-–-acid-–-base-–-muối/1743122726654-1b75ca70-39893_Buoi_3_1715743933.pdf",
+                      "size": { "$numberInt": "662136" },
+                      "uploadTime": "2025-03-28T00:45:27.294Z"
+                    }
+                  },
+                  {
+                    "id": "fadf1d52-46ce-42a7-9804-41a8ce6e57ad",
+                    "mimeType": "application/pdf",
+                    "name": "39893_Buoi_3_-_Dap_an_1715743953.pdf",
+                    "originalName": "39893_Buoi_3_-_Dap_an_1715743953.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:45:34.529Z",
+                    "driveFileId": "1_oLheZyVkFGxc9RdWElG6Wutj0ZlYY6L",
+                    "status": "active",
+                    "size": "1656185",
+                    "modifiedTime": "2025-03-28T00:45:34.529Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-VÔ-CƠ/Buổi-3-Tính-chất-hóa-học-của-oxide-–-acid-–-base-–-muối/1743122734326-4e41cf6d-39893_Buoi_3_-_Dap_an_1715743953.pdf",
+                      "size": { "$numberInt": "1656185" },
+                      "uploadTime": "2025-03-28T00:45:34.529Z"
+                    }
+                  },
+                  {
+                    "id": "e94c17d0-bb7f-42b6-9fba-65dfd68d41d0",
+                    "mimeType": "video/mp4",
+                    "name": "BÀI 3- TCHH CỦA OXIDE - ACID - BASE - MUỐI.mp4",
+                    "originalName": "BÀI 3- TCHH CỦA OXIDE - ACID - BASE - MUỐI.mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:46:41.092Z",
+                    "driveFileId": "1a3SYl1ff-nWWCeUPX3f6-6o2hqZeJXzK",
+                    "status": "active",
+                    "size": "241379098",
+                    "modifiedTime": "2025-03-28T00:46:41.092Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:5249d2eef5aa62c81a4ea8723338b1fe30ac4fab1f093182b1972c0d158a0b239a758f7ffb5a0c700ca145ada54efc67"
+                  }
+                ],
+                "id": "74330898-e78c-4074-acb2-6fa25911fe2b",
+                "name": "Buổi 3 Tính chất hóa học của oxide – acid – base – muối",
+                "createdAt": "2025-03-28T00:45:17.466Z",
+                "updatedAt": "2025-03-28T00:46:41.108Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "d3fcc129-1800-4bfb-88d2-8e33c0d8c333",
+                    "mimeType": "application/pdf",
+                    "name": "39894_Buoi_4_1715743984.pdf",
+                    "originalName": "39894_Buoi_4_1715743984.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:46:51.591Z",
+                    "driveFileId": "1a7rrA4FsC-khTr2VL22H62qeKIa_lY5g",
+                    "status": "active",
+                    "size": "617011",
+                    "modifiedTime": "2025-03-28T00:46:51.591Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-VÔ-CƠ/Buổi-4-Công-thức-thường-dùng-trong-giải-toán/1743122811310-46ac1a06-39894_Buoi_4_1715743984.pdf",
+                      "size": { "$numberInt": "617011" },
+                      "uploadTime": "2025-03-28T00:46:51.591Z"
+                    }
+                  },
+                  {
+                    "id": "c7a04175-4115-4d6d-844c-4f9dc6da6b15",
+                    "mimeType": "application/pdf",
+                    "name": "39894_Buoi_4_-__Dap_an_1715743999.pdf",
+                    "originalName": "39894_Buoi_4_-__Dap_an_1715743999.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:46:53.669Z",
+                    "driveFileId": "1Ko9RolYCikxd59AIeyaGt_fDeBTnak0v",
+                    "status": "active",
+                    "size": "1036384",
+                    "modifiedTime": "2025-03-28T00:46:53.669Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-VÔ-CƠ/Buổi-4-Công-thức-thường-dùng-trong-giải-toán/1743122813435-2b5c9546-39894_Buoi_4_-__Dap_an_1715743999.pdf",
+                      "size": { "$numberInt": "1036384" },
+                      "uploadTime": "2025-03-28T00:46:53.669Z"
+                    }
+                  },
+                  {
+                    "id": "8cc5747b-10ce-4c35-aaa6-0a053ced56f7",
+                    "mimeType": "video/mp4",
+                    "name": "BÀI 4 - TÍNH SỐ MOL.mp4",
+                    "originalName": "BÀI 4 - TÍNH SỐ MOL.mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:47:39.248Z",
+                    "driveFileId": "1gSwa0jk5JS2a4QnE34mFUk1SuzWeHVA3",
+                    "status": "active",
+                    "size": "132595166",
+                    "modifiedTime": "2025-03-28T00:47:39.248Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-VÔ-CƠ/Buổi-4-Công-thức-thường-dùng-trong-giải-toán/1743122856435-aa52f494-BÀI-4-TÍNH-SỐ-MOL.mp4",
+                      "size": { "$numberInt": "132595166" },
+                      "uploadTime": "2025-03-28T00:47:39.248Z"
+                    }
+                  }
+                ],
+                "id": "982ddf7e-2ea1-461a-b572-fc6263ccc7d6",
+                "name": "Buổi 4 Công thức thường dùng trong giải toán",
+                "createdAt": "2025-03-28T00:46:41.248Z",
+                "updatedAt": "2025-03-28T00:47:39.279Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "c15dc6a7-5c37-4551-9348-cf5c0b887fed",
+                    "mimeType": "video/mp4",
+                    "name": "BÀI 5 - TÍNH THEO CÔNG THỨC HÓA HỌC.mp4",
+                    "originalName": "BÀI 5 - TÍNH THEO CÔNG THỨC HÓA HỌC.mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:48:23.899Z",
+                    "driveFileId": "1uIQe1LoYWZlArBfD0XfjvDDvkifG6GrY",
+                    "status": "active",
+                    "size": "106643137",
+                    "modifiedTime": "2025-03-28T00:48:23.899Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-VÔ-CƠ/Buổi-5-Bài-toán-tính-theo-công-thức-hóa-học/1743122901452-81729d6d-BÀI-5-TÍNH-THEO-CÔNG-THỨC-HÓA-HỌC.mp4",
+                      "size": { "$numberInt": "106643137" },
+                      "uploadTime": "2025-03-28T00:48:23.899Z"
+                    }
+                  }
+                ],
+                "id": "4b32a168-5f4a-4b88-ab00-e36333b410ae",
+                "name": "Buổi 5 Bài toán tính theo công thức hóa học",
+                "createdAt": "2025-03-28T00:47:39.341Z",
+                "updatedAt": "2025-03-28T00:48:23.967Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "c95701b6-6719-466e-8e84-f54fd5c8dfa6",
+                    "mimeType": "application/pdf",
+                    "name": "39896_Buoi_6_1715744286.pdf",
+                    "originalName": "39896_Buoi_6_1715744286.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:48:30.545Z",
+                    "driveFileId": "1eC5TC4Sq-70pUl3YtEBjaYFfmWLrY5e-",
+                    "status": "active",
+                    "size": "613192",
+                    "modifiedTime": "2025-03-28T00:48:30.545Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-VÔ-CƠ/Buổi-6-Bài-toán-tính-theo-phương-trình/1743122910342-195d657a-39896_Buoi_6_1715744286.pdf",
+                      "size": { "$numberInt": "613192" },
+                      "uploadTime": "2025-03-28T00:48:30.545Z"
+                    }
+                  },
+                  {
+                    "id": "77e038d4-fac8-4cf1-b651-57f46d6b26ce",
+                    "mimeType": "application/pdf",
+                    "name": "39896_Buoi_6_-__Dap_an_1715744406.pdf",
+                    "originalName": "39896_Buoi_6_-__Dap_an_1715744406.pdf",
+                    "type": "document",
+                    "uploadTime": "2025-03-28T00:48:32.155Z",
+                    "driveFileId": "1qevpO-p2PPZ_nxosPb1w_HrTfkP5JPfM",
+                    "status": "active",
+                    "size": "1028516",
+                    "modifiedTime": "2025-03-28T00:48:32.155Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-VÔ-CƠ/Buổi-6-Bài-toán-tính-theo-phương-trình/1743122911998-cc0e7c87-39896_Buoi_6_-__Dap_an_1715744406.pdf",
+                      "size": { "$numberInt": "1028516" },
+                      "uploadTime": "2025-03-28T00:48:32.155Z"
+                    }
+                  },
+                  {
+                    "id": "5cc2f28f-c824-4730-bafe-3c1e31f9ef45",
+                    "mimeType": "video/mp4",
+                    "name": "BÀI 6 - TÍNH THEO PHƯƠNG TRÌNH HÓA HỌC.mp4",
+                    "originalName": "BÀI 6 - TÍNH THEO PHƯƠNG TRÌNH HÓA HỌC.mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:52:41.419Z",
+                    "driveFileId": "1AqIAzCBWCvv_CaeK8-TXlLHIWg7HY0B3",
+                    "status": "active",
+                    "size": "581704067",
+                    "modifiedTime": "2025-03-28T00:52:41.419Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:696a1742b457258349941adf0e55ad4ddd7378049c3ac01ed8671f49997a68287f50f4399d36bbfe0c1619c85334cb25"
+                  }
+                ],
+                "id": "09a661e0-5f26-437a-be6c-303eb15f5004",
+                "name": "Buổi 6 Bài toán tính theo phương trình",
+                "createdAt": "2025-03-28T00:48:24.045Z",
+                "updatedAt": "2025-03-28T00:52:41.435Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "0279d83a-d0fb-45f0-9315-bd714a6ab776",
+                    "mimeType": "video/mp4",
+                    "name": "BÀI 7 - BÀI TOÁN PHA TRỘN DUNG DỊCH.mp4",
+                    "originalName": "BÀI 7 - BÀI TOÁN PHA TRỘN DUNG DỊCH.mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:53:37.139Z",
+                    "driveFileId": "1LM457nOpNQvZppLI90XCxu40ej852tFP",
+                    "status": "active",
+                    "size": "89328317",
+                    "modifiedTime": "2025-03-28T00:53:37.139Z",
+                    "storage": {
+                      "provider": "wasabi",
+                      "key": "courses/HÓA-THẦY-PHẠM-VĂN-THUẬN-MCLASS-2K7/01.-LIVE-S-KHỞI-ĐỘNG/NỀN-TẢNG-VÔ-CƠ/Buổi-7-Bài-toán-pha-trộn-dung-dịch/1743123214905-1ca94451-BÀI-7-BÀI-TOÁN-PHA-TRỘN-DUNG-DỊCH.mp4",
+                      "size": { "$numberInt": "89328317" },
+                      "uploadTime": "2025-03-28T00:53:37.139Z"
+                    }
+                  }
+                ],
+                "id": "95948b85-3759-4add-a57c-48b21c6693e4",
+                "name": "Buổi 7 Bài toán pha trộn dung dịch",
+                "createdAt": "2025-03-28T00:52:41.513Z",
+                "updatedAt": "2025-03-28T00:53:37.155Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "17edb37e-62c1-44ef-90f7-3eb0cd88ee3b",
+                    "mimeType": "video/mp4",
+                    "name": "BÀI 8 - ĐỊNH LUẬT BẢO TOÀN KHỐI LƯỢNG.mp4",
+                    "originalName": "BÀI 8 - ĐỊNH LUẬT BẢO TOÀN KHỐI LƯỢNG.mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T00:55:13.514Z",
+                    "driveFileId": "1IDRylNrDCtpT74UQkRGyqXguiklshXks",
+                    "status": "active",
+                    "size": "259414591",
+                    "modifiedTime": "2025-03-28T00:55:13.514Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:8607fdb12ee9fb95bc07f3c0b2dc8a9a50977cb107cd8932d653753b6af52d5de86185702837631a801adc140c984f57"
+                  }
+                ],
+                "id": "8985967a-6329-4963-9ac6-6991cf634e18",
+                "name": "Buổi 8 Bài toán sử dụng phương pháp bảo toàn khối lượng",
+                "createdAt": "2025-03-28T00:53:37.295Z",
+                "updatedAt": "2025-03-28T00:55:13.530Z"
+              },
+              {
+                "files": [
+                  {
+                    "id": "3d34ac12-dcb4-4a7e-b3f6-10e9c05fc7d0",
+                    "mimeType": "video/mp4",
+                    "name": "Buổi 9- Cân bằng phản ứng oxi hóa khử.mp4",
+                    "originalName": "Buổi 9- Cân bằng phản ứng oxi hóa khử.mp4",
+                    "type": "video",
+                    "uploadTime": "2025-03-28T01:01:04.915Z",
+                    "driveFileId": "1RrPEs5PRK0QCsm_CRAfqw8HiG8NeZJpo",
+                    "status": "active",
+                    "size": "626436456",
+                    "modifiedTime": "2025-03-28T01:01:04.915Z",
+                    "proxyUrl": "/api/proxy/files?id=78e98a1104599852d726a702ed3c5d2a:cdde447ce3dd93177bd637309f9d5b19d7b3de00c859bd0104752a67f8b25a9ff7629530f6e9241ddf3d534919b5155d"
+                  }
+                ],
+                "id": "3ff6b40e-42da-4c12-8110-667dea039790",
+                "name": "Buổi 9 Cân bằng phản ứng oxi hóa khử",
+                "createdAt": "2025-03-28T00:55:13.608Z",
+                "updatedAt": "2025-03-28T01:01:04.931Z"
+              }
+            ],
+            "id": "dced7449-c9af-4627-ad3f-5c0b9050c1b7",
+            "title": "NỀN TẢNG VÔ CƠ",
+            "order": { "$numberInt": "2" },
+            "createdAt": "2025-03-28T00:35:21.061Z",
+            "updatedAt": "2025-03-28T01:01:04.931Z"
+          }
+        ],
+        "id": "ad97a54e-55e8-43c3-bf98-e37a8f71a584",
+        "title": "01. LIVE S - KHỞI ĐỘNG",
+        "order": { "$numberInt": "1" },
+        "createdAt": "2025-03-28T00:21:44.217Z",
+        "updatedAt": "2025-03-28T00:35:21.061Z",
+        "totalLessons": { "$numberInt": "2" }
+      }
+    ],
+    "createdAt": { "$date": { "$numberLong": "1743869109255" } },
+    "updatedAt": { "$date": { "$numberLong": "1743869109255" } },
+    "firebaseId": "4bBWFU3gagYdHOBIImoY"
+  }
+  
