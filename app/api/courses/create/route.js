@@ -1,7 +1,8 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase-admin";
+import { CourseAdapter } from "@/lib/adapters/course-adapter";
+import slugify from "slugify";
 
 export async function POST(request) {
   try {
@@ -14,8 +15,8 @@ export async function POST(request) {
       );
     }
 
-    // Tạo đối tượng khóa học mới
-    const courseData = {
+    // Tạo đối tượng khóa học mới theo cấu trúc cũ
+    const legacyCourse = {
       title,
       price: Number(price),
       teacher,
@@ -25,29 +26,34 @@ export async function POST(request) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       description: "",
+      shortDescription: "",
       status: "draft",
       totalLessons: 0,
       totalChapters: 0,
+      slug: slugify(title, { lower: true }),
     };
 
     // Thêm driveUrl và trích xuất driveFolderId nếu có
     if (driveUrl) {
-      courseData.driveUrl = driveUrl;
+      legacyCourse.driveUrl = driveUrl;
       
       // Trích xuất ID của thư mục từ Drive URL (nếu cần)
       const driveFolderId = extractDriveId(driveUrl);
       if (driveFolderId) {
-        courseData.driveFolderId = driveFolderId;
+        legacyCourse.driveFolderId = driveFolderId;
       }
     }
 
-    // Thêm khóa học vào Firestore
-    const courseRef = await db.collection("courses").add(courseData);
-    console.log(`Đã tạo khóa học mới với ID: ${courseRef.id}`);
+    // Sử dụng CourseAdapter để lưu vào MongoDB với cấu trúc mới
+    const courseId = await CourseAdapter.importFromLegacyStructure(legacyCourse);
+    console.log(`Đã tạo khóa học mới với ID: ${courseId}`);
 
     return NextResponse.json({
       success: true,
-      courseId: courseRef.id,
+      course: {
+        id: courseId,
+        title: legacyCourse.title
+      },
       message: "Tạo khóa học thành công"
     });
   } catch (error) {

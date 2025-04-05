@@ -1,45 +1,53 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/firebase-admin";
+import { findDocuments } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request) {
   try {
-    // Lấy danh sách tất cả các khóa học từ Firestore
-    const coursesRef = db.collection("courses");
-    const snapshot = await coursesRef.get();
+    const searchParams = request.nextUrl.searchParams;
+    const search = searchParams.get('search');
 
-    if (snapshot.empty) {
-      return NextResponse.json({ courses: [] });
+    // Tìm khóa học trong MongoDB thay vì Firestore
+    let query = {};
+    
+    if (search) {
+      // Tìm kiếm theo tên khóa học
+      query = {
+        title: { $regex: search, $options: 'i' }
+      };
+    }
+    
+    const courses = await findDocuments("courses", query);
+    
+    if (!courses || courses.length === 0) {
+      return NextResponse.json({ data: [] });
     }
 
-    const courses = [];
-    snapshot.forEach((doc) => {
-      const courseData = doc.data();
-      courses.push({
-        id: doc.id,
-        title: courseData.title || "Khóa học không tên",
-        chaptersCount: courseData.chapters?.length || 0,
-        lessonsCount: courseData.totalLessons || 0,
-        updatedAt: courseData.updatedAt,
-        status: courseData.status || "draft",
-        driveUrl: courseData.driveUrl || null,
-        driveFolderId: courseData.driveFolderId || null,
-        price: courseData.price || 0,
-        teacher: courseData.teacher || "",
-        subject: courseData.subject || "other",
-        grade: courseData.grade || "grade10",
-      });
-    });
+    const formattedCourses = courses.map(course => ({
+      id: course._id.toString(),
+      title: course.title || "Khóa học không tên",
+      chaptersCount: course.totalSections || 0,
+      lessonsCount: course.totalLessons || 0,
+      updatedAt: course.updatedAt,
+      status: course.status || "draft",
+      driveUrl: course.driveUrl || null,
+      driveFolderId: course.driveFolderId || null,
+      price: course.price || 0,
+      teacher: course.teacher || "",
+      subject: course.subject || "other",
+      grade: course.grade || "grade10",
+    }));
 
     // Sắp xếp khóa học theo thời gian cập nhật mới nhất
-    courses.sort((a, b) => {
+    formattedCourses.sort((a, b) => {
       if (!a.updatedAt) return 1;
       if (!b.updatedAt) return -1;
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
 
-    return NextResponse.json({ courses });
+    return NextResponse.json({ data: formattedCourses });
   } catch (error) {
     console.error("Lỗi khi lấy danh sách khóa học:", error);
     return NextResponse.json(

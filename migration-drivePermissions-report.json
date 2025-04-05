@@ -1,0 +1,189 @@
+{
+  "successful": [
+    {
+      "id": "07oLAOk4MGTe8lqr1gAL",
+      "role": "reader"
+    },
+    {
+      "id": "1fbPiQqMiFmtvDUabuCo",
+      "role": "reader"
+    },
+    {
+      "id": "2uK3W1CALtxAyrFRXMHS",
+      "role": "reader"
+    },
+    {
+      "id": "350DiUUJefcNzKTrN9Zb",
+      "role": "reader"
+    },
+    {
+      "id": "3x8o9TNrfijzqobky6VE",
+      "role": "reader"
+    },
+    {
+      "id": "4NjpLthCeA10xuO6XUj4",
+      "role": "writer"
+    },
+    {
+      "id": "7CoufVXD0QSdAS6BaOpG",
+      "role": "owner"
+    },
+    {
+      "id": "8cYhPCmzuVqqcgNuYJog",
+      "role": "owner"
+    },
+    {
+      "id": "9noaxEVSRsOgzb4em1ld",
+      "role": "writer"
+    },
+    {
+      "id": "BfVEvu5Xs8WUtfADBQNw",
+      "role": "reader"
+    },
+    {
+      "id": "Bit2Cct00uPytFV8HSgO",
+      "role": "owner"
+    },
+    {
+      "id": "CqggWa2XeY7EyEOge7ys",
+      "role": "owner"
+    },
+    {
+      "id": "DF8y13xEEpFJBuvZfSse",
+      "role": "owner"
+    },
+    {
+      "id": "DdrvH4wSzC1WZTahklHs",
+      "role": "owner"
+    },
+    {
+      "id": "Ebe7cRkopRYQ4n5GqcpZ",
+      "role": "reader"
+    },
+    {
+      "id": "IZk0sj6cCh8fU7ymhG6r",
+      "role": "owner"
+    },
+    {
+      "id": "LkD1mNVQZEY4OD2yhvV3",
+      "role": "reader"
+    },
+    {
+      "id": "MKjcm0Y8ADP2VMbAzza8",
+      "role": "owner"
+    },
+    {
+      "id": "OamsY1XXZtGMnVXMlMge",
+      "role": "reader"
+    },
+    {
+      "id": "Ovc4GJVaCUfHdOYGntKU",
+      "role": "writer"
+    },
+    {
+      "id": "Q89xWrYCejGoNkooygMs",
+      "role": "reader"
+    },
+    {
+      "id": "Qrrlk0jvNHQHGUfvjxm5",
+      "role": "reader"
+    },
+    {
+      "id": "TlpH3RtmMKdWm21xrXFg",
+      "role": "owner"
+    },
+    {
+      "id": "XkkchzwXnR9iwCaJeOQt",
+      "role": "reader"
+    },
+    {
+      "id": "XpObihLfyYIcGdWOxJwJ",
+      "role": "owner"
+    },
+    {
+      "id": "YbyThO9k5qb0NNW0qLk0",
+      "role": "reader"
+    },
+    {
+      "id": "ZPpxqQAYDRfbdnha2lN1",
+      "role": "reader"
+    },
+    {
+      "id": "ZSkyB6XGH6qmrgKxiizp",
+      "role": "owner"
+    },
+    {
+      "id": "b2BJPFsCc3ulE7uj2wuP",
+      "role": "owner"
+    },
+    {
+      "id": "byDpMZ0ZpVZ6lFsH2zwm",
+      "role": "reader"
+    },
+    {
+      "id": "dCENYHc8LjGFuoIve4K3",
+      "role": "reader"
+    },
+    {
+      "id": "fLbqQ5OvCONLzdmfQxLk",
+      "role": "owner"
+    },
+    {
+      "id": "ffb9j2pEq6PXPPINKFao",
+      "role": "reader"
+    },
+    {
+      "id": "i4o9vocB1gNRYhgGAL17",
+      "role": "reader"
+    },
+    {
+      "id": "jsgxG1QwTqZFMuO89DZJ",
+      "role": "owner"
+    },
+    {
+      "id": "lgU4DEfBm66RThn51HhZ",
+      "role": "owner"
+    },
+    {
+      "id": "m2nsFW2kKsW6sj0M49bE",
+      "role": "owner"
+    },
+    {
+      "id": "mdyac2nWyKHTOHWyEYS2",
+      "role": "reader"
+    },
+    {
+      "id": "ozLkhVktrQBNTgL04RHY",
+      "role": "owner"
+    },
+    {
+      "id": "pDgCFJt40Q2z5YHCQwSO",
+      "role": "writer"
+    },
+    {
+      "id": "q96cjr4LZ5G8mRzMEPsC",
+      "role": "owner"
+    },
+    {
+      "id": "r4ySUqKAzALAaFkJQiGe",
+      "role": "owner"
+    },
+    {
+      "id": "r8EzUdCGcAKkgmgjwfSY",
+      "role": "view"
+    },
+    {
+      "id": "uNNVkZnBameGlaYHy1ma",
+      "role": "owner"
+    },
+    {
+      "id": "wRWDDEmc4hRuUmNEx5jA",
+      "role": "owner"
+    },
+    {
+      "id": "z92QtrniSjhgP250SBFa",
+      "role": "reader"
+    }
+  ],
+  "failed": []
+}

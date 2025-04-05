@@ -1,7 +1,8 @@
 export const dynamic = "force-dynamic";
 
-import { db } from "@/lib/firebase-admin";
 import { NextResponse } from "next/server";
+import { findOneDocument, updateDocument, insertDocument } from "@/lib/db";
+import { ObjectId } from 'mongodb';
 
 export async function POST(request) {
   try {
@@ -14,46 +15,60 @@ export async function POST(request) {
       );
     }
 
-    const userRef = db.collection("users").doc(userId);
-    const userDoc = await userRef.get();
+    // Tìm thông tin tài chính của người dùng
+    const userFinance = await findOneDocument("userFinances", { 
+      userId: new ObjectId(userId) 
+    });
 
-    if (!userDoc.exists) {
+    if (!userFinance) {
       return NextResponse.json(
-        { error: "Không tìm thấy người dùng" },
+        { error: "Không tìm thấy thông tin tài chính của người dùng" },
         { status: 404 }
       );
     }
 
-    const userData = userDoc.data();
-    const currentBalance = userData.balance || 0;
+    const currentBalance = userFinance.balance || 0;
     const newBalance = currentBalance + amount;
+    const totalDeposit = (userFinance.totalDeposit || 0) + amount;
 
-    // Cập nhật số dư mới
-    await userRef.update({
-      balance: newBalance,
-      updatedAt: new Date().toISOString(),
-    });
+    // Cập nhật thông tin tài chính
+    await updateDocument(
+      "userFinances", 
+      { userId: new ObjectId(userId) }, 
+      { 
+        $set: {
+          balance: newBalance,
+          totalDeposit: totalDeposit,
+          updatedAt: new Date()
+        }
+      }
+    );
 
     // Lưu lịch sử giao dịch
-    await db.collection("transactions").add({
-      userId,
+    await insertDocument("transactions", {
+      userId: new ObjectId(userId),
       type: "deposit",
       amount,
       balanceBefore: currentBalance,
       balanceAfter: newBalance,
-      createdAt: new Date().toISOString(),
       status: "completed",
       description: "Nạp tiền vào tài khoản",
+      metadata: {
+        // Thêm metadata nếu cần
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
 
     return NextResponse.json({
       success: true,
       balance: newBalance,
+      totalDeposit: totalDeposit,
     });
   } catch (error) {
     console.error("Lỗi khi nạp tiền:", error);
     return NextResponse.json(
-      { error: "Không thể thực hiện nạp tiền" },
+      { error: "Không thể thực hiện nạp tiền: " + error.message },
       { status: 500 }
     );
   }

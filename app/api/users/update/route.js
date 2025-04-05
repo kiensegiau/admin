@@ -1,7 +1,8 @@
 export const dynamic = 'force-dynamic';
 
-import { db } from "@/lib/firebase-admin";
 import { NextResponse } from "next/server";
+import { updateDocument, findOneDocument } from "@/lib/db";
+import { ObjectId } from 'mongodb';
 
 export async function PUT(request) {
   try {
@@ -17,7 +18,7 @@ export async function PUT(request) {
     // Xử lý dữ liệu trước khi cập nhật
     const updateData = {
       ...userData,
-      updatedAt: new Date().toISOString(),
+      updatedAt: new Date(),
     };
 
     // Xử lý trường phoneNumber
@@ -25,9 +26,9 @@ export async function PUT(request) {
       // Nếu phoneNumber là chuỗi rỗng hoặc null, xóa khỏi object cập nhật
       delete updateData.phoneNumber;
       
-      // Xóa phoneNumber trong Firestore (nếu có)
-      await db.collection("users").doc(userId).update({
-        phoneNumber: null,
+      // Xóa phoneNumber trong MongoDB
+      await updateDocument("users", { _id: new ObjectId(userId) }, {
+        $unset: { phoneNumber: "" }
       });
     } else if (userData.phoneNumber) {
       // Đảm bảo định dạng chuẩn E.164
@@ -40,16 +41,33 @@ export async function PUT(request) {
       }
     }
 
-    const userRef = db.collection("users").doc(userId);
-    await userRef.update(updateData);
+    // Cập nhật người dùng trong MongoDB
+    await updateDocument(
+      "users", 
+      { _id: new ObjectId(userId) }, 
+      { $set: updateData }
+    );
 
-    const updatedDoc = await userRef.get();
-    const updatedUser = {
-      id: updatedDoc.id,
-      ...updatedDoc.data(),
+    // Lấy thông tin người dùng đã cập nhật
+    const updatedUser = await findOneDocument("users", { _id: new ObjectId(userId) });
+    
+    if (!updatedUser) {
+      return NextResponse.json(
+        { error: "Không tìm thấy người dùng sau khi cập nhật" },
+        { status: 404 }
+      );
+    }
+
+    // Định dạng lại dữ liệu trả về
+    const formattedUser = {
+      id: updatedUser._id.toString(),
+      ...updatedUser
     };
+    
+    // Xóa trường _id để tránh trùng lặp với id
+    delete formattedUser._id;
 
-    return NextResponse.json({ user: updatedUser });
+    return NextResponse.json({ user: formattedUser });
   } catch (error) {
     console.error("Lỗi khi cập nhật người dùng:", error);
     return NextResponse.json(

@@ -1,51 +1,38 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { db, auth } from "@/lib/firebase-admin";
+import { deleteDocument, findOneDocument, deleteDocuments } from "@/lib/db";
+import { ObjectId } from 'mongodb';
+import { auth } from "@/lib/firebase-admin"; // Giữ lại auth để tích hợp với Firebase Auth
 
 export async function DELETE(request) {
   try {
     const { userId } = await request.json();
 
-    // Lấy thông tin user từ Firestore
-    const userDoc = await db.collection("users").doc(userId).get();
-    if (!userDoc.exists) {
+    // Lấy thông tin user từ MongoDB
+    const user = await findOneDocument("users", { _id: new ObjectId(userId) });
+    if (!user) {
       return NextResponse.json(
         { error: "Không tìm thấy người dùng" },
         { status: 404 }
       );
     }
 
-    const userData = userDoc.data();
-
     // Xóa tất cả giao dịch liên quan đến user
-    const transactionsSnapshot = await db
-      .collection("transactions")
-      .where("userId", "==", userId)
-      .get();
+    await deleteDocuments("transactions", { userId: userId });
     
-    // Xóa từng giao dịch
-    const deleteTransactions = transactionsSnapshot.docs.map((doc) => 
-      db.collection("transactions").doc(doc.id).delete()
-    );
-    
-    // Thực hiện xóa đồng thời tất cả giao dịch
-    if (deleteTransactions.length > 0) {
-      await Promise.all(deleteTransactions);
-    }
-
     // Xóa user trong Auth nếu có uid
-    if (userData.uid) {
+    if (user.uid) {
       try {
-        await auth.deleteUser(userData.uid);
+        await auth.deleteUser(user.uid);
       } catch (authError) {
         console.error("Lỗi khi xóa tài khoản Auth:", authError);
-        // Tiếp tục xóa dữ liệu Firestore ngay cả khi xóa Auth thất bại
+        // Tiếp tục xóa dữ liệu MongoDB ngay cả khi xóa Auth thất bại
       }
     }
 
-    // Xóa user trong Firestore
-    await db.collection("users").doc(userId).delete();
+    // Xóa user trong MongoDB
+    await deleteDocument("users", { _id: new ObjectId(userId) });
 
     return NextResponse.json({ 
       success: true,
