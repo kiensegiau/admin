@@ -9,8 +9,11 @@ const PUBLIC_ROUTES = [
   "/api/auth/signin",
   "/api/auth/signout",
   "/api/auth/check-token",
-  "/api/courses/bulk-update",
-  "/api/courses/update",
+];
+
+// Các tiền tố route không cần xác thực
+const PUBLIC_PREFIXES = [
+  "/api/courses",
 ];
 
 // Rate limiting
@@ -142,6 +145,13 @@ export async function middleware(request: NextRequest) {
   // Cho phép truy cập các route công khai
   if (PUBLIC_ROUTES.includes(pathname)) {
     return NextResponse.next();
+  }
+
+  // Kiểm tra tiền tố route công khai (như /api/courses/*)
+  for (const prefix of PUBLIC_PREFIXES) {
+    if (pathname.startsWith(prefix)) {
+      return NextResponse.next();
+    }
   }
 
   // Kiểm tra session cookie

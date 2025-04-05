@@ -147,10 +147,10 @@ export default function CoursesPage() {
       }
 
       // Kiểm tra dữ liệu nhận được
-      console.log("Dữ liệu khóa học từ API:", data.courses);
+      console.log("Dữ liệu khóa học từ API:", data.data);
 
       // Đảm bảo tất cả các trường đều có giá trị
-      const formattedCourses = data.courses.map((course) => ({
+      const formattedCourses = data.data.map((course) => ({
         ...course,
         price: course.price || 0,
         teacher: course.teacher || "",
@@ -160,7 +160,7 @@ export default function CoursesPage() {
       setFilteredCourses(formattedCourses);
     } catch (error) {
       console.error("Error fetching courses:", error);
-      message.error("Không thể tải danh sách khóa học");
+      message.error("Không thể tải danh sách khóa học: " + (error.message || ""));
     } finally {
       setLoading(false);
     }
