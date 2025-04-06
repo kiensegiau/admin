@@ -375,6 +375,56 @@ function scanForAdditionalWasabiKeys(courseData) {
   return additionalKeys;
 }
 
+// Xóa thư mục trên Wasabi sau khi xóa tất cả file
+async function deleteWasabiFolders(courseId) {
+  if (!courseId) return { success: false, message: "Không có courseId" };
+
+  try {
+    console.log(`Đang xóa thư mục trên Wasabi cho khóa học: ${courseId}`);
+    
+    // Các đường dẫn thư mục có thể tồn tại cho khóa học
+    const folderPaths = [
+      `courses/${courseId}/`,
+      `course/${courseId}/`
+    ];
+    
+    let deletedFolders = 0;
+    let failedFolders = [];
+    
+    // Xóa từng thư mục
+    for (const folderPath of folderPaths) {
+      try {
+        console.log(`Xóa thư mục: ${folderPath}`);
+        
+        // Xóa folder marker (đối tượng đặc biệt đại diện cho thư mục)
+        const command = new DeleteObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: folderPath,
+        });
+        
+        await s3Client.send(command);
+        console.log(`Đã xóa thư mục ${folderPath}`);
+        deletedFolders++;
+      } catch (error) {
+        console.log(`Không thể xóa thư mục ${folderPath} hoặc thư mục không tồn tại: ${error.message}`);
+        failedFolders.push(folderPath);
+      }
+    }
+    
+    return {
+      success: true,
+      deletedFolders,
+      failedFolders
+    };
+  } catch (error) {
+    console.error("Lỗi khi xóa thư mục trên Wasabi:", error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
 export async function POST(request) {
   try {
     const { courseId } = await request.json();
@@ -463,6 +513,14 @@ export async function POST(request) {
         console.log(`  ${index + 1}. Key: ${file.key}, Tên: ${file.name}`);
         if (file.error) console.log(`     Lỗi: ${file.error}`);
       });
+    }
+    
+    // BƯỚC 3.5: Xóa thư mục trên Wasabi sau khi đã xóa file
+    console.log("BƯỚC 3.5: Xóa thư mục trên Wasabi");
+    const folderDeleteResult = await deleteWasabiFolders(courseId);
+    console.log(`Kết quả xóa thư mục: ${folderDeleteResult.deletedFolders} thư mục đã xóa`);
+    if (folderDeleteResult.failedFolders && folderDeleteResult.failedFolders.length > 0) {
+      console.log("Các thư mục không xóa được hoặc không tồn tại:", folderDeleteResult.failedFolders);
     }
 
     // BƯỚC 4: Chỉ sau khi xóa file xong, mới xóa dữ liệu trong MongoDB

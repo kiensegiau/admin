@@ -792,6 +792,47 @@ export async function synchronizeDeletedItems(courseId) {
       console.log(`Đã cập nhật database sau khi xóa ${successCount} file`);
     }
     
+    // Xóa thư mục trống nếu cần
+    try {
+      if (successCount > 0) {
+        console.log(`Đang thử xóa thư mục trống trên Wasabi cho khóa học ${courseId}`);
+        
+        // Các đường dẫn thư mục có thể có
+        const folderPaths = [
+          `courses/${courseId}/`,
+          `course/${courseId}/`
+        ];
+        
+        let deletedFolders = 0;
+        
+        // Gọi API để xóa các thư mục
+        for (const folderPath of folderPaths) {
+          try {
+            console.log(`Thử xóa thư mục: ${folderPath}`);
+            
+            const response = await fetch(`/api/storage/delete?key=${encodeURIComponent(folderPath)}`, {
+              method: 'DELETE'
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              console.log(`Đã xóa thư mục ${folderPath}`);
+              deletedFolders++;
+            } else {
+              console.log(`Thư mục ${folderPath} không tồn tại hoặc không thể xóa`);
+            }
+          } catch (error) {
+            console.log(`Không thể xóa thư mục ${folderPath}: ${error.message}`);
+          }
+        }
+        
+        console.log(`Đã xóa ${deletedFolders} thư mục trống`);
+      }
+    } catch (error) {
+      console.error(`Lỗi khi xóa thư mục: ${error.message}`);
+    }
+    
     console.log(`==================== KẾT THÚC ĐỒNG BỘ HÓA ====================`);
     return {
       changed: true,
