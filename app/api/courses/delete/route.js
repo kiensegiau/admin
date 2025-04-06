@@ -219,47 +219,85 @@ async function deleteFilesInBatches(files) {
 function collectFilesFromNewStructure(courseContent) {
   const files = [];
   
-  if (!courseContent || !courseContent.sections) {
-    console.log("Không tìm thấy nội dung khóa học hoặc không có sections");
+  if (!courseContent) {
+    console.log("Không tìm thấy nội dung khóa học");
     return files;
   }
   
-  console.log(`Tìm thấy dữ liệu nội dung khóa học mới với ${courseContent.sections.length || 0} section`);
-  
-  // Duyệt qua từng chương (section)
-  for (const section of courseContent.sections) {
-    if (!section) continue;
+  // Kiểm tra cấu trúc chapters (cấu trúc mới)
+  if (courseContent.chapters && Array.isArray(courseContent.chapters)) {
+    console.log(`Tìm thấy dữ liệu nội dung khóa học mới với ${courseContent.chapters.length} chapter`);
     
-    console.log(`Duyệt qua section: ${section.title} (${section.lessons?.length || 0} bài học)`);
-    
-    // Duyệt qua từng bài học
-    for (const lesson of section.lessons || []) {
-      if (!lesson) continue;
+    // Duyệt qua từng chapter
+    for (const chapter of courseContent.chapters) {
+      if (!chapter) continue;
       
-      console.log(`  Duyệt qua lesson: ${lesson.title}`);
+      console.log(`Duyệt qua chapter: ${chapter.title || chapter.name} (${chapter.lessons?.length || 0} bài học)`);
       
-      // Thu thập file trong lesson
-      if (lesson.content && lesson.content.files && lesson.content.files.length > 0) {
-        console.log(`    Tìm thấy ${lesson.content.files.length} file trong content`);
-        files.push(...lesson.content.files);
-      }
-
-      // Thu thập file trong metadata nếu có
-      if (lesson.metadata && lesson.metadata.files && lesson.metadata.files.length > 0) {
-        console.log(`    Tìm thấy ${lesson.metadata.files.length} file trong metadata`);
-        files.push(...lesson.metadata.files);
-      }
-
-      // Thu thập file trong subfolder từ metadata
-      if (lesson.metadata && lesson.metadata.subfolders) {
-        for (const subfolder of lesson.metadata.subfolders) {
-          if (subfolder.files && subfolder.files.length > 0) {
-            console.log(`    Tìm thấy ${subfolder.files.length} file trong subfolder ${subfolder.name || 'không tên'}`);
-            files.push(...subfolder.files);
+      // Duyệt qua từng lesson
+      if (chapter.lessons && Array.isArray(chapter.lessons)) {
+        for (const lesson of chapter.lessons) {
+          if (!lesson) continue;
+          
+          console.log(`  Duyệt qua lesson: ${lesson.title || lesson.name}`);
+          
+          // Kiểm tra files trong lesson
+          if (lesson.files && Array.isArray(lesson.files)) {
+            console.log(`    Tìm thấy ${lesson.files.length} file trong lesson`);
+            files.push(...lesson.files);
+          }
+          
+          // Kiểm tra subfolders trong lesson
+          if (lesson.subfolders && Array.isArray(lesson.subfolders)) {
+            console.log(`    Tìm thấy ${lesson.subfolders.length} subfolder trong lesson`);
+            
+            for (const subfolder of lesson.subfolders) {
+              if (!subfolder) continue;
+              
+              console.log(`      Duyệt qua subfolder: ${subfolder.name}`);
+              
+              // Kiểm tra files trong subfolder
+              if (subfolder.files && Array.isArray(subfolder.files)) {
+                console.log(`        Tìm thấy ${subfolder.files.length} file trong subfolder`);
+                files.push(...subfolder.files);
+              }
+            }
           }
         }
       }
     }
+  } 
+  // Kiểm tra cấu trúc sections (cấu trúc cũ - backup)
+  else if (courseContent.sections && Array.isArray(courseContent.sections)) {
+    console.log(`Tìm thấy dữ liệu nội dung khóa học cũ với ${courseContent.sections.length} section`);
+    
+    // Duyệt qua từng chương (section)
+    for (const section of courseContent.sections) {
+      if (!section) continue;
+      
+      console.log(`Duyệt qua section: ${section.title} (${section.lessons?.length || 0} bài học)`);
+      
+      // Duyệt qua từng bài học
+      for (const lesson of section.lessons || []) {
+        if (!lesson) continue;
+        
+        console.log(`  Duyệt qua lesson: ${lesson.title}`);
+        
+        // Thu thập file trong lesson
+        if (lesson.content && lesson.content.files && lesson.content.files.length > 0) {
+          console.log(`    Tìm thấy ${lesson.content.files.length} file trong content`);
+          files.push(...lesson.content.files);
+        }
+  
+        // Thu thập file trong metadata nếu có
+        if (lesson.metadata && lesson.metadata.files && lesson.metadata.files.length > 0) {
+          console.log(`    Tìm thấy ${lesson.metadata.files.length} file trong metadata`);
+          files.push(...lesson.metadata.files);
+        }
+      }
+    }
+  } else {
+    console.log("Không tìm thấy chapters hoặc sections trong nội dung khóa học");
   }
   
   return files;

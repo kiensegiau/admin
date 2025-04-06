@@ -75,6 +75,9 @@ const syncState = {
   needSync: false,
 };
 
+// Đưa syncState vào global để các hàm khác có thể truy cập
+global.syncState = syncState;
+
 // Hàm lấy ID từ Google Drive URL
 function extractDriveId(url) {
   const patterns = [
@@ -469,7 +472,7 @@ async function processFiles(
   const filesToProcess = [];
   for (const file of validFiles) {
     // Đánh dấu file đã xử lý (để không bị xóa khi đồng bộ)
-    syncState.processedItems.files.add(file.id);
+    global.syncState.processedItems.files.add(file.id);
 
     // Lấy tên subfolder từ parentPath nếu là kiểu subfolder
     const subfolderName =
@@ -827,6 +830,19 @@ async function processFolder(
   courseName = null
 ) {
   try {
+    // Đảm bảo rằng syncState đã được khởi tạo
+    if (!global.syncState) {
+      global.syncState = {
+        processedItems: {
+          chapters: new Set(),
+          lessons: new Set(),
+          files: new Set(),
+          subfolders: new Set(),
+        },
+        needSync: true,
+      };
+    }
+    
     // Lấy tên khóa học nếu chưa có
     if (!courseName) {
       const courseData = await findOneDocument("courses", { _id: new ObjectId(courseId) });
@@ -872,7 +888,7 @@ async function processFolder(
       if (parentType === "course") {
         // Kiểm tra và tạo/tái sử dụng chương
         const chapter = await getOrCreateChapter(courseId, folder.name);
-        syncState.processedItems.chapters.add(chapter.id);
+        global.syncState.processedItems.chapters.add(chapter.id);
         await processFolder(
           drive,
           folder.id,
@@ -890,7 +906,7 @@ async function processFolder(
           parentId,
           folder.name
         );
-        syncState.processedItems.lessons.add(lesson.id);
+        global.syncState.processedItems.lessons.add(lesson.id);
         await processFolder(
           drive,
           folder.id,
@@ -911,7 +927,7 @@ async function processFolder(
           lessonId,
           subfolderName
         );
-        syncState.processedItems.subfolders.add(subfolderId);
+        global.syncState.processedItems.subfolders.add(subfolderId);
 
         await processFolder(
           drive,
@@ -937,6 +953,12 @@ async function processFolder(
         console.log(
           `Xử lý ${validFiles.length} file trong thư mục "${currentPath}"`
         );
+        
+        // Đánh dấu các file đã xử lý vào syncState
+        validFiles.forEach(file => {
+          global.syncState.processedItems.files.add(file.id);
+        });
+        
         // Truyền đường dẫn thư mục khi gọi processFiles
         await processFiles(
           drive,
@@ -1192,11 +1214,11 @@ export async function POST(request) {
       }
 
       // Khởi tạo lại trạng thái đồng bộ
-      syncState.processedItems.chapters.clear();
-      syncState.processedItems.lessons.clear();
-      syncState.processedItems.files.clear();
-      syncState.processedItems.subfolders.clear();
-      syncState.needSync = enableSync;
+      global.syncState.processedItems.chapters.clear();
+      global.syncState.processedItems.lessons.clear();
+      global.syncState.processedItems.files.clear();
+      global.syncState.processedItems.subfolders.clear();
+      global.syncState.needSync = enableSync;
 
       let course;
 
