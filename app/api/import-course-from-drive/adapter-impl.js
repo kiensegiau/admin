@@ -3,11 +3,9 @@
  */
 
 import { CourseAdapter } from '@/lib/adapters/course-adapter';
-import { getFileType } from './utils';
-import { ObjectId } from 'mongodb';
-import { findOneDocument, findDocuments, insertDocument, updateDocument } from '@/lib/db';
+import { findOneDocument, findDocuments, insertDocument, updateDocument, connectToDatabase, ObjectId } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
-import { connectMongoDB } from '@/lib/mongodb';
+import { getFileType } from './utils';
 
 /**
  * Tìm hoặc tạo mới khóa học
@@ -333,7 +331,7 @@ export async function getOrCreateSubsubfolder(courseId, chapterId, lessonId, sub
     throw new Error(`folderName không thể rỗng khi tạo subsubfolder`);
   }
   
-  await connectMongoDB();
+  await connectToDatabase();
   
   // Tìm courseContent trong MongoDB
   const courseContent = await findOneDocument("courseContents", { 
@@ -451,7 +449,7 @@ export async function getOrCreateSubsubfolder(courseId, chapterId, lessonId, sub
 export async function checkAndDeleteDuplicateFiles(courseId, chapterId, lessonId, fileName, subfolderId = null, subsubfolderId = null) {
   try {
     // Kết nối đến MongoDB
-    await connectMongoDB();
+    await connectToDatabase();
     
     // Tìm courseContent trong MongoDB
     const courseContent = await findOneDocument("courseContents", { 
@@ -647,7 +645,7 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
     }
     
     // Kết nối đến MongoDB
-    await connectMongoDB();
+    await connectToDatabase();
     
     // Tìm courseContent trong MongoDB
     const courseContent = await findOneDocument("courseContents", { 
@@ -827,7 +825,7 @@ export async function synchronizeDeletedItems(courseId) {
     console.log(`Đang đồng bộ hóa các mục đã xóa cho khóa học ${courseId}`);
     
     // Kết nối đến MongoDB
-    await connectMongoDB();
+    await connectToDatabase();
     
     // Lấy dữ liệu từ collection courseContents
     const courseContent = await findOneDocument("courseContents", { 

@@ -26,7 +26,8 @@ import {
   insertDocument,
   updateDocument,
   deleteDocument,
-  ObjectId
+  ObjectId,
+  connectToDatabase
 } from '@/lib/db';
 
 // Thêm import cho adapter
@@ -43,8 +44,6 @@ import {
   getFileType,
   getOrCreateSubsubfolder,
 } from './adapter-impl';
-
-import { connectMongoDB } from '@/lib/mongodb';
 
 export const dynamic = "force-dynamic";
 
@@ -522,7 +521,7 @@ async function processFiles(
         
         try {
           // Kết nối MongoDB để lấy tên
-          await connectMongoDB();
+          await connectToDatabase();
           const courseContent = await findOneDocument("courseContents", { 
             courseId: new ObjectId(courseId)
           });
@@ -560,7 +559,7 @@ async function processFiles(
         
         try {
           // Kết nối MongoDB để lấy tên
-          await connectMongoDB();
+          await connectToDatabase();
           const courseContent = await findOneDocument("courseContents", { 
             courseId: new ObjectId(courseId)
           });
@@ -1231,28 +1230,72 @@ export async function POST(request) {
         "",
         course.title
       );
-
+      
+      // Thực hiện đồng bộ xóa nếu được yêu cầu
+      let syncResult = { hasChanges: false, deletedFilesCount: 0, failedDeletionsCount: 0 };
+      if (enableSync && course.isExisting) {
+        syncResult = await synchronizeDeletedItems(course.id);
+      }
+      
+      const courseData = await findOneDocument("courses", { _id: new ObjectId(course.id) });
+      if (!courseData) {
+        throw new Error(`Không thể lấy dữ liệu khóa học sau khi import`);
+      }
+      
+      // Tính toán tốc độ trung bình
+      const totalTime = (Date.now() - globalStats.startTime) / 1000; // Thời gian tổng cộng (giây)
+      
+      if (globalStats.totalProcessedFiles > 0) {
+        globalStats.avgDownloadSpeed =
+          globalStats.totalDownloadTime > 0
+            ? (globalStats.totalSize / globalStats.totalDownloadTime).toFixed(2)
+            : 0;
+        globalStats.avgUploadSpeed =
+          globalStats.totalUploadTime > 0
+            ? (globalStats.totalSize / globalStats.totalUploadTime).toFixed(2)
+            : 0;
+      }
+      
       return NextResponse.json({
         success: true,
-        message: "Khóa học đã được import thành công",
-        stats: globalStats,
+        title: courseData.title || "",
+        courseId: course.id,
+        syncPerformed: enableSync && course.isExisting,
+        syncResult: syncResult,
+        message: course.isExisting
+          ? `Khóa học đã tồn tại, đã cập nhật nội dung${
+              syncResult.hasChanges 
+                ? ` và đồng bộ xóa ${syncResult.deletedFilesCount} file (${syncResult.failedDeletionsCount} thất bại)` 
+                : ""
+            }`
+          : "Import khóa học mới thành công",
+        stats: {
+          totalFiles: globalStats.totalProcessedFiles,
+          totalSize: globalStats.totalSize.toFixed(2),
+          totalTime: totalTime.toFixed(2),
+          avgDownloadSpeed: globalStats.avgDownloadSpeed,
+          avgUploadSpeed: globalStats.avgUploadSpeed,
+        },
       });
     } catch (error) {
-      console.error("Lỗi khi import khóa học:", error);
+      console.error("Lỗi khi lấy thông tin thư mục:", error);
       return NextResponse.json(
         {
           success: false,
-          error: "Đã xảy ra lỗi khi import khóa học. Vui lòng thử lại sau.",
+          error: `Lỗi khi lấy thông tin thư mục: ${error.message}`,
         },
         { status: 500 }
       );
+    } finally {
+      // Đảm bảo khôi phục lại hàm uploadToWasabi gốc trong mọi trường hợp
+      uploadToWasabi = originalUploadToWasabi;
     }
   } catch (error) {
     console.error("Lỗi khi import khóa học:", error);
     return NextResponse.json(
       {
         success: false,
-        error: "Đã xảy ra lỗi khi import khóa học. Vui lòng thử lại sau.",
+        error: error.message || "Có lỗi xảy ra khi import khóa học",
       },
       { status: 500 }
     );
