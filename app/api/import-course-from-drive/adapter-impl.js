@@ -342,144 +342,160 @@ export async function getOrCreateSubfolder(courseId, chapterId, lessonId, folder
 }
 
 /**
- * Tạo hoặc lấy subfolder bên trong subfolder khác
+ * Tìm hoặc tạo mới thư mục con trong một subfolder
  * @param {string} courseId - ID của khóa học
  * @param {string} chapterId - ID của chapter
  * @param {string} lessonId - ID của lesson
  * @param {string} subfolderId - ID của subfolder cha
- * @param {string} folderName - Tên của subfolder con
- * @returns {Promise<string>} - ID của subfolder con
+ * @param {string} name - Tên thư mục con
+ * @returns {Promise<string>} - ID của thư mục con
  */
-export async function getOrCreateSubsubfolder(courseId, chapterId, lessonId, subfolderId, folderName) {
-  if (!lessonId) {
-    throw new Error(`lessonId không thể null khi tạo subsubfolder`);
-  }
-  
-  if (!subfolderId) {
-    throw new Error(`subfolderId không thể null khi tạo subsubfolder`);
-  }
-  
-  if (!folderName) {
-    throw new Error(`folderName không thể rỗng khi tạo subsubfolder`);
-  }
-  
-  await connectToDatabase();
-  
-  // Tìm courseContent trong MongoDB
-  const courseContent = await findOneDocument("courseContents", { 
-    courseId: new ObjectId(courseId)
-  });
-  
-  if (!courseContent) {
-    throw new Error(`Không tìm thấy nội dung khóa học với ID ${courseId}`);
-  }
-  
-  // Tìm chapter trong khóa học
-  const chapterIndex = courseContent.chapters.findIndex(c => c.id === chapterId);
-  
-  if (chapterIndex === -1) {
-    throw new Error(`Không tìm thấy chapter với ID ${chapterId}`);
-  }
-  
-  // Tìm lesson trong chapter
-  const lessonIndex = courseContent.chapters[chapterIndex].lessons.findIndex(l => l.id === lessonId);
-  
-  if (lessonIndex === -1) {
-    throw new Error(`Không tìm thấy lesson với ID ${lessonId}`);
-  }
-  
-  const lesson = courseContent.chapters[chapterIndex].lessons[lessonIndex];
-  
-  // Tìm subfolder cha
-  if (!lesson.subfolders || !Array.isArray(lesson.subfolders)) {
-    throw new Error(`Lesson không có subfolders hoặc subfolders không phải mảng`);
-  }
-  
-  const subfolderIndex = lesson.subfolders.findIndex(sf => sf.id === subfolderId);
-  
-  if (subfolderIndex === -1) {
-    throw new Error(`Không tìm thấy subfolder cha với ID ${subfolderId}`);
-  }
-  
-  const subfolder = lesson.subfolders[subfolderIndex];
-  
-  // Tìm subsubfolder trong subfolder nếu đã tồn tại
-  if (subfolder.subfolders && Array.isArray(subfolder.subfolders)) {
-    const subsubfolder = subfolder.subfolders.find(ssf => ssf.name === folderName);
+export async function getOrCreateSubsubfolder(courseId, chapterId, lessonId, subfolderId, name) {
+  try {
+    console.log(`=== Tìm hoặc tạo subsubfolder "${name}" ===`);
+    console.log(`CourseId: ${courseId}`);
+    console.log(`ChapterId: ${chapterId}`);
+    console.log(`LessonId: ${lessonId}`);
+    console.log(`SubfolderId: ${subfolderId}`);
+    console.log(`Name: ${name}`);
     
-    if (subsubfolder) {
-      return subsubfolder.id;
+    // Kết nối đến MongoDB
+    await connectToDatabase();
+    
+    // Tìm courseContent trong MongoDB
+    const courseContent = await findOneDocument("courseContents", { 
+      courseId: new ObjectId(courseId)
+    });
+    
+    if (!courseContent) {
+      throw new Error(`Không tìm thấy nội dung khóa học với ID ${courseId}`);
     }
-  }
-  
-  // Nếu subsubfolder chưa tồn tại, tạo mới
-  const currentTime = new Date().toISOString();
-  const newSubsubfolder = {
-    id: uuidv4(),
-    name: folderName,
-    files: [],
-    createdAt: currentTime,
-    updatedAt: currentTime
-  };
-  
-  // Cập nhật MongoDB dựa trên cấu trúc hiện tại
-  if (!subfolder.subfolders) {
-    // Nếu subfolder không có trường subfolders, cần thêm vào
-    await updateDocument(
-      "courseContents",
-      { 
-        courseId: new ObjectId(courseId),
-        "chapters.id": chapterId,
-        "chapters.lessons.id": lessonId,
-        "chapters.lessons.subfolders.id": subfolderId
-      },
-      { 
-        $set: {
-          [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders.${subfolderIndex}.subfolders`]: [newSubsubfolder],
-          [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders.${subfolderIndex}.updatedAt`]: currentTime,
-          updatedAt: currentTime
-        }
-      }
-    );
-  } else {
-    // Thêm subsubfolder mới vào mảng subfolders hiện có
-    await updateDocument(
-      "courseContents",
-      { 
-        courseId: new ObjectId(courseId),
-        "chapters.id": chapterId,
-        "chapters.lessons.id": lessonId,
-        "chapters.lessons.subfolders.id": subfolderId
-      },
-      { 
-        $push: {
-          [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders.${subfolderIndex}.subfolders`]: newSubsubfolder
+    
+    // Tìm chapter trong khóa học
+    const chapterIndex = courseContent.chapters.findIndex(c => c.id === chapterId);
+    
+    if (chapterIndex === -1) {
+      throw new Error(`Không tìm thấy chapter với ID ${chapterId}`);
+    }
+    
+    // Tìm lesson trong chapter
+    const lessonIndex = courseContent.chapters[chapterIndex].lessons.findIndex(l => l.id === lessonId);
+    
+    if (lessonIndex === -1) {
+      throw new Error(`Không tìm thấy lesson với ID ${lessonId}`);
+    }
+    
+    const lesson = courseContent.chapters[chapterIndex].lessons[lessonIndex];
+    
+    // Tìm subfolder trong lesson
+    if (!lesson.subfolders) {
+      lesson.subfolders = [];
+    }
+    
+    const subfolderIndex = lesson.subfolders.findIndex(sf => sf.id === subfolderId);
+    
+    if (subfolderIndex === -1) {
+      throw new Error(`Không tìm thấy subfolder với ID ${subfolderId}`);
+    }
+    
+    const subfolder = lesson.subfolders[subfolderIndex];
+    console.log(`Đã tìm thấy subfolder: ${subfolder.name || subfolder.id}`);
+    
+    // Đảm bảo subfolder có mảng subfolders
+    if (!subfolder.subfolders) {
+      subfolder.subfolders = [];
+      
+      // Cập nhật trường subfolders cho subfolder
+      await updateDocument(
+        "courseContents",
+        { 
+          courseId: new ObjectId(courseId),
+          "chapters.id": chapterId,
+          "chapters.lessons.id": lessonId,
+          "chapters.lessons.subfolders.id": subfolderId
         },
-        $set: {
-          [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders.${subfolderIndex}.updatedAt`]: currentTime,
-          updatedAt: currentTime
+        { 
+          $set: { 
+            [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders.${subfolderIndex}.subfolders`]: [],
+            updatedAt: new Date()
+          } 
         }
+      );
+      
+      console.log(`Đã tạo mảng subfolders cho subfolder ${subfolder.name || subfolder.id}`);
+    }
+    
+    // Tìm subsubfolder trong subfolder nếu đã tồn tại
+    const existingSubsubfolder = subfolder.subfolders.find(ssf => 
+      ssf.name.toLowerCase() === name.toLowerCase()
+    );
+    
+    if (existingSubsubfolder) {
+      console.log(`Đã tìm thấy subsubfolder có tên "${name}" (ID: ${existingSubsubfolder.id})`);
+      return existingSubsubfolder.id;
+    }
+    
+    // Tạo mới subsubfolder
+    const newId = new ObjectId().toString();
+    const newSubsubfolder = {
+      id: newId,
+      name: name,
+      files: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    // Thêm subsubfolder vào subfolder
+    await updateDocument(
+      "courseContents",
+      { 
+        courseId: new ObjectId(courseId),
+        "chapters.id": chapterId,
+        "chapters.lessons.id": lessonId,
+        "chapters.lessons.subfolders.id": subfolderId
+      },
+      { 
+        $push: { [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders.${subfolderIndex}.subfolders`]: newSubsubfolder },
+        $set: { updatedAt: new Date() } 
       }
     );
+    
+    console.log(`Đã tạo mới subsubfolder "${name}" (ID: ${newId})`);
+    return newId;
+  } catch (error) {
+    console.error(`Lỗi khi tạo subsubfolder: ${error.message}`);
+    throw error;
   }
-  
-  console.log(`Đã tạo subsubfolder "${folderName}" trong subfolder ID ${subfolderId}`);
-  
-  return newSubsubfolder.id;
 }
 
 /**
- * Kiểm tra file đã tồn tại
- * @param {string} courseId - ID của khóa học
- * @param {string} chapterId - ID của chapter
- * @param {string} lessonId - ID của lesson
+ * Kiểm tra file đã tồn tại trong khóa học
+ * @param {string} courseId - ID khóa học
+ * @param {string} chapterId - ID chapter
+ * @param {string} lessonId - ID lesson
  * @param {string} fileName - Tên file cần kiểm tra
- * @param {string} subfolderId - ID của subfolder (nếu có)
- * @param {string} subsubfolderId - ID của subsubfolder (nếu có)
- * @returns {Promise<object|null>} - Đối tượng file đã tồn tại hoặc null
+ * @param {string} subfolderId - ID subfolder (nếu có)
+ * @param {string} subsubfolderId - ID subsubfolder (nếu có)
+ * @returns {Promise<Object|null>} - Trả về đối tượng file nếu tồn tại, null nếu không
  */
 export async function checkExistingFile(courseId, chapterId, lessonId, fileName, subfolderId = null, subsubfolderId = null) {
   try {
+    console.log(`==== KIỂM TRA FILE TỒN TẠI ====`);
+    console.log(`CourseId: ${courseId}`);
+    console.log(`ChapterId: ${chapterId}`);
+    console.log(`LessonId: ${lessonId}`);
+    console.log(`FileName: ${fileName}`);
+    console.log(`SubfolderId: ${subfolderId || 'không có'}`);
+    console.log(`SubsubfolderId: ${subsubfolderId || 'không có'}`);
+    
+    // Tạo cache key
+    const cacheKey = `${courseId}:${chapterId}:${lessonId}:${fileName}:${subfolderId || ''}:${subsubfolderId || ''}`;
+    console.log(`Cache key: ${cacheKey}`);
+
+    // Chuyển đổi fileName sang chữ thường để so sánh
+    const fileNameLower = fileName.toLowerCase();
+    console.log(`Tên file chuyển đổi: ${fileNameLower}`);
+    
     // Kết nối đến MongoDB
     await connectToDatabase();
     
@@ -510,6 +526,7 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
     }
     
     const lesson = courseContent.chapters[chapterIndex].lessons[lessonIndex];
+    console.log(`Đã tìm thấy lesson: ${lesson.title || lesson.name || lessonId}`);
     
     // Biến lưu trữ file đã tìm thấy
     let existingFile = null;
@@ -517,37 +534,136 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
     // Tìm file trong lesson hoặc subfolder
     if (subsubfolderId && subfolderId) {
       // Tìm trong subsubfolder
+      console.log(`Đang tìm file trong subsubfolder...`);
+      
       const subfolder = lesson.subfolders?.find(sf => sf.id === subfolderId);
       if (subfolder) {
-        const subsubfolder = subfolder.subfolders?.find(ssf => ssf.id === subsubfolderId);
+        console.log(`Đã tìm thấy subfolder: ${subfolder.name} (ID: ${subfolder.id})`);
+        
+        // Kiểm tra xem trường subfolders có tồn tại trong subfolder
+        if (!subfolder.subfolders || !Array.isArray(subfolder.subfolders)) {
+          console.log(`Subfolder không có trường subfolders hoặc không phải array`);
+          console.log(`Cấu trúc subfolder: ${JSON.stringify(subfolder, null, 2).substring(0, 500)}...`);
+          return null;
+        }
+        
+        const subsubfolder = subfolder.subfolders.find(ssf => ssf.id === subsubfolderId);
         if (subsubfolder) {
-          existingFile = subsubfolder.files?.find(f =>
-            f.name.toLowerCase() === fileName.toLowerCase()
+          console.log(`Đã tìm thấy subsubfolder: ${subsubfolder.name} (ID: ${subsubfolder.id})`);
+          
+          if (!subsubfolder.files || !Array.isArray(subsubfolder.files)) {
+            console.log(`Subsubfolder không có files hoặc không phải array`);
+            return null;
+          }
+          
+          console.log(`Subsubfolder có ${subsubfolder.files.length} files`);
+          
+          // Dùng hàm find với toLowerCase() để tìm không phân biệt chữ hoa/thường
+          existingFile = subsubfolder.files.find(f =>
+            f.name.toLowerCase() === fileNameLower
           );
+          
+          if (existingFile) {
+            console.log(`Đã tìm thấy file trong subsubfolder: ${existingFile.name}`);
+            
+            if (existingFile.storage && existingFile.storage.provider === 'wasabi') {
+              console.log(`File có lưu trữ Wasabi: ${existingFile.storage.key}`);
+            } else {
+              console.log(`File không có lưu trữ Wasabi hoặc key không hợp lệ`);
+            }
+          } else {
+            console.log(`Không tìm thấy file trong subsubfolder`);
+            // In ra tên các file có trong subsubfolder để debug
+            if (subsubfolder.files.length > 0) {
+              console.log(`Các file trong subsubfolder: ${subsubfolder.files.map(f => f.name).join(', ')}`);
+            }
+          }
+        } else {
+          console.log(`Không tìm thấy subsubfolder với ID ${subsubfolderId}`);
+          console.log(`Có ${subfolder.subfolders.length} subsubfolders trong subfolder`);
+          if (subfolder.subfolders.length > 0) {
+            console.log(`IDs của các subsubfolders: ${subfolder.subfolders.map(ssf => ssf.id).join(', ')}`);
+          }
+        }
+      } else {
+        console.log(`Không tìm thấy subfolder với ID ${subfolderId}`);
+        console.log(`Lesson có ${lesson.subfolders?.length || 0} subfolders`);
+        if (lesson.subfolders && lesson.subfolders.length > 0) {
+          console.log(`IDs của các subfolders: ${lesson.subfolders.map(sf => sf.id).join(', ')}`);
         }
       }
     } else if (subfolderId) {
       // Tìm trong subfolder
+      console.log(`Đang tìm file trong subfolder...`);
+      
       const subfolder = lesson.subfolders?.find(sf => sf.id === subfolderId);
       if (subfolder) {
-        existingFile = subfolder.files?.find(f =>
-          f.name.toLowerCase() === fileName.toLowerCase()
+        console.log(`Đã tìm thấy subfolder: ${subfolder.name} (ID: ${subfolder.id})`);
+        
+        if (!subfolder.files || !Array.isArray(subfolder.files)) {
+          console.log(`Subfolder không có files hoặc không phải array`);
+          return null;
+        }
+        
+        console.log(`Subfolder có ${subfolder.files.length} files`);
+        
+        // Dùng hàm find với toLowerCase() để tìm không phân biệt chữ hoa/thường
+        existingFile = subfolder.files.find(f =>
+          f.name.toLowerCase() === fileNameLower
         );
+        
+        if (existingFile) {
+          console.log(`Đã tìm thấy file trong subfolder: ${existingFile.name}`);
+          
+          if (existingFile.storage && existingFile.storage.provider === 'wasabi') {
+            console.log(`File có lưu trữ Wasabi: ${existingFile.storage.key}`);
+          } else {
+            console.log(`File không có lưu trữ Wasabi hoặc key không hợp lệ`);
+          }
+        } else {
+          console.log(`Không tìm thấy file trong subfolder`);
+          // In ra tên các file có trong subfolder để debug
+          if (subfolder.files.length > 0) {
+            console.log(`Các file trong subfolder: ${subfolder.files.map(f => f.name).join(', ')}`);
+          }
+        }
+      } else {
+        console.log(`Không tìm thấy subfolder với ID ${subfolderId}`);
       }
     } else {
       // Tìm trong lesson
-      existingFile = lesson.files?.find(f =>
-        f.name.toLowerCase() === fileName.toLowerCase()
+      console.log(`Đang tìm file trong lesson...`);
+      
+      if (!lesson.files || !Array.isArray(lesson.files)) {
+        console.log(`Lesson không có files hoặc không phải array`);
+        return null;
+      }
+      
+      console.log(`Lesson có ${lesson.files.length} files`);
+      
+      // Dùng hàm find với toLowerCase() để tìm không phân biệt chữ hoa/thường
+      existingFile = lesson.files.find(f =>
+        f.name.toLowerCase() === fileNameLower
       );
-    }
-    
-    if (existingFile) {
-      console.log(`Tìm thấy file có cùng tên "${fileName}" đã tồn tại trong database`);
-      if (existingFile.storage && existingFile.storage.provider === 'wasabi' && existingFile.storage.key) {
-        console.log(`File đã tồn tại trên Wasabi với key: ${existingFile.storage.key}`);
+      
+      if (existingFile) {
+        console.log(`Đã tìm thấy file trong lesson: ${existingFile.name}`);
+        
+        if (existingFile.storage && existingFile.storage.provider === 'wasabi') {
+          console.log(`File có lưu trữ Wasabi: ${existingFile.storage.key}`);
+        } else {
+          console.log(`File không có lưu trữ Wasabi hoặc key không hợp lệ`);
+        }
+      } else {
+        console.log(`Không tìm thấy file trong lesson`);
+        // In ra tên các file có trong lesson để debug
+        if (lesson.files.length > 0) {
+          console.log(`Các file trong lesson: ${lesson.files.map(f => f.name).join(', ')}`);
+        }
       }
     }
     
+    console.log(`==== KẾT THÚC KIỂM TRA FILE ====`);
     return existingFile;
   } catch (error) {
     console.error(`Lỗi khi kiểm tra file đã tồn tại: ${error.message}`);

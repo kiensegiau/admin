@@ -677,6 +677,7 @@ async function processFiles(
       console.log(`[${index}/${files.length}] Đang xử lý file "${file.name}"...`);
 
       // Kiểm tra xem file đã tồn tại trên Wasabi chưa
+      console.log(`Kiểm tra file "${file.name}" đã tồn tại chưa. ParentType: ${parentType}, SubfolderId: ${subfolderId}, SubsubfolderId: ${subsubfolderId}`);
       const existingFile = await checkExistingFile(
         courseId,
         chapterId,
@@ -820,7 +821,8 @@ async function processFolder(
   parentId = null,
   lessonId = null,
   parentPath = "",
-  courseName = null
+  courseName = null,
+  subfolderId = null
 ) {
   try {
     // Đảm bảo rằng syncState đã được khởi tạo
@@ -862,8 +864,12 @@ async function processFolder(
       currentPath = courseName;
     }
 
-    console.log(`\n=== Bắt đầu xử lý thư mục ${currentPath || "gốc"} ===`);
-    console.log(`ParentType: ${parentType}, CourseId: ${courseId}`);
+    console.log(`\n=== Bắt đầu xử lý thư mục ${currentPath || "gốc"} (${parentType}) ===`);
+    console.log(`CourseId: ${courseId}, FolderId: ${folderId}, LessonId: ${lessonId || 'không có'}`);
+    
+    if (subfolderId) {
+      console.log(`SubfolderId: ${subfolderId}`);
+    }
 
     const files = await listFolderContents(drive, folderId);
     const folders = files.filter(
@@ -873,21 +879,24 @@ async function processFolder(
       (f) => f.mimeType !== "application/vnd.google-apps.folder"
     );
 
-    // Xử lý các thư mục con
+    console.log(`Tìm thấy ${folders.length} thư mục con và ${documents.length} file`);
+
+    // Xử lý các thư mục con - đồng nhất cách xử lý cho tất cả các cấp
     for (const folder of folders) {
-      const newPath = currentPath
-        ? `${currentPath}/${folder.name}`
-        : folder.name;
-      console.log(`Tạo đường dẫn mới: ${newPath}`);
+      const folderName = folder.name;
+      const newPath = currentPath ? `${currentPath}/${folderName}` : folderName;
+      
+      console.log(`\nXử lý thư mục con: ${folderName} (dưới ${parentType})`);
+      console.log(`Đường dẫn mới: ${newPath}`);
 
-      // Hiển thị đường dẫn đã xử lý để kiểm tra
-      const sanitizedPath = sanitizeWasabiPath(newPath);
-      console.log(`Đường dẫn sau khi xử lý: ${sanitizedPath}`);
-
+      // Xử lý theo từng loại parentType
       if (parentType === "course") {
-        // Kiểm tra và tạo/tái sử dụng chương
-        const chapter = await getOrCreateChapter(courseId, folder.name);
+        // Course -> Chapter
+        const chapter = await getOrCreateChapter(courseId, folderName);
         global.syncState.processedItems.chapters.add(chapter.id);
+        
+        console.log(`Đã tạo/tìm chapter: ${folderName} (ID: ${chapter.id})`);
+        
         await processFolder(
           drive,
           folder.id,
@@ -898,14 +907,14 @@ async function processFolder(
           newPath,
           courseName
         );
-      } else if (parentType === "chapter") {
-        // Kiểm tra và tạo/tái sử dụng bài học
-        const lesson = await getOrCreateLesson(
-          courseId,
-          parentId,
-          folder.name
-        );
+      } 
+      else if (parentType === "chapter") {
+        // Chapter -> Lesson
+        const lesson = await getOrCreateLesson(courseId, parentId, folderName);
         global.syncState.processedItems.lessons.add(lesson.id);
+        
+        console.log(`Đã tạo/tìm lesson: ${folderName} (ID: ${lesson.id})`);
+        
         await processFolder(
           drive,
           folder.id,
@@ -916,17 +925,18 @@ async function processFolder(
           newPath,
           courseName
         );
-      } else if ((parentType === "lesson" || parentType === "subfolder") && lessonId) {
-        // Thêm kiểm tra lessonId có tồn tại không
-        // Kiểm tra và tạo/tái sử dụng thư mục con
-        const subfolderName = folder.name;
-        const subfolderId = await getOrCreateSubfolder(
+      } 
+      else if (parentType === "lesson" && lessonId) {
+        // Lesson -> Subfolder
+        const newSubfolderId = await getOrCreateSubfolder(
           courseId,
           parentId,
           lessonId,
-          subfolderName
+          folderName
         );
-        global.syncState.processedItems.subfolders.add(subfolderId);
+        global.syncState.processedItems.subfolders.add(newSubfolderId);
+        
+        console.log(`Đã tạo/tìm subfolder: ${folderName} (ID: ${newSubfolderId})`);
 
         await processFolder(
           drive,
@@ -936,22 +946,82 @@ async function processFolder(
           parentId,
           lessonId,
           newPath,
-          courseName
+          courseName,
+          newSubfolderId
         );
+      } 
+      else if (parentType === "subfolder" && lessonId && subfolderId) {
+        // Subfolder -> Subsubfolder
+        console.log(`Xử lý subsubfolder "${folderName}" trong subfolder (ID: ${subfolderId})`);
+        
+        const subsubfolderId = await getOrCreateSubsubfolder(
+          courseId,
+          parentId,
+          lessonId,
+          subfolderId,
+          folderName
+        );
+        global.syncState.processedItems.subsubfolders.add(subsubfolderId);
+        
+        console.log(`Đã tạo/tìm subsubfolder: ${folderName} (ID: ${subsubfolderId})`);
+        
+        // Lấy và xử lý các file trong subsubfolder
+        const subsubfolderFiles = await listFolderContents(drive, folder.id);
+        const subsubfolderDocuments = subsubfolderFiles.filter(
+          (f) => f.mimeType !== "application/vnd.google-apps.folder"
+        );
+        
+        // Lọc các file hợp lệ
+        const validFiles = subsubfolderDocuments.filter(file => {
+          const type = getFileType(file.mimeType);
+          return type !== "other";
+        });
+        
+        if (validFiles.length > 0) {
+          console.log(`Xử lý ${validFiles.length} file trong subsubfolder "${folderName}"`);
+          
+          // Đánh dấu các file đã xử lý vào syncState
+          validFiles.forEach(file => {
+            global.syncState.processedItems.files.add(file.id);
+          });
+          
+          // Xử lý các file trong subsubfolder
+          await processFiles(
+            drive,
+            validFiles,
+            courseId,
+            parentId,
+            lessonId,
+            "subsubfolder", // Đảm bảo parentType là "subsubfolder"
+            newPath,
+            subfolderId,
+            subsubfolderId
+          );
+        } else {
+          console.log(`Không có file hợp lệ trong subsubfolder "${folderName}"`);
+        }
+        
+        // Kiểm tra xem có thư mục con trong subsubfolder không
+        const subsubfolderFolders = subsubfolderFiles.filter(
+          (f) => f.mimeType === "application/vnd.google-apps.folder"
+        );
+        
+        if (subsubfolderFolders.length > 0) {
+          console.log(`Cảnh báo: Tìm thấy ${subsubfolderFolders.length} thư mục trong subsubfolder "${folderName}"`);
+          console.log(`Hệ thống không hỗ trợ xử lý thư mục sâu hơn cấp subsubfolder`);
+        }
       }
     }
 
-    // Xử lý các file
+    // Xử lý các file trong thư mục hiện tại (không đổi logic này)
     if ((parentType === "lesson" || parentType === "subfolder") && lessonId) {
-      const validFiles = documents.filter((file) => {
+      const validFiles = documents.filter(file => {
         const type = getFileType(file.mimeType);
         return type !== "other";
       });
 
       if (validFiles.length > 0) {
-        console.log(
-          `Xử lý ${validFiles.length} file trong thư mục "${currentPath}"`
-        );
+        console.log(`Xử lý ${validFiles.length} file trong thư mục "${currentPath}" (${parentType})`);
         
         // Đánh dấu các file đã xử lý vào syncState
         validFiles.forEach(file => {
@@ -966,64 +1036,17 @@ async function processFolder(
           parentId,
           lessonId,
           parentType,
-          currentPath
+          currentPath,
+          subfolderId
         );
+      } else {
+        console.log(`Không có file hợp lệ trong thư mục "${currentPath}"`);
       }
     }
 
-    // Thêm mới: Tìm các thư mục con trong subfolder hiện tại (để làm subsubfolders)
-    const subsubfolders = files.filter(
-      (f) => f.mimeType === "application/vnd.google-apps.folder" && f.parents && f.parents.includes(folderId)
-    );
-    
-    if (subsubfolders.length > 0) {
-      console.log(`Tìm thấy ${subsubfolders.length} subsubfolders trong subfolder ${folder.name}`);
-      
-      // Xử lý từng subsubfolder
-      for (const subsubfolder of subsubfolders) {
-        try {
-          // Tạo hoặc lấy subsubfolder
-          const subsubfolderId = await getOrCreateSubsubfolder(
-            courseId,
-            parentId,
-            lessonId,
-            subfolderId,
-            subsubfolder.name
-          );
-          
-          // Đánh dấu đã xử lý
-          global.syncState.processedItems.subsubfolders.add(subsubfolderId);
-          
-          console.log(`Đã tạo/lấy subsubfolder: ${subsubfolder.name} (ID: ${subsubfolderId})`);
-          
-          // Lấy danh sách file trong subsubfolder
-          const subsubfolderFiles = documents.filter(
-            (f) => f.parents && f.parents.includes(subsubfolder.id)
-          );
-          
-          // Xử lý các file trong subsubfolder
-          await processFiles(
-            drive,
-            subsubfolderFiles,
-            courseId,
-            parentId,
-            lessonId,
-            "subfolder",
-            currentPath,
-            subfolderId,
-            subsubfolderId
-          );
-          
-          console.log(`Đã xử lý ${subsubfolderFiles.length} file trong subsubfolder ${subsubfolder.name}`);
-        } catch (error) {
-          console.error(`Lỗi khi xử lý subsubfolder ${subsubfolder.name}:`, error);
-        }
-      }
-    }
-
-    console.log(`=== Kết thúc xử lý thư mục ${currentPath || "gốc"} ===\n`);
+    console.log(`=== Kết thúc xử lý thư mục ${currentPath || "gốc"} (${parentType}) ===\n`);
   } catch (error) {
-    console.error(`Lỗi khi xử lý thư mục ${parentPath || "gốc"}:`, error);
+    console.error(`Lỗi khi xử lý thư mục ${parentPath || "gốc"} (${parentType}):`, error);
     throw error;
   }
 }
