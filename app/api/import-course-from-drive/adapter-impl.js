@@ -8,71 +8,103 @@ import { v4 as uuidv4 } from 'uuid';
 import { getFileType } from './utils';
 
 /**
- * Tìm hoặc tạo mới khóa học
+ * Lấy hoặc tạo mới khóa học
  * @param {string} name - Tên khóa học
  * @param {string} driveUrl - URL của thư mục trên Google Drive
- * @param {string} driveFolderId - ID của thư mục trên Google Drive
- * @returns {Promise<Object>} - Thông tin khóa học
+ * @returns {Promise<Object>} - Thông tin về khóa học
  */
-export async function getOrCreateCourse(name, driveUrl = null, driveFolderId = null) {
-  // Tìm khóa học chính xác theo tên trong MongoDB
-  const existingCourses = await fetch(`/api/courses?search=${encodeURIComponent(name)}`).then(res => res.json());
-  
-  // Lọc để chỉ lấy các khóa học có tên chính xác khớp với name
-  const exactMatch = existingCourses.data?.filter(course => course.title === name);
-  
-  // Nếu đã tồn tại, trả về khóa học đầu tiên tìm thấy
-  if (exactMatch && exactMatch.length > 0) {
-    const course = exactMatch[0];
-    console.log(`Tìm thấy khóa học đã tồn tại: ${course.title} (${course.id})`);
+export async function getOrCreateCourse(name, driveUrl) {
+  try {
+    // Sử dụng findDocuments để truy vấn MongoDB trực tiếp
+    const existingCourses = await findDocuments("courses", { 
+      title: { $regex: name, $options: 'i' } 
+    });
     
-    // Cập nhật thông tin Drive nếu cần
-    if (driveUrl || driveFolderId) {
-      const updateData = {
-        ...(driveUrl && { driveUrl }),
-        ...(driveFolderId && { driveFolderId }),
+    // Chỉ tìm khớp chính xác
+    const course = existingCourses.find(c => c.title.toLowerCase() === name.toLowerCase());
+    
+    // Nếu tìm thấy khóa học khớp chính xác
+    if (course) {
+      console.log(`Đã tìm thấy khóa học khớp chính xác: ${course.title} (ID: ${course._id})`);
+      
+      // Định dạng lại ID nếu là ObjectId
+      course.id = course._id.toString();
+      course.isExisting = true;
+      
+      // Cập nhật URL Drive nếu cần
+      if (!course.driveUrl || course.driveUrl !== driveUrl) {
+        console.log(`Cập nhật URL Drive: ${driveUrl}`);
+        
+        // Sử dụng updateDocument trực tiếp
+        await updateDocument(
+          "courses",
+          { _id: new ObjectId(course.id) },
+          { 
+            $set: { 
+              driveUrl, 
+              updatedAt: new Date() 
+            } 
+          }
+        );
+        
+        // Cập nhật biến course
+        course.driveUrl = driveUrl;
+      }
+      
+      return course;
+    } else {
+      console.log(`Không tìm thấy khóa học khớp chính xác với tên: "${name}". Tạo mới...`);
+      
+      // Tạo slug từ tên khóa học
+      const slug = name.toLowerCase()
+        .replace(/[àáạảãâầấậẩẫăằắặẳẵ]/g, 'a')
+        .replace(/[èéẹẻẽêềếệểễ]/g, 'e')
+        .replace(/[ìíịỉĩ]/g, 'i')
+        .replace(/[òóọỏõôồốộổỗơờớợởỡ]/g, 'o')
+        .replace(/[ùúụủũưừứựửữ]/g, 'u')
+        .replace(/[ỳýỵỷỹ]/g, 'y')
+        .replace(/đ/g, 'd')
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+      
+      // Tạo document khóa học mới
+      const courseData = {
+        title: name,
+        slug: slug,
+        driveUrl,
+        status: 'draft',
+        createdAt: new Date(),
+        updatedAt: new Date()
       };
       
-      await fetch(`/api/courses/${course.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updateData),
+      // Thêm trực tiếp vào MongoDB
+      const result = await insertDocument("courses", courseData);
+      
+      if (!result || !result.insertedId) {
+        throw new Error("Không thể tạo khóa học mới");
+      }
+      
+      // Tạo document trong courseContents
+      await insertDocument("courseContents", {
+        courseId: result.insertedId,
+        chapters: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
       });
+      
+      console.log(`Đã tạo khóa học mới với ID: ${result.insertedId}`);
+      
+      return {
+        id: result.insertedId.toString(),
+        ...courseData,
+        isExisting: false
+      };
     }
-    
-    return {
-      id: course.id,
-      title: course.title,
-      isExisting: true
-    };
+  } catch (error) {
+    console.error(`Lỗi khi lấy hoặc tạo khóa học: ${error.message}`);
+    throw error;
   }
-  
-  // Nếu chưa có, tạo khóa học mới sử dụng API tạo khóa học có kiểm tra trùng lặp
-  const newCourseData = {
-    title: name,
-    driveUrl,
-    driveFolderId,
-    price: 0,
-    status: "draft"
-  };
-  
-  const result = await fetch('/api/courses/create', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(newCourseData),
-  }).then(res => res.json());
-  
-  if (!result.success) {
-    throw new Error(result.error || 'Không thể tạo khóa học mới');
-  }
-  
-  console.log(`Đã tạo khóa học mới: ${result.course.title} (${result.course.id})`);
-  
-  return {
-    id: result.course.id,
-    title: result.course.title,
-    isExisting: false
-  };
 }
 
 /**
@@ -437,16 +469,16 @@ export async function getOrCreateSubsubfolder(courseId, chapterId, lessonId, sub
 }
 
 /**
- * Kiểm tra và xóa file trùng lặp
+ * Kiểm tra file đã tồn tại
  * @param {string} courseId - ID của khóa học
  * @param {string} chapterId - ID của chapter
  * @param {string} lessonId - ID của lesson
  * @param {string} fileName - Tên file cần kiểm tra
  * @param {string} subfolderId - ID của subfolder (nếu có)
  * @param {string} subsubfolderId - ID của subsubfolder (nếu có)
- * @returns {Promise<object|null>} - Đối tượng file đã xóa hoặc null
+ * @returns {Promise<object|null>} - Đối tượng file đã tồn tại hoặc null
  */
-export async function checkAndDeleteDuplicateFiles(courseId, chapterId, lessonId, fileName, subfolderId = null, subsubfolderId = null) {
+export async function checkExistingFile(courseId, chapterId, lessonId, fileName, subfolderId = null, subsubfolderId = null) {
   try {
     // Kết nối đến MongoDB
     await connectToDatabase();
@@ -510,118 +542,23 @@ export async function checkAndDeleteDuplicateFiles(courseId, chapterId, lessonId
     }
     
     if (existingFile) {
-      console.log(`Tìm thấy file trùng tên "${fileName}", sẽ xóa file cũ...`);
-      
-      // Nếu là file từ Wasabi, phải xóa từ storage trước
+      console.log(`Tìm thấy file có cùng tên "${fileName}" đã tồn tại trong database`);
       if (existingFile.storage && existingFile.storage.provider === 'wasabi' && existingFile.storage.key) {
-        try {
-          console.log(`Xóa file cũ từ Wasabi: ${existingFile.storage.key}`);
-          const response = await fetch(`/api/storage/delete?key=${encodeURIComponent(existingFile.storage.key)}`, {
-            method: 'DELETE'
-          });
-          
-          const result = await response.json();
-          if (result.success) {
-            console.log(`Đã xóa file cũ từ Wasabi: ${existingFile.storage.key}`);
-          } else {
-            console.warn(`Không thể xóa file cũ từ Wasabi: ${existingFile.storage.key}, lỗi: ${result.error}`);
-          }
-        } catch (error) {
-          console.error(`Lỗi khi xóa file cũ từ Wasabi: ${error.message}`);
-        }
+        console.log(`File đã tồn tại trên Wasabi với key: ${existingFile.storage.key}`);
       }
-      
-      // Xóa file khỏi MongoDB theo vị trí tương ứng
-      let updateResult = null;
-      
-      if (subsubfolderId && subfolderId) {
-        // Xóa file khỏi subsubfolder
-        const subfolderIndex = lesson.subfolders.findIndex(sf => sf.id === subfolderId);
-        
-        if (subfolderIndex === -1) {
-          console.log(`Không tìm thấy subfolder với ID ${subfolderId}`);
-          return existingFile;
-        }
-        
-        const subfolder = lesson.subfolders[subfolderIndex];
-        const subsubfolderIndex = subfolder.subfolders?.findIndex(ssf => ssf.id === subsubfolderId);
-        
-        if (subsubfolderIndex === -1) {
-          console.log(`Không tìm thấy subsubfolder với ID ${subsubfolderId}`);
-          return existingFile;
-        }
-        
-        updateResult = await updateDocument(
-          "courseContents",
-          {
-            courseId: new ObjectId(courseId),
-            "chapters.id": chapterId,
-            "chapters.lessons.id": lessonId,
-            "chapters.lessons.subfolders.id": subfolderId,
-            "chapters.lessons.subfolders.subfolders.id": subsubfolderId
-          },
-          {
-            $pull: {
-              [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders.${subfolderIndex}.subfolders.${subsubfolderIndex}.files`]: {
-                id: existingFile.id
-              }
-            },
-            $set: {
-              updatedAt: new Date().toISOString()
-            }
-          }
-        );
-      } else if (subfolderId) {
-        // Xóa file khỏi subfolder
-        const subfolderIndex = lesson.subfolders.findIndex(sf => sf.id === subfolderId);
-        
-        updateResult = await updateDocument(
-          {
-            courseId: new ObjectId(courseId),
-            "chapters.id": chapterId,
-            "chapters.lessons.id": lessonId,
-            "chapters.lessons.subfolders.id": subfolderId
-          },
-          {
-            $pull: {
-              [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders.${subfolderIndex}.files`]: {
-                id: existingFile.id
-              }
-            },
-            $set: {
-              updatedAt: new Date().toISOString()
-            }
-          }
-        );
-      } else {
-        // Xóa file khỏi lesson
-        updateResult = await updateDocument(
-          {
-            courseId: new ObjectId(courseId),
-            "chapters.id": chapterId,
-            "chapters.lessons.id": lessonId
-          },
-          {
-            $pull: {
-              [`chapters.${chapterIndex}.lessons.${lessonIndex}.files`]: {
-                id: existingFile.id
-              }
-            },
-            $set: {
-              updatedAt: new Date().toISOString()
-            }
-          }
-        );
-      }
-      
-      console.log(`Kết quả xóa file trùng lặp từ MongoDB:`, updateResult ? "Thành công" : "Thất bại");
     }
     
     return existingFile;
   } catch (error) {
-    console.error(`Lỗi khi kiểm tra và xóa file trùng lặp: ${error.message}`);
+    console.error(`Lỗi khi kiểm tra file đã tồn tại: ${error.message}`);
     return null;
   }
+}
+
+// Giữ lại hàm cũ với tên khác để đảm bảo tương thích ngược
+export async function checkAndDeleteDuplicateFiles(courseId, chapterId, lessonId, fileName, subfolderId = null, subsubfolderId = null) {
+  console.warn(`DEPRECATED: Hàm checkAndDeleteDuplicateFiles sẽ bị loại bỏ trong phiên bản tới. Sử dụng checkExistingFile thay thế.`);
+  return checkExistingFile(courseId, chapterId, lessonId, fileName, subfolderId, subsubfolderId);
 }
 
 /**
@@ -673,7 +610,13 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
     const lesson = courseContent.chapters[chapterIndex].lessons[lessonIndex];
     
     // Kiểm tra xem file đã tồn tại chưa
-    await checkAndDeleteDuplicateFiles(courseId, chapterId, lessonId, file.name, subfolderId, subsubfolderId);
+    const existingFile = await checkExistingFile(courseId, chapterId, lessonId, file.name, subfolderId, subsubfolderId);
+    
+    // Nếu file đã tồn tại, trả về file đó thay vì thêm mới
+    if (existingFile && existingFile.storage && existingFile.storage.provider === 'wasabi') {
+      console.log(`File ${file.name} đã tồn tại, không thêm mới.`);
+      return existingFile;
+    }
     
     // Tạo đối tượng file mới
     const currentTime = new Date().toISOString();
@@ -731,6 +674,7 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
       
       // Thêm file vào subsubfolder
       await updateDocument(
+        "courseContents",
         {
           courseId: new ObjectId(courseId),
           "chapters.id": chapterId,
@@ -766,6 +710,7 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
       
       // Thêm file vào subfolder
       await updateDocument(
+        "courseContents",
         {
           courseId: new ObjectId(courseId),
           "chapters.id": chapterId,
@@ -788,6 +733,7 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
     } else {
       // Thêm file vào lesson
       await updateDocument(
+        "courseContents",
         {
           courseId: new ObjectId(courseId),
           "chapters.id": chapterId,

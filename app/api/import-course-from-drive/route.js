@@ -39,6 +39,7 @@ import {
   createLesson,
   getOrCreateSubfolder,
   checkAndDeleteDuplicateFiles,
+  checkExistingFile,
   addFileToLesson,
   synchronizeDeletedItems,
   getFileType,
@@ -454,6 +455,96 @@ async function uploadToWasabi(
 }
 
 /**
+ * Tải file từ Google Drive
+ * @param {Object} drive - Drive service
+ * @param {string} fileId - ID file Google Drive cần tải
+ * @returns {Promise<Object>} - Kết quả tải file
+ */
+async function downloadFileFromDrive(drive, fileId) {
+  try {
+    console.log(`Đang tải file từ Google Drive với ID: ${fileId}`);
+    
+    // Tạo thư mục tạm nếu chưa tồn tại
+    const tempDir = path.join(os.tmpdir(), "hocmai-temp");
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    // Lấy thông tin file để biết tên và kích thước
+    const fileInfo = await drive.files.get({
+      fileId: fileId,
+      fields: "name,size,mimeType"
+    });
+    
+    const fileName = fileInfo.data.name || `file-${fileId}`;
+    const sanitizedFileName = sanitizeFileName(fileName);
+    const tempFilePath = path.join(tempDir, sanitizedFileName);
+    
+    // Biến theo dõi tốc độ tải
+    const downloadStartTime = Date.now();
+    let downloadedBytes = 0;
+    const totalBytes = parseInt(fileInfo.data.size, 10) || 0;
+    const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
+    
+    console.log(`Bắt đầu tải file: ${fileName} (${totalMB} MB)`);
+    
+    // Tải file từ Drive
+    const response = await drive.files.get(
+      {
+        fileId: fileId,
+        alt: "media"
+      },
+      { responseType: "stream" }
+    );
+    
+    // Lưu file vào thư mục tạm
+    const writer = fs.createWriteStream(tempFilePath);
+    
+    // Xử lý stream
+    await new Promise((resolve, reject) => {
+      response.data
+        .on("data", chunk => {
+          downloadedBytes += chunk.length;
+        })
+        .on("end", () => {
+          console.log(`Tải file hoàn tất: ${fileName}`);
+          resolve();
+        })
+        .on("error", err => {
+          reject(err);
+        })
+        .pipe(writer);
+    });
+    
+    // Tính tốc độ tải
+    const downloadEndTime = Date.now();
+    const downloadDuration = (downloadEndTime - downloadStartTime) / 1000; // chuyển sang giây
+    const downloadSpeed = (totalMB / downloadDuration).toFixed(2);
+    
+    console.log(`Đã tải xong file ${fileName} (${totalMB} MB)`);
+    console.log(`Thời gian tải: ${downloadDuration.toFixed(2)}s | Tốc độ: ${downloadSpeed} MB/s`);
+    
+    // Đọc file vào buffer để upload lên Wasabi
+    const fileBuffer = fs.readFileSync(tempFilePath);
+    
+    return {
+      success: true,
+      data: fileBuffer,
+      fileName: fileName,
+      mimeType: fileInfo.data.mimeType,
+      size: totalBytes,
+      downloadSpeed: downloadSpeed
+    };
+  } catch (error) {
+    console.error(`Lỗi khi tải file từ Google Drive: ${error.message}`);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
  * Xử lý các file trong folder
  * @param {Object} drive - Drive service
  * @param {Array} files - Danh sách file
@@ -492,13 +583,6 @@ async function processFiles(
   for (const file of files) {
     index++;
     try {
-      // Kiểm tra nếu file đã được xử lý ở các lần trước
-      if (global.syncState.processedItems.files.has(file.id)) {
-        console.log(`File ${file.name} đã được xử lý trước đó, bỏ qua.`);
-        processedFiles.push(file);
-        continue;
-      }
-
       // Kiểm tra loại file
       if (file.mimeType.startsWith("application/vnd.google-apps")) {
         if (file.mimeType !== "application/vnd.google-apps.folder") {
@@ -592,7 +676,31 @@ async function processFiles(
 
       console.log(`[${index}/${files.length}] Đang xử lý file "${file.name}"...`);
 
-      // Download file từ Google Drive
+      // Kiểm tra xem file đã tồn tại trên Wasabi chưa
+      const existingFile = await checkExistingFile(
+        courseId,
+        chapterId,
+        lessonId,
+        file.name,
+        subfolderId,
+        subsubfolderId
+      );
+
+      // Nếu file đã tồn tại và có lưu trữ trên Wasabi, thì bỏ qua việc download và upload
+      if (existingFile && existingFile.storage && existingFile.storage.provider === 'wasabi' && existingFile.storage.key) {
+        console.log(`File "${file.name}" đã tồn tại trên Wasabi với key ${existingFile.storage.key}, bỏ qua phần download/upload`);
+        
+        // Vẫn đánh dấu file đã được xử lý
+        global.syncState.processedItems.files.add(file.id);
+        processedFiles.push(file);
+        
+        // Đánh dấu cần đồng bộ hóa
+        global.syncState.needSync = true;
+        
+        continue;
+      }
+
+      // Download file từ Google Drive - chỉ thực hiện nếu file chưa tồn tại
       const downloadResult = await downloadFileFromDrive(drive, file.id);
       if (!downloadResult.success) {
         console.error(
@@ -686,7 +794,7 @@ async function processFiles(
           console.log(`Đã thêm file ${file.name} vào lesson trong database.`);
         }
 
-        // Đánh dấu file đã được xử lý
+        // Vẫn giữ lại đánh dấu file đã được xử lý để sử dụng trong synchronizeDeletedItems
         global.syncState.processedItems.files.add(file.id);
         processedFiles.push(file);
         
@@ -1033,6 +1141,20 @@ export async function POST(request) {
 
   try {
     console.log("\n=== Bắt đầu import khóa học ===");
+    
+    // Khởi tạo lại trạng thái đồng bộ ngay từ đầu để tránh lỗi
+    global.syncState = {
+      processedItems: {
+        chapters: new Set(),
+        lessons: new Set(),
+        files: new Set(),
+        subfolders: new Set(),
+        subsubfolders: new Set()
+      },
+      needSync: false
+    };
+    console.log("Đã khởi tạo lại trạng thái đồng bộ");
+    
     const {
       driveUrl,
       enableSync = true,
@@ -1162,12 +1284,7 @@ export async function POST(request) {
         );
       }
 
-      // Khởi tạo lại trạng thái đồng bộ
-      global.syncState.processedItems.chapters.clear();
-      global.syncState.processedItems.lessons.clear();
-      global.syncState.processedItems.files.clear();
-      global.syncState.processedItems.subfolders.clear();
-      global.syncState.processedItems.subsubfolders.clear();
+      // Cập nhật needSync dựa trên tham số enableSync
       global.syncState.needSync = enableSync;
 
       let course;
