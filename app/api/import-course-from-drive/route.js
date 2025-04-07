@@ -700,21 +700,13 @@ async function processFiles(
         continue;
       }
 
-      // Download file từ Google Drive - chỉ thực hiện nếu file chưa tồn tại
-      const downloadResult = await downloadFileFromDrive(drive, file.id);
-      if (!downloadResult.success) {
-        console.error(
-          `Không thể tải file ${file.name} từ Google Drive: ${downloadResult.error}`
-        );
-        failedFiles.push({ ...file, error: downloadResult.error });
-        continue;
-      }
-
-      // Upload file lên Wasabi
+      // Sử dụng trực tiếp uploadToWasabi thay vì download riêng sau đó upload
       const uploadResult = await uploadToWasabi(
-        downloadResult.data,
-        wasabiPath,
-        file.mimeType
+        drive,
+        file.id,
+        file.name,
+        file.mimeType,
+        parentPath
       );
 
       if (!uploadResult.success) {
@@ -736,7 +728,7 @@ async function processFiles(
           size: file.size,
           storage: {
             provider: "wasabi",
-            key: wasabiPath,
+            key: uploadResult.key,
             size: parseInt(file.size),
             uploadTime: new Date().toISOString(),
           },
