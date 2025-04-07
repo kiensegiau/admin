@@ -20,13 +20,13 @@ import {
   HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { refreshDriveToken, checkAndRefreshToken } from "@/lib/tokenRefresher";
-import { ObjectId } from "mongodb";
 import {
   findOneDocument,
   findDocuments,
   insertDocument,
   updateDocument,
-  deleteDocument
+  deleteDocument,
+  ObjectId
 } from '@/lib/db';
 
 // Thêm import cho adapter
@@ -40,8 +40,11 @@ import {
   checkAndDeleteDuplicateFiles,
   addFileToLesson,
   synchronizeDeletedItems,
-  getFileType
+  getFileType,
+  getOrCreateSubsubfolder,
 } from './adapter-impl';
+
+import { connectMongoDB } from '@/lib/mongodb';
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +74,7 @@ const syncState = {
     lessons: new Set(),
     files: new Set(),
     subfolders: new Set(),
+    subsubfolders: new Set(),
   },
   needSync: false,
 };
@@ -450,373 +454,263 @@ async function uploadToWasabi(
   }
 }
 
-// Các hàm xử lý file và folder từ Google Drive
+/**
+ * Xử lý các file trong folder
+ * @param {Object} drive - Drive service
+ * @param {Array} files - Danh sách file
+ * @param {string} courseId - ID khóa học
+ * @param {string} chapterId - ID chapter
+ * @param {string} lessonId - ID lesson
+ * @param {string} parentType - Loại parent (lesson/subfolder)
+ * @param {string} parentPath - Đường dẫn parent
+ * @param {string} subfolderId - ID của subfolder (nếu có)
+ * @param {string} subsubfolderId - ID của subsubfolder (nếu có)
+ * @returns {Promise<void>}
+ */
 async function processFiles(
   drive,
-  validFiles,
+  files,
   courseId,
-  parentId,
+  chapterId,
   lessonId,
-  parentType,
-  parentPath
+  parentType = "lesson",
+  parentPath = "",
+  subfolderId = null,
+  subsubfolderId = null
 ) {
-  console.log(
-    `\n=== Bắt đầu xử lý ${validFiles.length} files lên Wasabi từ ${
-      parentPath || "thư mục gốc"
-    } ===`
-  );
-  console.log(`Đường dẫn gốc: "${parentPath}"`);
-  console.log(`Đường dẫn sau khi xử lý: "${sanitizeWasabiPath(parentPath)}"`);
-
-  // Kiểm tra toàn bộ files trước để xác định những file cần xử lý
-  const filesToProcess = [];
-  for (const file of validFiles) {
-    // Đánh dấu file đã xử lý (để không bị xóa khi đồng bộ)
-    global.syncState.processedItems.files.add(file.id);
-
-    // Lấy tên subfolder từ parentPath nếu là kiểu subfolder
-    const subfolderName =
-      parentType === "subfolder" && parentPath
-        ? parentPath.split("/").pop()
-        : null;
-
-    // Tìm subfolderId nếu có
-    let subfolderId = null;
-    if (subfolderName && parentType === "subfolder") {
-      // Thay đổi từ courses sang courseContents để lấy dữ liệu chapters
-      const courseContent = await findOneDocument("courseContents", { courseId: new ObjectId(courseId) });
-      
-      if (courseContent && courseContent.chapters) {
-        const chapter = courseContent.chapters.find(c => c.id === parentId);
-        
-        if (chapter) {
-          const lesson = chapter.lessons.find(l => l.id === lessonId);
-          
-          if (lesson) {
-            const subfolder = lesson.subfolders?.find(sf => sf.name === subfolderName);
-            if (subfolder) {
-              subfolderId = subfolder.id;
-            }
-          }
-        }
-      }
-    }
-
-    // Kiểm tra trùng lặp và xác định xem có cần tải lên không
-    const { needUpload, fileData } = await checkAndDeleteDuplicateFiles(
-      courseId, 
-      parentId, 
-      lessonId, 
-      file.name,
-      subfolderId
-    );
-
-    if (needUpload) {
-      filesToProcess.push({
-        ...file,
-        folderPath: parentPath, // Thêm đường dẫn thư mục cho file
-        existingData: fileData // Có thể là null hoặc file đang tồn tại cần cập nhật
-      });
-    } else {
-      console.log(`File ${file.name} đã tồn tại và có key Wasabi hợp lệ, bỏ qua.`);
-    }
-  }
-
-  if (filesToProcess.length === 0) {
-    console.log("Không có file mới hoặc file cần tải lại lên Wasabi.");
+  if (!files || files.length === 0) {
+    console.log("Không có file để xử lý");
     return;
   }
 
-  // Biến thống kê tốc độ
-  const stats = {
-    totalFiles: filesToProcess.length,
-    processedFiles: 0,
-    totalSize: 0,
-    totalDownloadTime: 0,
-    totalUploadTime: 0,
-    avgDownloadSpeed: 0,
-    avgUploadSpeed: 0,
-    startTime: Date.now(),
-  };
+  // Mảng các tệp đã được xử lý
+  const processedFiles = [];
+  const failedFiles = [];
 
-  // Xử lý các file theo batch để không quá tải hệ thống
-  const BATCH_SIZE = 5; // Số file xử lý đồng thời
+  console.log(`Xử lý ${files.length} file trong ${parentType}`);
 
-  for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
-    const batch = filesToProcess.slice(i, i + BATCH_SIZE);
+  let index = 0;
+  for (const file of files) {
+    index++;
+    try {
+      // Kiểm tra nếu file đã được xử lý ở các lần trước
+      if (global.syncState.processedItems.files.has(file.id)) {
+        console.log(`File ${file.name} đã được xử lý trước đó, bỏ qua.`);
+        processedFiles.push(file);
+        continue;
+      }
 
-    await Promise.all(
-      batch.map(async (file) => {
+      // Kiểm tra loại file
+      if (file.mimeType.startsWith("application/vnd.google-apps")) {
+        if (file.mimeType !== "application/vnd.google-apps.folder") {
+          console.log(`Bỏ qua Google Workspace file: ${file.name} (${file.mimeType})`);
+        }
+        continue;
+      }
+
+      // Tên thư mục cha hiện tại
+      const relativePath = parentPath || "";
+
+      // Đường dẫn file trên Wasabi, bổ sung thông tin subsubfolder nếu có
+      let wasabiPath;
+
+      if (subsubfolderId && subfolderId) {
+        // Nếu là file trong subsubfolder
+        // Lấy tên của subfolder và subsubfolder
+        let subfolderName = "";
+        let subsubfolderName = "";
+        
         try {
-          const isUpdate = !!file.existingData;
-          console.log(
-            `\nĐang ${isUpdate ? "cập nhật" : "xử lý"} file: ${file.name} (${
-              file.mimeType
-            })`
-          );
-          console.log(`Đường dẫn thư mục: ${file.folderPath}`);
-
-          const uploadResult = await uploadToWasabi(
-            drive,
-            file.id,
-            file.name,
-            file.mimeType,
-            file.folderPath
-          );
-
-          if (uploadResult.success) {
-            // Cập nhật thống kê
-            stats.processedFiles++;
-            stats.totalSize += parseFloat(uploadResult.fileSize || 0);
-            stats.totalDownloadTime +=
-              parseFloat(uploadResult.downloadSpeed) > 0
-                ? parseFloat(uploadResult.fileSize) /
-                  parseFloat(uploadResult.downloadSpeed)
-                : 0;
-            stats.totalUploadTime +=
-              parseFloat(uploadResult.uploadSpeed) > 0
-                ? parseFloat(uploadResult.fileSize) / parseFloat(uploadResult.uploadSpeed)
-                : 0;
-          }
-
-          if (!uploadResult.success) {
-            console.warn(
-              `Upload thất bại cho file ${file.name}:`,
-              uploadResult.error
-            );
-            // Kiểm tra xem lỗi có nghiêm trọng không
-            if (
-              uploadResult.error.includes("không đủ quyền") ||
-              uploadResult.error.includes("không tìm thấy file")
-            ) {
-              console.error(`Bỏ qua file ${file.name} do lỗi nghiêm trọng`);
-              return; // Bỏ qua file này, không thêm vào database
+          // Kết nối MongoDB để lấy tên
+          await connectMongoDB();
+          const courseContent = await findOneDocument("courseContents", { 
+            courseId: new ObjectId(courseId)
+          });
+          
+          if (courseContent) {
+            // Tìm subfolder và subsubfolder để lấy tên
+            const chapter = courseContent.chapters.find(c => c.id === chapterId);
+            if (chapter) {
+              const lesson = chapter.lessons.find(l => l.id === lessonId);
+              if (lesson) {
+                const subfolder = lesson.subfolders.find(sf => sf.id === subfolderId);
+                if (subfolder) {
+                  subfolderName = subfolder.name;
+                  const subsubfolder = subfolder.subfolders?.find(ssf => ssf.id === subsubfolderId);
+                  if (subsubfolder) {
+                    subsubfolderName = subsubfolder.name;
+                  }
+                }
+              }
             }
-          }
-
-          const isSubfolder = parentType === "subfolder";
-          let subfolderId = null;
-
-          if (isSubfolder && parentPath) {
-            const subfolderName = parentPath.split("/").pop();
-            const newSubfolder = {
-              id: folderId, // Sử dụng folderId từ Google Drive để tham chiếu
-              name: subfolderName,
-              files: [],
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            };
-            subfolderId = await getOrCreateSubfolder(
-              courseId,
-              parentId,
-              lessonId,
-              subfolderName
-            );
-          }
-
-          // Chỉ thêm vào database nếu upload thành công hoặc lỗi không nghiêm trọng
-          if (uploadResult.success) {
-            console.log(
-              `File ${file.name} upload thành công lên Wasabi, key: ${uploadResult.key}`
-            );
-
-            // Nếu đã tồn tại, cập nhật thông tin lưu trữ
-            if (isUpdate) {
-              // Tìm và cập nhật file trong database
-              const courseContent = await findOneDocument("courseContents", { courseId: new ObjectId(courseId) });
-              if (!courseContent) {
-                throw new Error(`Không tìm thấy nội dung khóa học với ID: ${courseId}`);
-              }
-
-              const chapter = courseContent.chapters.find(
-                (c) => c.id === parentId
-              );
-              if (!chapter) {
-                console.error("Không tìm thấy chapter khi cập nhật file");
-                return;
-              }
-
-              const lesson = chapter.lessons.find((l) => l.id === lessonId);
-              if (!lesson) {
-                console.error("Không tìm thấy lesson khi cập nhật file");
-                return;
-              }
-
-              const currentTime = new Date().toISOString();
-
-              if (subfolderId) {
-                // Cập nhật file trong subfolder
-                const updatedChapters = courseContent.chapters.map((c) => {
-                  if (c.id === parentId) {
-                    const updatedLessons = c.lessons.map((l) => {
-                      if (l.id === lessonId) {
-                        const updatedSubfolders = l.subfolders.map((sf) => {
-                          if (sf.name === subfolderName) {
-                            const updatedFiles = sf.files.map((f) => {
-                              if (f.id === file.existingData.id) {
-                                // Đối tượng cập nhật đồng nhất với db.json
-                                return {
-                                  ...f,
-                                  storage: {
-                                    provider: "wasabi",
-                                    key: uploadResult.key,
-                                    size: { "$numberInt": uploadResult.size.toString() },
-                                    uploadTime: currentTime
-                                  },
-                                  uploadTime: currentTime,
-                                  modifiedTime: currentTime,
-                                  size: uploadResult.size.toString()
-                                };
-                              }
-                              return f;
-                            });
-                            return { ...sf, files: updatedFiles, updatedAt: currentTime };
-                          }
-                          return sf;
-                        });
-                        return { ...l, subfolders: updatedSubfolders, updatedAt: currentTime };
-                      }
-                      return l;
-                    });
-                    return { ...c, lessons: updatedLessons };
-                  }
-                  return c;
-                });
-
-                await updateDocument(
-                  "courseContents",
-                  { courseId: new ObjectId(courseId) },
-                  {
-                    $set: {
-                      chapters: updatedChapters,
-                      updatedAt: currentTime
-                    }
-                  }
-                );
-                console.log(
-                  `Đã cập nhật key Wasabi cho file ${file.name} trong subfolder`
-                );
-              } else {
-                // Cập nhật file trong lesson
-                const updatedChapters = courseContent.chapters.map((c) => {
-                  if (c.id === parentId) {
-                    const updatedLessons = c.lessons.map((l) => {
-                      if (l.id === lessonId) {
-                        const updatedFiles = l.files.map((f) => {
-                          if (f.id === file.existingData.id) {
-                            // Đối tượng cập nhật đồng nhất với db.json
-                            return {
-                              ...f,
-                              storage: {
-                                provider: "wasabi",
-                                key: uploadResult.key,
-                                size: { "$numberInt": uploadResult.size.toString() },
-                                uploadTime: currentTime
-                              },
-                              uploadTime: currentTime,
-                              modifiedTime: currentTime,
-                              size: uploadResult.size.toString()
-                            };
-                          }
-                          return f;
-                        });
-                        return { ...l, files: updatedFiles, updatedAt: currentTime };
-                      }
-                      return l;
-                    });
-                    return { ...c, lessons: updatedLessons };
-                  }
-                  return c;
-                });
-
-                await updateDocument(
-                  "courseContents",
-                  { courseId: new ObjectId(courseId) },
-                  {
-                    $set: {
-                      chapters: updatedChapters,
-                      updatedAt: currentTime
-                    }
-                  }
-                );
-                console.log(
-                  `Đã cập nhật key Wasabi cho file ${file.name} trong lesson`
-                );
-              }
-            } else {
-              // Thêm file mới với thông tin Wasabi
-              const fileWithWasabi = {
-                ...file,
-                storage: {
-                  provider: "wasabi",
-                  key: uploadResult.key,
-                  size: { "$numberInt": uploadResult.size.toString() },
-                  uploadTime: new Date().toISOString()
-                },
-                size: uploadResult.size.toString(),
-                modifiedTime: new Date().toISOString()
-              };
-
-              await addFileToLesson(
-                courseId,
-                parentId,
-                lessonId,
-                fileWithWasabi,
-                subfolderId
-              );
-            }
-          } else if (!isUpdate) {
-            // Chỉ thêm vào database với liên kết trực tiếp từ Drive nếu là file mới và không upload được
-            console.log(
-              `Thêm file ${file.name} với link Drive (không qua Wasabi)`
-            );
-            await addFileToLesson(
-              courseId,
-              parentId,
-              lessonId,
-              file,
-              subfolderId
-            );
           }
         } catch (error) {
-          console.error(`Lỗi khi xử lý file ${file.name}:`, error);
-          // Không tự động thêm vào database khi có lỗi xử lý
-          // Việc này giúp tránh dữ liệu không nhất quán
+          console.error(`Lỗi khi lấy tên subfolder/subsubfolder: ${error.message}`);
         }
-      })
-    );
+        
+        // Nếu không lấy được tên, sử dụng ID
+        if (!subfolderName) subfolderName = subfolderId;
+        if (!subsubfolderName) subsubfolderName = subsubfolderId;
+        
+        wasabiPath = `courses/${courseId}/${relativePath}${relativePath ? "/" : ""}${subfolderName}/${subsubfolderName}/${file.name}`;
+      } else if (subfolderId) {
+        // Nếu là file trong subfolder
+        // Lấy tên của subfolder
+        let subfolderName = "";
+        
+        try {
+          // Kết nối MongoDB để lấy tên
+          await connectMongoDB();
+          const courseContent = await findOneDocument("courseContents", { 
+            courseId: new ObjectId(courseId)
+          });
+          
+          if (courseContent) {
+            // Tìm subfolder để lấy tên
+            const chapter = courseContent.chapters.find(c => c.id === chapterId);
+            if (chapter) {
+              const lesson = chapter.lessons.find(l => l.id === lessonId);
+              if (lesson) {
+                const subfolder = lesson.subfolders.find(sf => sf.id === subfolderId);
+                if (subfolder) {
+                  subfolderName = subfolder.name;
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`Lỗi khi lấy tên subfolder: ${error.message}`);
+        }
+        
+        // Nếu không lấy được tên, sử dụng ID
+        if (!subfolderName) subfolderName = subfolderId;
+        
+        wasabiPath = `courses/${courseId}/${relativePath}${relativePath ? "/" : ""}${subfolderName}/${file.name}`;
+      } else {
+        // Nếu là file trong lesson
+        wasabiPath = `courses/${courseId}/${relativePath}${relativePath ? "/" : ""}${file.name}`;
+      }
 
-    // Cho phép hệ thống nghỉ ngơi giữa các batch
-    if (i + BATCH_SIZE < filesToProcess.length) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      console.log(`[${index}/${files.length}] Đang xử lý file "${file.name}"...`);
+
+      // Download file từ Google Drive
+      const downloadResult = await downloadFileFromDrive(drive, file.id);
+      if (!downloadResult.success) {
+        console.error(
+          `Không thể tải file ${file.name} từ Google Drive: ${downloadResult.error}`
+        );
+        failedFiles.push({ ...file, error: downloadResult.error });
+        continue;
+      }
+
+      // Upload file lên Wasabi
+      const uploadResult = await uploadToWasabi(
+        downloadResult.data,
+        wasabiPath,
+        file.mimeType
+      );
+
+      if (!uploadResult.success) {
+        console.error(
+          `Không thể tải file ${file.name} lên Wasabi: ${uploadResult.error}`
+        );
+        failedFiles.push({ ...file, error: uploadResult.error });
+        continue;
+      }
+
+      // Thêm thông tin file vào database
+      try {
+        const fileData = {
+          id: file.id,
+          name: file.name,
+          mimeType: file.mimeType,
+          type: getFileType(file.mimeType),
+          modifiedTime: file.modifiedTime,
+          size: file.size,
+          storage: {
+            provider: "wasabi",
+            key: wasabiPath,
+            size: parseInt(file.size),
+            uploadTime: new Date().toISOString(),
+          },
+        };
+
+        // Thêm vào database tùy theo loại parent
+        let result;
+        if (subsubfolderId && subfolderId) {
+          // Thêm vào subsubfolder
+          result = await addFileToLesson(
+            courseId,
+            chapterId,
+            lessonId,
+            fileData,
+            subfolderId,
+            subsubfolderId
+          );
+          console.log(`Đã thêm file ${file.name} vào subsubfolder trong database.`);
+        } else if (subfolderId || parentType === "subfolder") {
+          // Thêm vào subfolder
+          if (!subfolderId) {
+            // Nếu không có subfolderId, tìm hoặc tạo subfolder
+            const subfolderName = 
+              parentType === "subfolder" && parentPath
+                ? parentPath.split("/").pop()
+                : "Other Files";
+                
+            if (subfolderName) {
+              subfolderId = await getOrCreateSubfolder(
+                courseId,
+                chapterId,
+                lessonId,
+                subfolderName
+              );
+              global.syncState.processedItems.subfolders.add(subfolderId);
+            }
+          }
+          
+          result = await addFileToLesson(
+            courseId,
+            chapterId,
+            lessonId,
+            fileData,
+            subfolderId
+          );
+          console.log(`Đã thêm file ${file.name} vào subfolder trong database.`);
+        } else {
+          // Thêm vào lesson
+          result = await addFileToLesson(
+            courseId,
+            chapterId,
+            lessonId,
+            fileData
+          );
+          console.log(`Đã thêm file ${file.name} vào lesson trong database.`);
+        }
+
+        // Đánh dấu file đã được xử lý
+        global.syncState.processedItems.files.add(file.id);
+        processedFiles.push(file);
+        
+        // Đánh dấu cần đồng bộ hóa (để xóa các mục không còn tồn tại)
+        global.syncState.needSync = true;
+      } catch (error) {
+        console.error(`Lỗi khi thêm file ${file.name} vào database: ${error.message}`);
+        failedFiles.push({ ...file, error: error.message });
+      }
+    } catch (error) {
+      console.error(`Lỗi khi xử lý file ${file.name}: ${error.message}`);
+      failedFiles.push({ ...file, error: error.message });
     }
   }
 
-  console.log(`=== Hoàn thành xử lý ${filesToProcess.length} files ===`);
+  console.log(
+    `Kết quả xử lý files: ${processedFiles.length} thành công, ${failedFiles.length} thất bại.`
+  );
 
-  // Tính và hiển thị thống kê tốc độ
-  const totalTime = (Date.now() - stats.startTime) / 1000; // Thời gian tổng cộng (giây)
-
-  if (stats.processedFiles > 0) {
-    stats.avgDownloadSpeed =
-      stats.totalDownloadTime > 0
-        ? (stats.totalSize / stats.totalDownloadTime).toFixed(2)
-        : 0;
-    stats.avgUploadSpeed =
-      stats.totalUploadTime > 0
-        ? (stats.totalSize / stats.totalUploadTime).toFixed(2)
-        : 0;
-
-    console.log("\n=== THỐNG KÊ TỐC ĐỘ ===");
-    console.log(
-      `Số lượng file đã xử lý: ${stats.processedFiles}/${stats.totalFiles}`
-    );
-    console.log(`Tổng kích thước: ${stats.totalSize.toFixed(2)} MB`);
-    console.log(`Thời gian xử lý: ${totalTime.toFixed(2)} giây`);
-    console.log(`Tốc độ tải trung bình: ${stats.avgDownloadSpeed} MB/s`);
-    console.log(`Tốc độ upload trung bình: ${stats.avgUploadSpeed} MB/s`);
-    console.log("======================\n");
-  }
+  return {
+    processed: processedFiles,
+    failed: failedFiles
+  };
 }
 
 async function processFolder(
@@ -838,9 +732,15 @@ async function processFolder(
           lessons: new Set(),
           files: new Set(),
           subfolders: new Set(),
+          subsubfolders: new Set()
         },
-        needSync: true,
+        needSync: false
       };
+    }
+    
+    // Đảm bảo subsubfolders tồn tại
+    if (!global.syncState.processedItems.subsubfolders) {
+      global.syncState.processedItems.subsubfolders = new Set();
     }
     
     // Lấy tên khóa học nếu chưa có
@@ -969,6 +869,56 @@ async function processFolder(
           parentType,
           currentPath
         );
+      }
+    }
+
+    // Thêm mới: Tìm các thư mục con trong subfolder hiện tại (để làm subsubfolders)
+    const subsubfolders = files.filter(
+      (f) => f.mimeType === "application/vnd.google-apps.folder" && f.parents && f.parents.includes(folderId)
+    );
+    
+    if (subsubfolders.length > 0) {
+      console.log(`Tìm thấy ${subsubfolders.length} subsubfolders trong subfolder ${folder.name}`);
+      
+      // Xử lý từng subsubfolder
+      for (const subsubfolder of subsubfolders) {
+        try {
+          // Tạo hoặc lấy subsubfolder
+          const subsubfolderId = await getOrCreateSubsubfolder(
+            courseId,
+            parentId,
+            lessonId,
+            subfolderId,
+            subsubfolder.name
+          );
+          
+          // Đánh dấu đã xử lý
+          global.syncState.processedItems.subsubfolders.add(subsubfolderId);
+          
+          console.log(`Đã tạo/lấy subsubfolder: ${subsubfolder.name} (ID: ${subsubfolderId})`);
+          
+          // Lấy danh sách file trong subsubfolder
+          const subsubfolderFiles = documents.filter(
+            (f) => f.parents && f.parents.includes(subsubfolder.id)
+          );
+          
+          // Xử lý các file trong subsubfolder
+          await processFiles(
+            drive,
+            subsubfolderFiles,
+            courseId,
+            parentId,
+            lessonId,
+            "subfolder",
+            currentPath,
+            subfolderId,
+            subsubfolderId
+          );
+          
+          console.log(`Đã xử lý ${subsubfolderFiles.length} file trong subsubfolder ${subsubfolder.name}`);
+        } catch (error) {
+          console.error(`Lỗi khi xử lý subsubfolder ${subsubfolder.name}:`, error);
+        }
       }
     }
 
@@ -1218,6 +1168,7 @@ export async function POST(request) {
       global.syncState.processedItems.lessons.clear();
       global.syncState.processedItems.files.clear();
       global.syncState.processedItems.subfolders.clear();
+      global.syncState.processedItems.subsubfolders.clear();
       global.syncState.needSync = enableSync;
 
       let course;
@@ -1268,7 +1219,7 @@ export async function POST(request) {
         );
         console.log(`Đã cập nhật Drive URL cho khóa học: ${driveUrl}`);
       }
-
+      
       // Truyền tên khóa học vào lần gọi đầu tiên của processFolder
       await processFolder(
         drive,
@@ -1281,129 +1232,27 @@ export async function POST(request) {
         course.title
       );
 
-      // Thực hiện đồng bộ xóa nếu được yêu cầu
-      let syncResult = { hasChanges: false, deletedFilesCount: 0, failedDeletionsCount: 0 };
-      if (enableSync && course.isExisting) {
-        syncResult = await synchronizeDeletedItems(course.id);
-      }
-
-      const courseData = await findOneDocument("courses", { _id: new ObjectId(course.id) });
-      if (!courseData) {
-        throw new Error(`Không thể lấy dữ liệu khóa học sau khi import`);
-      }
-
-      const structure = {
-        name: courseData.title || "",
-        type: "folder",
-        children: (courseData.chapters || []).map((chapter) => ({
-          name: chapter.title || "",
-          type: "folder",
-          children: (chapter.lessons || []).map((lesson) => {
-            // Tạo danh sách các file trong thư mục gốc của bài học
-            const rootFiles = (lesson.files || []).map((file) => ({
-              name: file.name || "",
-              type: "file",
-              id: file.id,
-              fileType: file.type,
-            }));
-
-            // Tạo danh sách các thư mục con và file trong đó
-            const subfolderNodes = (lesson.subfolders || []).map(
-              (subfolder) => ({
-                name: subfolder.name || "",
-                type: "folder",
-                id: subfolder.id,
-                children: (subfolder.files || []).map((file) => ({
-                  name: file.name || "",
-                  type: "file",
-                  id: file.id,
-                  fileType: file.type,
-                })),
-              })
-            );
-
-            return {
-              name: lesson.title || "",
-              type: "folder",
-              id: lesson.id,
-              // Gộp files gốc và subfolders vào danh sách children
-              children: [...rootFiles, ...subfolderNodes],
-            };
-          }),
-        })),
-      };
-
-      console.log("=== Kết thúc import khóa học ===\n");
-
-      // Tính toán tốc độ trung bình
-      const totalTime = (Date.now() - globalStats.startTime) / 1000; // Thời gian tổng cộng (giây)
-
-      if (globalStats.totalProcessedFiles > 0) {
-        globalStats.avgDownloadSpeed =
-          globalStats.totalDownloadTime > 0
-            ? (globalStats.totalSize / globalStats.totalDownloadTime).toFixed(2)
-            : 0;
-        globalStats.avgUploadSpeed =
-          globalStats.totalUploadTime > 0
-            ? (globalStats.totalSize / globalStats.totalUploadTime).toFixed(2)
-            : 0;
-
-        console.log("\n=== THỐNG KÊ TỐC ĐỘ TỔNG THỂ ===");
-        console.log(
-          `Số lượng file đã xử lý: ${globalStats.totalProcessedFiles}`
-        );
-        console.log(`Tổng kích thước: ${globalStats.totalSize.toFixed(2)} MB`);
-        console.log(`Thời gian xử lý: ${totalTime.toFixed(2)} giây`);
-        console.log(
-          `Tốc độ tải trung bình: ${globalStats.avgDownloadSpeed} MB/s`
-        );
-        console.log(
-          `Tốc độ upload trung bình: ${globalStats.avgUploadSpeed} MB/s`
-        );
-        console.log("==============================\n");
-      }
-
       return NextResponse.json({
         success: true,
-        title: courseData.title || "",
-        structure: structure,
-        courseId: course.id,
-        syncPerformed: enableSync && course.isExisting,
-        syncResult: syncResult,
-        message: course.isExisting
-          ? `Khóa học đã tồn tại, đã cập nhật nội dung${
-              syncResult.hasChanges 
-                ? ` và đồng bộ xóa ${syncResult.deletedFilesCount} file (${syncResult.failedDeletionsCount} thất bại)` 
-                : ""
-            }`
-          : "Import khóa học mới thành công",
-        stats: {
-          totalFiles: globalStats.totalProcessedFiles,
-          totalSize: globalStats.totalSize.toFixed(2),
-          totalTime: totalTime.toFixed(2),
-          avgDownloadSpeed: globalStats.avgDownloadSpeed,
-          avgUploadSpeed: globalStats.avgUploadSpeed,
-        },
+        message: "Khóa học đã được import thành công",
+        stats: globalStats,
       });
     } catch (error) {
-      console.error("Lỗi khi lấy thông tin thư mục:", error);
+      console.error("Lỗi khi import khóa học:", error);
       return NextResponse.json(
         {
           success: false,
-          error: `Lỗi khi lấy thông tin thư mục: ${error.message}`,
+          error: "Đã xảy ra lỗi khi import khóa học. Vui lòng thử lại sau.",
         },
         { status: 500 }
       );
-    } finally {
-      // Đảm bảo khôi phục lại hàm uploadToWasabi gốc trong mọi trường hợp
-      uploadToWasabi = originalUploadToWasabi;
     }
   } catch (error) {
     console.error("Lỗi khi import khóa học:", error);
     return NextResponse.json(
       {
         success: false,
-        error: error.message || "Có lỗi xảy ra khi import khóa học",
+        error: "Đã xảy ra lỗi khi import khóa học. Vui lòng thử lại sau.",
       },
       { status: 500 }
     );
