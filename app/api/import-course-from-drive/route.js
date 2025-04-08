@@ -1283,12 +1283,15 @@ export async function POST(request) {
     
     const {
       driveUrl,
-      enableSync = true,
+      enableSync = false, // Luôn đặt giá trị mặc định là false
       courseId = null,
     } = await request.json();
     console.log("URL Drive:", driveUrl);
-    console.log("Đồng bộ xóa:", enableSync ? "Bật" : "Tắt");
+    console.log("Đồng bộ xóa: TẠM THỜI BỊ TẮT");
     console.log("CourseId:", courseId ? courseId : "Tạo mới");
+
+    // Thực thi với enableSync luôn là false
+    const actualEnableSync = false;
 
     // Thêm biến thống kê tốc độ tổng
     const globalStats = {
@@ -1411,7 +1414,7 @@ export async function POST(request) {
       }
 
       // Cập nhật needSync dựa trên tham số enableSync
-      global.syncState.needSync = enableSync;
+      global.syncState.needSync = false; // Luôn tắt đồng bộ
 
       let course;
 
@@ -1476,9 +1479,12 @@ export async function POST(request) {
       
       // Thực hiện đồng bộ xóa nếu được yêu cầu
       let syncResult = { hasChanges: false, deletedFilesCount: 0, failedDeletionsCount: 0 };
+      // Tắt đồng bộ xóa bất kể giá trị enableSync
+      /*
       if (enableSync && course.isExisting) {
         syncResult = await synchronizeDeletedItems(course.id);
       }
+      */
       
       const courseData = await findOneDocument("courses", { _id: new ObjectId(course.id) });
       if (!courseData) {
@@ -1503,7 +1509,7 @@ export async function POST(request) {
         success: true,
         title: courseData.title || "",
         courseId: course.id,
-        syncPerformed: enableSync && course.isExisting,
+        syncPerformed: actualEnableSync && course.isExisting,
         syncResult: syncResult,
         message: course.isExisting
           ? `Khóa học đã tồn tại, đã cập nhật nội dung${
