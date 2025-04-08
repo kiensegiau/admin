@@ -639,9 +639,10 @@ async function processFiles(
     // Nếu file có trong DB và có key Wasabi, kiểm tra key đó
     if (dbExistsMap[file.id]?.storage?.provider === 'wasabi') {
       keysToCheck.add(dbExistsMap[file.id].storage.key);
+    } else {
+      // Chỉ kiểm tra key mới khi không có key trong DB
+      keysToCheck.add(fileKeysMap[file.id]);
     }
-    // Luôn kiểm tra key mới
-    keysToCheck.add(fileKeysMap[file.id]);
   });
   
   // 2. Kiểm tra song song tất cả key trên Wasabi
@@ -666,6 +667,44 @@ async function processFiles(
   wasabiResults.forEach(result => {
     wasabiExistsMap[result.key] = result.exists;
   });
+  
+  // Kiểm tra thêm key mới cho những file có key cũ không tồn tại
+  const additionalKeysToCheck = new Set();
+  
+  validFiles.forEach(file => {
+    const dbFile = dbExistsMap[file.id];
+    // Nếu file có trong DB và có key Wasabi, nhưng key đó không tồn tại trên Wasabi
+    if (dbFile?.storage?.provider === 'wasabi' && 
+        !wasabiExistsMap[dbFile.storage.key] && 
+        !keysToCheck.has(fileKeysMap[file.id])) {
+      // Kiểm tra key mới
+      additionalKeysToCheck.add(fileKeysMap[file.id]);
+    }
+  });
+  
+  // Kiểm tra các key bổ sung nếu cần
+  if (additionalKeysToCheck.size > 0) {
+    console.log(`Kiểm tra bổ sung ${additionalKeysToCheck.size} key mới trên Wasabi...`);
+    const additionalResults = await Promise.all(
+      [...additionalKeysToCheck].map(async key => {
+        // Kiểm tra cache trước
+        if (cache.fileChecks[key] !== undefined) {
+          return { key, exists: cache.fileChecks[key] };
+        }
+        
+        // Không có trong cache, kiểm tra trên Wasabi
+        const exists = await checkWasabiFile(key);
+        // Lưu kết quả vào cache
+        cache.fileChecks[key] = exists;
+        return { key, exists };
+      })
+    );
+    
+    // Bổ sung kết quả vào map
+    additionalResults.forEach(result => {
+      wasabiExistsMap[result.key] = result.exists;
+    });
+  }
   
   // 3. Phân loại files thành các nhóm xử lý
   const filesToUpload = [];   // Files cần upload mới
