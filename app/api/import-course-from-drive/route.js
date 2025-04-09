@@ -48,6 +48,34 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// Hàm tiện ích để lấy nội dung khóa học từ cache hoặc database
+async function getCourseContents(courseId) {
+  try {
+    // Kiểm tra cache nội bộ của route.js
+    if (cache.courseData[courseId]) {
+      return cache.courseData[courseId];
+    }
+    
+    // Kết nối đến MongoDB
+    await connectToDatabase();
+    
+    // Tìm courseContent trong MongoDB
+    const courseContent = await findOneDocument("courseContents", { 
+      courseId: new ObjectId(courseId)
+    });
+    
+    // Lưu vào cache
+    if (courseContent) {
+      cache.courseData[courseId] = courseContent;
+    }
+    
+    return courseContent;
+  } catch (error) {
+    console.error(`[Cache] Lỗi truy vấn DB - KH ${courseId}: ${error.message}`);
+    return null;
+  }
+}
+
 // Khởi tạo Wasabi client
 const s3Client = new S3Client({
   region: process.env.WASABI_REGION || "ap-southeast-1", // Singapore region
@@ -838,57 +866,106 @@ async function addFileToDatabase(
   subfolderId = null,
   subsubfolderId = null
 ) {
-  let result;
-  
-  // Xử lý theo đúng cấp thư mục
-  if (subsubfolderId && subfolderId) {
-    // Thêm vào subsubfolder
-    result = await addFileToLesson(
-      courseId,
-      chapterId,
-      lessonId,
-      fileData,
-      subfolderId,
-      subsubfolderId
-    );
-  } else if (subfolderId || parentType === "subfolder") {
-    // Thêm vào subfolder
-    if (!subfolderId) {
-      // Nếu không có subfolderId, tìm hoặc tạo subfolder
-      const subfolderName = 
-        parentType === "subfolder" && parentPath
-          ? parentPath.split("/").pop()
-          : "Other Files";
+  try {
+    let result;
+    
+    // Xử lý theo đúng cấp thư mục
+    if (subsubfolderId && subfolderId) {
+      try {
+        // Kiểm tra thử xem subsubfolder có tồn tại không
+        const courseContent = await getCourseContents(courseId);
+        let subsubfolderExists = false;
+        
+        if (courseContent) {
+          const chapter = courseContent.chapters?.find(ch => ch.id === chapterId);
+          if (chapter) {
+            const lesson = chapter.lessons?.find(l => l.id === lessonId);
+            if (lesson) {
+              const subfolder = lesson.subfolders?.find(sf => sf.id === subfolderId);
+              if (subfolder) {
+                subsubfolderExists = subfolder.subfolders?.some(ssf => ssf.id === subsubfolderId);
+              }
+            }
+          }
+        }
+        
+        // Nếu không tồn tại, tạo mới subsubfolder
+        if (!subsubfolderExists) {
+          console.log(`[TMC] Không tìm thấy subsubfolder ${subsubfolderId}, đang tạo mới...`);
           
-      if (subfolderName) {
-        subfolderId = await getOrCreateSubfolder(
+          // Lấy tên từ đường dẫn (phần cuối cùng của đường dẫn)
+          const pathParts = parentPath.split('/');
+          const subsubfolderName = pathParts.length > 0 ? pathParts[pathParts.length - 1] : "Thư mục con";
+          
+          // Tạo mới subsubfolder
+          subsubfolderId = await getOrCreateSubsubfolder(
+            courseId,
+            chapterId,
+            lessonId,
+            subfolderId,
+            subsubfolderName
+          );
+          
+          // Đánh dấu đã xử lý
+          global.syncState.processedItems.subsubfolders.add(subsubfolderId);
+          console.log(`[TMC] Đã tạo mới subsubfolder: ${subsubfolderName} với ID ${subsubfolderId}`);
+        }
+        
+        // Thêm file vào subsubfolder (có thể là mới tạo)
+        result = await addFileToLesson(
           courseId,
           chapterId,
           lessonId,
-          subfolderName
+          fileData,
+          subfolderId,
+          subsubfolderId
         );
-        global.syncState.processedItems.subfolders.add(subfolderId);
+      } catch (error) {
+        console.error(`[Lỗi] Không thể tạo subsubfolder: ${error.message}`);
+        throw error;
       }
+    } else if (subfolderId || parentType === "subfolder") {
+      // Tạo hoặc lấy subfolder nếu cần
+      if (!subfolderId) {
+        const subfolderName = 
+          parentType === "subfolder" && parentPath
+            ? parentPath.split("/").pop()
+            : "Other Files";
+            
+        if (subfolderName) {
+          subfolderId = await getOrCreateSubfolder(
+            courseId,
+            chapterId,
+            lessonId,
+            subfolderName
+          );
+          global.syncState.processedItems.subfolders.add(subfolderId);
+        }
+      }
+      
+      // Thêm file vào subfolder
+      result = await addFileToLesson(
+        courseId,
+        chapterId,
+        lessonId,
+        fileData,
+        subfolderId
+      );
+    } else {
+      // Thêm vào lesson
+      result = await addFileToLesson(
+        courseId,
+        chapterId,
+        lessonId,
+        fileData
+      );
     }
     
-    result = await addFileToLesson(
-      courseId,
-      chapterId,
-      lessonId,
-      fileData,
-      subfolderId
-    );
-  } else {
-    // Thêm vào lesson
-    result = await addFileToLesson(
-      courseId,
-      chapterId,
-      lessonId,
-      fileData
-    );
+    return result;
+  } catch (error) {
+    console.error(`[Lỗi DB] Thêm file "${fileData.name}": ${error.message}`);
+    throw error;
   }
-  
-  return result;
 }
 
 async function processFolder(
