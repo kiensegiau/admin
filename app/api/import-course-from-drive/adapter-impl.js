@@ -378,6 +378,131 @@ export async function getOrCreateSubfolder(courseId, chapterId, lessonId, folder
 }
 
 /**
+ * Tìm hoặc tạo mới thư mục con trong một subfolder
+ * @param {string} courseId - ID của khóa học
+ * @param {string} chapterId - ID của chapter
+ * @param {string} lessonId - ID của lesson
+ * @param {string} subfolderId - ID của subfolder cha
+ * @param {string} name - Tên thư mục con
+ * @returns {Promise<string>} - ID của thư mục con
+ */
+export async function getOrCreateSubsubfolder(courseId, chapterId, lessonId, subfolderId, name) {
+  const startTime = Date.now();
+  try {
+    if (!lessonId) {
+      throw new Error(`lessonId không thể null khi tạo subfolder`);
+    }
+
+    // Kết nối đến MongoDB
+    await connectToDatabase();
+    
+    // Tìm courseContent trong MongoDB
+    const courseContent = await findOneDocument("courseContents", { 
+      courseId: new ObjectId(courseId)
+    });
+    
+    if (!courseContent) {
+      throw new Error(`Không tìm thấy nội dung khóa học với ID ${courseId}`);
+    }
+    
+    // Tìm chapter trong khóa học
+    const chapterIndex = courseContent.chapters.findIndex(c => c.id === chapterId);
+    
+    if (chapterIndex === -1) {
+      throw new Error(`Không tìm thấy chapter với ID ${chapterId}`);
+    }
+    
+    // Tìm lesson trong chapter
+    const lessonIndex = courseContent.chapters[chapterIndex].lessons.findIndex(l => l.id === lessonId);
+    
+    if (lessonIndex === -1) {
+      throw new Error(`Không tìm thấy lesson với ID ${lessonId}`);
+    }
+    
+    const lesson = courseContent.chapters[chapterIndex].lessons[lessonIndex];
+    
+    // Tìm subfolder trong lesson
+    if (!lesson.subfolders) {
+      lesson.subfolders = [];
+    }
+    
+    const subfolderIndex = lesson.subfolders.findIndex(sf => sf.id === subfolderId);
+    
+    if (subfolderIndex === -1) {
+      throw new Error(`Không tìm thấy subfolder với ID ${subfolderId}`);
+    }
+    
+    const subfolder = lesson.subfolders[subfolderIndex];
+    
+    // Đảm bảo subfolder có mảng subfolders
+    if (!subfolder.subfolders) {
+      subfolder.subfolders = [];
+      
+      // Cập nhật trường subfolders cho subfolder
+      await updateDocument(
+        "courseContents",
+        { 
+          courseId: new ObjectId(courseId),
+          "chapters.id": chapterId,
+          "chapters.lessons.id": lessonId,
+          "chapters.lessons.subfolders.id": subfolderId
+        },
+        { 
+          $set: { 
+            [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders.${subfolderIndex}.subfolders`]: [],
+            updatedAt: new Date()
+          } 
+        }
+      );
+    }
+    
+    // Tìm subsubfolder trong subfolder nếu đã tồn tại
+    const existingSubsubfolder = subfolder.subfolders.find(ssf => 
+      ssf.name.toLowerCase() === name.toLowerCase()
+    );
+    
+    if (existingSubsubfolder) {
+      const endTime = Date.now();
+      console.log(`[TMC] Tìm thấy TMC "${name}" - TM "${subfolder.name}" - ${endTime - startTime}ms`);
+      return existingSubsubfolder.id;
+    }
+    
+    // Tạo mới subsubfolder
+    const newId = new ObjectId().toString();
+    const newSubsubfolder = {
+      id: newId,
+      name: name,
+      files: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    // Thêm subsubfolder vào subfolder
+    await updateDocument(
+      "courseContents",
+      { 
+        courseId: new ObjectId(courseId),
+        "chapters.id": chapterId,
+        "chapters.lessons.id": lessonId,
+        "chapters.lessons.subfolders.id": subfolderId
+      },
+      { 
+        $push: { [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders.${subfolderIndex}.subfolders`]: newSubsubfolder },
+        $set: { updatedAt: new Date() } 
+      }
+    );
+    
+    const endTime = Date.now();
+    console.log(`[TMC] Tạo TMC "${name}" - TM "${subfolder.name}" - ${endTime - startTime}ms`);
+    return newId;
+  } catch (error) {
+    const endTime = Date.now();
+    console.error(`[Lỗi TMC] "${name}": ${error.message} - ${endTime - startTime}ms`);
+    throw error;
+  }
+}
+
+/**
  * Kiểm tra file đã tồn tại trong khóa học
  * @param {string} courseId - ID khóa học
  * @param {string} chapterId - ID chapter
