@@ -14,14 +14,21 @@ import { getFileType } from './utils';
  * @returns {Promise<Object>} - Thông tin về khóa học
  */
 export async function getOrCreateCourse(name, driveUrl) {
-  const startTime = Date.now();
+  const mainStartTime = Date.now();
+  let processingTime = 0;
+  
   try {
+    // Thời gian xử lý truy vấn MongoDB
+    const dbStartTime = Date.now();
     // Sử dụng findDocuments để truy vấn MongoDB trực tiếp
     const existingCourses = await findDocuments("courses", { 
       title: { $regex: name, $options: 'i' } 
     });
+    const dbTime = Date.now() - dbStartTime;
+    console.log(`[KH] Truy vấn DB - ${dbTime}ms`);
     
     // Chỉ tìm khớp chính xác
+    const processStartTime = Date.now();
     const course = existingCourses.find(c => c.title.toLowerCase() === name.toLowerCase());
     
     // Nếu tìm thấy khóa học khớp chính xác
@@ -33,6 +40,7 @@ export async function getOrCreateCourse(name, driveUrl) {
       // Cập nhật URL Drive nếu cần
       if (!course.driveUrl || course.driveUrl !== driveUrl) {
         // Sử dụng updateDocument trực tiếp
+        const updateStartTime = Date.now();
         await updateDocument(
           "courses",
           { _id: new ObjectId(course.id) },
@@ -43,15 +51,22 @@ export async function getOrCreateCourse(name, driveUrl) {
             } 
           }
         );
+        const updateTime = Date.now() - updateStartTime;
+        console.log(`[KH] Cập nhật URL Drive - ${updateTime}ms`);
         
         // Cập nhật biến course
         course.driveUrl = driveUrl;
       }
       
-      const endTime = Date.now();
-      console.log(`[KH] Lấy KH "${name}" - ${endTime - startTime}ms`);
+      processingTime = Date.now() - processStartTime;
+      const totalTime = Date.now() - mainStartTime;
+      console.log(`[KH] Xử lý KH "${name}" - ${processingTime}ms`);
+      console.log(`[KH] Tổng thời gian "${name}" - ${totalTime}ms`);
       return course;
     } else {
+      // Tạo khóa học mới
+      const createStartTime = Date.now();
+      
       // Tạo slug từ tên khóa học
       const slug = name.toLowerCase()
         .replace(/[àáạảãâầấậẩẫăằắặẳẵ]/g, 'a')
@@ -64,6 +79,7 @@ export async function getOrCreateCourse(name, driveUrl) {
         .replace(/[^a-z0-9]/g, '-')
         .replace(/-+/g, '-')
         .replace(/^-|-$/g, '');
+      processingTime += Date.now() - createStartTime;
       
       // Tạo document khóa học mới
       const courseData = {
@@ -76,6 +92,7 @@ export async function getOrCreateCourse(name, driveUrl) {
       };
       
       // Thêm trực tiếp vào MongoDB
+      const insertStartTime = Date.now();
       const result = await insertDocument("courses", courseData);
       
       if (!result || !result.insertedId) {
@@ -89,11 +106,14 @@ export async function getOrCreateCourse(name, driveUrl) {
         createdAt: new Date(),
         updatedAt: new Date()
       });
+      const insertTime = Date.now() - insertStartTime;
+      console.log(`[KH] Lưu DB "${name}" - ${insertTime}ms`);
       
-      console.log(`Tạo KH "${name}" - ID: ${result.insertedId}`);
+      processingTime += Date.now() - (createStartTime + insertTime);
+      const totalTime = Date.now() - mainStartTime;
+      console.log(`[KH] Xử lý tạo mới "${name}" - ${processingTime}ms`);
+      console.log(`[KH] Tổng thời gian "${name}" - ${totalTime}ms`);
       
-      const endTime = Date.now();
-      console.log(`[KH] Tạo mới "${name}" - ${endTime - startTime}ms`);
       return {
         id: result.insertedId.toString(),
         ...courseData,
@@ -101,8 +121,8 @@ export async function getOrCreateCourse(name, driveUrl) {
       };
     }
   } catch (error) {
-    const endTime = Date.now();
-    console.error(`[Lỗi KH] "${name}": ${error.message} - ${endTime - startTime}ms`);
+    const totalTime = Date.now() - mainStartTime;
+    console.error(`[Lỗi KH] "${name}": ${error.message} - ${totalTime}ms`);
     throw error;
   }
 }
@@ -513,31 +533,39 @@ export async function getOrCreateSubsubfolder(courseId, chapterId, lessonId, sub
  * @returns {Promise<Object|null>} - Trả về đối tượng file nếu tồn tại, null nếu không
  */
 export async function checkExistingFile(courseId, chapterId, lessonId, fileName, subfolderId = null, subsubfolderId = null) {
-  const startTime = Date.now();
+  const mainStartTime = Date.now();
+  let processingTime = 0;
+  
   try {
     // Chuyển đổi fileName sang chữ thường để so sánh
+    const processStartTime = Date.now();
     const fileNameLower = fileName.toLowerCase();
+    processingTime += Date.now() - processStartTime;
     
     // Kết nối đến MongoDB
+    const dbStartTime = Date.now();
     await connectToDatabase();
     
     // Tìm courseContent trong MongoDB
     const courseContent = await findOneDocument("courseContents", { 
       courseId: new ObjectId(courseId)
     });
+    const dbTime = Date.now() - dbStartTime;
+    console.log(`[KT] Truy vấn DB - ${dbTime}ms`);
     
     if (!courseContent) {
-      const endTime = Date.now();
-      console.log(`[KT] KH ${courseId} không tồn tại - File "${fileName}" - ${endTime - startTime}ms`);
+      console.log(`[KT] KH ${courseId} không tồn tại - "${fileName}"`);
       return null;
     }
+    
+    // Thời gian xử lý dữ liệu
+    const searchStartTime = Date.now();
     
     // Tìm chapter trong khóa học
     const chapterIndex = courseContent.chapters.findIndex(c => c.id === chapterId);
     
     if (chapterIndex === -1) {
-      const endTime = Date.now();
-      console.log(`[KT] CH ${chapterId} không tồn tại - File "${fileName}" - ${endTime - startTime}ms`);
+      console.log(`[KT] CH ${chapterId} không tồn tại - "${fileName}"`);
       return null;
     }
     
@@ -545,8 +573,7 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
     const lessonIndex = courseContent.chapters[chapterIndex].lessons.findIndex(l => l.id === lessonId);
     
     if (lessonIndex === -1) {
-      const endTime = Date.now();
-      console.log(`[KT] BH ${lessonId} không tồn tại - File "${fileName}" - ${endTime - startTime}ms`);
+      console.log(`[KT] BH ${lessonId} không tồn tại - "${fileName}"`);
       return null;
     }
     
@@ -562,16 +589,14 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
       if (subfolder) {
         // Kiểm tra xem trường subfolders có tồn tại trong subfolder
         if (!subfolder.subfolders || !Array.isArray(subfolder.subfolders)) {
-          const endTime = Date.now();
-          console.log(`[KT] TM "${subfolder.name}" không có TM con - File "${fileName}" - ${endTime - startTime}ms`);
+          console.log(`[KT] TM "${subfolder.name}" không có TM con - "${fileName}"`);
           return null;
         }
         
         const subsubfolder = subfolder.subfolders.find(ssf => ssf.id === subsubfolderId);
         if (subsubfolder) {
           if (!subsubfolder.files || !Array.isArray(subsubfolder.files)) {
-            const endTime = Date.now();
-            console.log(`[KT] TM con "${subsubfolder.name}" rỗng - File "${fileName}" - ${endTime - startTime}ms`);
+            console.log(`[KT] TM con "${subsubfolder.name}" rỗng - "${fileName}"`);
             return null;
           }
           
@@ -586,8 +611,7 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
       const subfolder = lesson.subfolders?.find(sf => sf.id === subfolderId);
       if (subfolder) {
         if (!subfolder.files || !Array.isArray(subfolder.files)) {
-          const endTime = Date.now();
-          console.log(`[KT] TM "${subfolder.name}" rỗng - File "${fileName}" - ${endTime - startTime}ms`);
+          console.log(`[KT] TM "${subfolder.name}" rỗng - "${fileName}"`);
           return null;
         }
         
@@ -599,8 +623,7 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
     } else {
       // Tìm trong lesson
       if (!lesson.files || !Array.isArray(lesson.files)) {
-        const endTime = Date.now();
-        console.log(`[KT] BH "${lesson.title}" rỗng - File "${fileName}" - ${endTime - startTime}ms`);
+        console.log(`[KT] BH "${lesson.title}" rỗng - "${fileName}"`);
         return null;
       }
       
@@ -610,16 +633,23 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
       );
     }
     
-    const endTime = Date.now();
+    // Tính thời gian tìm kiếm
+    const searchTime = Date.now() - searchStartTime;
+    processingTime += searchTime;
+    
+    // Tổng thời gian
+    const totalTime = Date.now() - mainStartTime;
+    
     if (existingFile) {
-      console.log(`[KT] Tìm thấy "${fileName}" - ${endTime - startTime}ms`);
+      console.log(`[KT] Tìm thấy "${fileName}" - ${totalTime}ms`);
     } else {
-      console.log(`[KT] Không tìm thấy "${fileName}" - ${endTime - startTime}ms`);
+      console.log(`[KT] Không tìm thấy "${fileName}" - ${totalTime}ms`);
     }
+    
     return existingFile;
   } catch (error) {
-    const endTime = Date.now();
-    console.error(`[Lỗi KT] "${fileName}": ${error.message} - ${endTime - startTime}ms`);
+    const totalTime = Date.now() - mainStartTime;
+    console.error(`[Lỗi KT] "${fileName}": ${error.message} - ${totalTime}ms`);
     return null;
   }
 }
@@ -641,8 +671,13 @@ export async function checkAndDeleteDuplicateFiles(courseId, chapterId, lessonId
  * @returns {Promise<object>} - Đối tượng file đã thêm
  */
 export async function addFileToLesson(courseId, chapterId, lessonId, file, subfolderId = null, subsubfolderId = null) {
-  const startTime = Date.now();
+  // Tính thời gian xử lý thuần túy (không tính các hàm con đã log riêng)
+  let processingTime = 0;
+  const mainStartTime = Date.now();
+  
   try {
+    // Thời gian xử lý tham số
+    const paramStartTime = Date.now();
     if (!chapterId || !lessonId) {
       throw new Error("chapterId và lessonId không thể null");
     }
@@ -650,8 +685,10 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
     if (!file || !file.name) {
       throw new Error("File không hợp lệ");
     }
+    processingTime += Date.now() - paramStartTime;
     
-    // Kết nối đến MongoDB
+    // Kết nối đến MongoDB và lấy dữ liệu
+    const dbStartTime = Date.now();
     await connectToDatabase();
     
     // Tìm courseContent trong MongoDB
@@ -678,21 +715,23 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
     }
     
     const lesson = courseContent.chapters[chapterIndex].lessons[lessonIndex];
+    const dbTime = Date.now() - dbStartTime;
+    console.log(`[File] Lấy DB "${file.name}" - ${dbTime}ms`);
     
     // Kiểm tra xem file đã tồn tại chưa
     const checkStartTime = Date.now();
     const existingFile = await checkExistingFile(courseId, chapterId, lessonId, file.name, subfolderId, subsubfolderId);
-    const checkEndTime = Date.now();
-    console.log(`[File] KT "${file.name}" - ${checkEndTime - checkStartTime}ms`);
+    const checkTime = Date.now() - checkStartTime;
+    // Thời gian checkExistingFile đã được log riêng, không tính vào processingTime
     
     // Nếu file đã tồn tại, trả về file đó thay vì thêm mới
     if (existingFile && existingFile.storage && existingFile.storage.provider === 'wasabi') {
-      const endTime = Date.now();
-      console.log(`[File] "${file.name}" đã tồn tại - ${endTime - startTime}ms`);
+      console.log(`[File] "${file.name}" đã tồn tại - 0ms`);
       return existingFile;
     }
     
     // Tạo đối tượng file mới
+    const fileDataStartTime = Date.now();
     const currentTime = new Date().toISOString();
     const fileData = {
       id: uuidv4(),
@@ -720,9 +759,10 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
     else if (file.id) {
       fileData.proxyUrl = `https://drive.google.com/uc?id=${file.id}`;
     }
+    processingTime += Date.now() - fileDataStartTime;
     
-    const updateStartTime = Date.now();
     // Thêm file vào đúng vị trí (lesson, subfolder hoặc subsubfolder)
+    const updateStartTime = Date.now();
     if (subsubfolderId && subfolderId) {
       // Thêm file vào subsubfolder
       // Tìm subfolder
@@ -770,8 +810,8 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
         }
       );
       
-      const updateEndTime = Date.now();
-      console.log(`[File] Thêm "${file.name}" vào TM con - BH "${lesson.title}" - ${updateEndTime - updateStartTime}ms`);
+      const updateTime = Date.now() - updateStartTime;
+      console.log(`[File] Lưu vào TM con - BH "${lesson.title}" - ${updateTime}ms`);
     } else if (subfolderId) {
       // Thêm file vào subfolder
       // Tìm subfolder
@@ -807,8 +847,8 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
         }
       );
       
-      const updateEndTime = Date.now();
-      console.log(`[File] Thêm "${file.name}" vào TM "${subfolder.name}" - ${updateEndTime - updateStartTime}ms`);
+      const updateTime = Date.now() - updateStartTime;
+      console.log(`[File] Lưu vào TM "${subfolder.name}" - ${updateTime}ms`);
     } else {
       // Thêm file vào lesson
       await updateDocument(
@@ -829,16 +869,22 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
         }
       );
       
-      const updateEndTime = Date.now();
-      console.log(`[File] Thêm "${file.name}" vào BH "${lesson.title}" - ${updateEndTime - updateStartTime}ms`);
+      const updateTime = Date.now() - updateStartTime;
+      console.log(`[File] Lưu vào BH "${lesson.title}" - ${updateTime}ms`);
     }
     
-    const endTime = Date.now();
-    console.log(`[File] OK "${file.name}" - ${endTime - startTime}ms`);
+    // Thời gian xử lý thuần túy (không tính thời gian của DB và check)
+    processingTime += Date.now() - (dbStartTime + dbTime + checkTime);
+    console.log(`[File] Xử lý "${file.name}" - ${processingTime}ms`);
+    
+    // Tổng thời gian
+    const totalTime = Date.now() - mainStartTime;
+    console.log(`[File] Tổng thời gian "${file.name}" - ${totalTime}ms`);
+    
     return fileData;
   } catch (error) {
-    const endTime = Date.now();
-    console.error(`[Lỗi File] "${file?.name}": ${error.message} - ${endTime - startTime}ms`);
+    const totalTime = Date.now() - mainStartTime;
+    console.error(`[Lỗi File] "${file?.name}": ${error.message} - ${totalTime}ms`);
     throw error;
   }
 }
