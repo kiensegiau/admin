@@ -331,41 +331,26 @@ async function uploadToWasabi(
       
     console.log(`Tải xuống ${fileName}: ${fileSizeInMB.toFixed(2)} MB trong ${downloadDuration.toFixed(2)}s (${downloadSpeed} MB/s)`);
 
-    // Đọc file để upload lên Wasabi
-    let fileBuffer;
-    try {
-      fileBuffer = fs.readFileSync(tempFilePath);
-    } catch (readErr) {
-      console.error(`Lỗi khi đọc file tạm: ${readErr.message}`);
-      if (retryCount < MAX_RETRIES) {
-        console.log(`Thử lại lần ${retryCount + 1}/${MAX_RETRIES}...`);
-        return uploadToWasabi(
-          drive,
-          fileId,
-          fileName,
-          mimeType,
-          folderPath,
-          retryCount + 1
-        );
-      }
-      throw readErr;
-    }
-
     // Sử dụng key cố định thay vì tạo mới
     const key = consistentKey;
 
     // Biến theo dõi tốc độ upload
     const uploadStartTime = Date.now();
     
-    // Upload lên Wasabi
-    const command = new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: key,
-      Body: fileBuffer,
-      ContentType: mimeType,
-    });
-
+    // SỬA ĐỔI: Sử dụng stream để upload thay vì đọc toàn bộ file vào bộ nhớ
     try {
+      // Tạo stream để đọc file
+      const fileStream = fs.createReadStream(tempFilePath);
+      
+      // Upload lên Wasabi sử dụng stream để tiết kiệm bộ nhớ
+      const command = new PutObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+        Body: fileStream,
+        ContentType: mimeType,
+        ContentLength: fileSizeInBytes,  // Cung cấp kích thước file để S3 tối ưu
+      });
+      
       await logWasabiExecutionTime(`uploadFile key=${key}`, async () => {
         await s3Client.send(command);
       });
@@ -425,7 +410,7 @@ async function uploadToWasabi(
     return {
       success: true,
       key: key,
-      size: fileBuffer.length,
+      size: fileSizeInBytes,
       downloadSpeed: downloadSpeed,
       uploadSpeed: uploadSpeed,
       fileSize: fileSizeInMB.toFixed(2),
