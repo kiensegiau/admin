@@ -23,8 +23,8 @@ const courseContentsCache = {
   
   // Cấu hình cache
   config: {
-    maxAge: 5 * 60 * 1000, // Thời gian hết hạn: 5 phút
-    maxSize: 100, // Số lượng khóa học tối đa trong cache
+    maxAge: 60 * 60 * 1000, // Thời gian hết hạn: 60 phút thay vì 5 phút
+    maxSize: 200, // Số lượng khóa học tối đa trong cache: 200 thay vì 100
   },
   
   // Lấy dữ liệu từ cache
