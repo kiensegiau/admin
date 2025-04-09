@@ -139,12 +139,54 @@ function sanitizeWasabiPath(path) {
   return result;
 }
 
+// Hàm helper thêm timeout cho promise
+const withTimeout = (promise, timeoutMs) => {
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => {
+      reject(new Error(`Timeout sau ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]);
+};
+
+// Hàm kiểm tra DB với cơ chế thử lại
+async function checkDBWithRetry(courseId, chapterId, lessonId, fileName, subfolderId, subsubfolderId, retryCount = 0) {
+  const MAX_RETRIES = 2; // Thử lại tối đa 2 lần
+  const TIMEOUT_MS = [15000, 30000, 45000]; // Tăng dần timeout mỗi lần thử lại (15s, 30s, 45s)
+  
+  try {
+    const result = await withTimeout(
+      checkExistingFile(courseId, chapterId, lessonId, fileName, subfolderId, subsubfolderId),
+      TIMEOUT_MS[retryCount]
+    );
+    return { success: true, data: result };
+  } catch (error) {
+    // Nếu lỗi là timeout và chưa vượt quá số lần thử lại
+    if (error.message.includes('Timeout') && retryCount < MAX_RETRIES) {
+      console.log(`Timeout kiểm tra DB cho file "${fileName}" (lần ${retryCount + 1}), thử lại...`);
+      // Tạm dừng một chút trước khi thử lại để tránh tải quá mức
+      await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+      return checkDBWithRetry(courseId, chapterId, lessonId, fileName, subfolderId, subsubfolderId, retryCount + 1);
+    }
+    
+    // Nếu đã vượt quá số lần thử lại hoặc lỗi khác, trả về thất bại
+    return { success: false, error: error.message };
+  }
+}
+
 // Làm sạch tên file
 function sanitizeFileName(fileName) {
   if (!fileName) return "untitled";
 
+  // Xử lý dấu tiếng Việt
+  const withoutAccents = fileName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D");
+
   // Thay thế các ký tự không hợp lệ với dấu gạch ngang
-  const sanitized = fileName
+  const sanitized = withoutAccents
     .replace(/[<>:"\\|?*\x00-\x1F]/g, "-")
     .replace(/\//g, "-") // Thay / bằng -
     .replace(/\s+/g, " ") // Giữ khoảng trắng nhưng gộp lại
@@ -647,15 +689,36 @@ async function processFiles(
   let dbResults = [];
   if (filesToCheck.length > 0) {
     console.log(`Kiểm tra ${filesToCheck.length} file mới trong database...`);
-    dbResults = await Promise.all(
+    
+    // Sử dụng Promise.allSettled thay vì Promise.all để tránh một lỗi làm fail tất cả
+    const dbResultsSettled = await Promise.allSettled(
       filesToCheck.map(file => 
-        checkExistingFile(courseId, chapterId, lessonId, file.name, subfolderId, subsubfolderId)
+        checkDBWithRetry(courseId, chapterId, lessonId, file.name, subfolderId, subsubfolderId)
       )
     );
     
-    // Cập nhật cache với kết quả mới
+    // Xử lý kết quả, kể cả thành công hay thất bại
+    dbResults = dbResultsSettled.map((result, index) => {
+      if (result.status === 'fulfilled') {
+        // Kiểm tra kết quả của hàm checkDBWithRetry
+        const dbCheckResult = result.value;
+        if (dbCheckResult.success) {
+          return dbCheckResult.data; // Trả về dữ liệu DB nếu thành công
+        } else {
+          console.error(`Lỗi kiểm tra DB cho file ${filesToCheck[index].name} sau nhiều lần thử: ${dbCheckResult.error}`);
+          return null; // Trả về null nếu bị lỗi sau khi đã thử lại
+        }
+      } else {
+        console.error(`Lỗi không xác định khi kiểm tra DB cho file ${filesToCheck[index].name}: ${result.reason}`);
+        return null; // Trả về null nếu bị lỗi
+      }
+    });
+    
+    // Cập nhật cache với kết quả mới (chỉ những kết quả không null)
     filesToCheck.forEach((file, index) => {
-      cache.checkResults[cacheGroupKey][file.name.toLowerCase()] = dbResults[index];
+      if (dbResults[index] !== null) {
+        cache.checkResults[cacheGroupKey][file.name.toLowerCase()] = dbResults[index];
+      }
     });
   }
   
@@ -680,22 +743,43 @@ async function processFiles(
     }
   });
   
-  // 2. Kiểm tra song song tất cả key trên Wasabi
+  // 2. Kiểm tra song song tất cả key trên Wasabi (với timeout)
   console.log(`Kiểm tra ${keysToCheck.size} key trên Wasabi...`);
   const keysToCheckArray = [...keysToCheck].filter(key => cache.fileChecks[key] === undefined);
   const wasabiResults = [];
   
   // Chỉ kiểm tra các key chưa có trong cache
   if (keysToCheckArray.length > 0) {
-    const newResults = await Promise.all(
+    const wasabiChecksSettled = await Promise.allSettled(
       keysToCheckArray.map(async key => {
-        const exists = await checkWasabiFile(key);
-        // Lưu kết quả vào cache
-        cache.fileChecks[key] = exists;
-        return { key, exists };
+        try {
+          const exists = await withTimeout(checkWasabiFile(key), 15000); // 15 giây timeout
+          // Lưu kết quả vào cache
+          cache.fileChecks[key] = exists;
+          return { key, exists };
+        } catch (error) {
+          console.error(`Lỗi kiểm tra Wasabi (${key}): ${error.message}`);
+          // Giả định file không tồn tại nếu có lỗi (để an toàn)
+          cache.fileChecks[key] = false;
+          return { key, exists: false, error: true };
+        }
       })
     );
-    wasabiResults.push(...newResults);
+    
+    // Xử lý kết quả từ Promise.allSettled
+    wasabiChecksSettled.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        wasabiResults.push(result.value);
+      } else {
+        console.error(`Lỗi kiểm tra Wasabi: ${result.reason}`);
+        // Thêm kết quả mặc định nếu promise bị reject
+        wasabiResults.push({ 
+          key: keysToCheckArray[index], 
+          exists: false, 
+          error: true 
+        });
+      }
+    });
   }
   
   // Thêm kết quả từ cache
@@ -737,26 +821,77 @@ async function processFiles(
   console.log(`Phân loại: ${filesToSkip.length} bỏ qua, ${filesToUpdate.length} cập nhật DB, ${filesToUpload.length} upload mới`);
   
   // 4. Upload song song các file cần tải lên (tăng số lượng file upload cùng lúc)
-  const CONCURRENT_UPLOADS = 8; // Tăng lên 8 file upload cùng lúc (trước đó là 5)
+  const CONCURRENT_UPLOADS = 8; 
   const uploadResults = [];
   
   if (filesToUpload.length > 0) {
     console.log(`Bắt đầu upload song song ${filesToUpload.length} file (${CONCURRENT_UPLOADS} file cùng lúc)...`);
     
-    // Sắp xếp file theo kích thước để dễ quản lý tài nguyên
-    const sortedFiles = [...filesToUpload].sort((a, b) => {
+    // Phân loại file theo dấu tiếng Việt
+    const normalFiles = []; // Các file không có dấu
+    const vietnameseFiles = []; // Các file có dấu tiếng Việt
+    
+    // Phân loại file
+    filesToUpload.forEach(file => {
+      // Kiểm tra file có dấu tiếng Việt
+      const hasVietnameseAccents = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(file.name);
+      
+      if (hasVietnameseAccents) {
+        vietnameseFiles.push(file);
+      } else {
+        normalFiles.push(file);
+      }
+    });
+    
+    // Sắp xếp file thông thường theo kích thước
+    normalFiles.sort((a, b) => {
       const sizeA = parseInt(a.size || 0);
       const sizeB = parseInt(b.size || 0);
       return sizeA - sizeB; // Xử lý file nhỏ trước
     });
     
-    for (let i = 0; i < sortedFiles.length; i += CONCURRENT_UPLOADS) {
-      const batch = sortedFiles.slice(i, i + CONCURRENT_UPLOADS);
-      console.log(`Upload batch ${Math.floor(i/CONCURRENT_UPLOADS) + 1}/${Math.ceil(sortedFiles.length/CONCURRENT_UPLOADS)}`);
+    console.log(`Phân loại upload: ${normalFiles.length} file thường, ${vietnameseFiles.length} file có dấu`);
+    
+    // Xử lý tuần tự cho file có dấu tiếng Việt
+    if (vietnameseFiles.length > 0) {
+      console.log(`Xử lý tuần tự ${vietnameseFiles.length} file tiếng Việt có dấu...`);
+      
+      for (const file of vietnameseFiles) {
+        try {
+          const result = await withTimeout(
+            uploadToWasabi(drive, file.id, file.name, file.mimeType, parentPath),
+            600000 // 10 phút timeout cho file có dấu tiếng Việt
+          );
+          uploadResults.push(result);
+        } catch (error) {
+          console.error(`Lỗi xử lý file có dấu ${file.name}: ${error.message}`);
+          uploadResults.push({
+            success: false,
+            error: `Timeout hoặc lỗi: ${error.message}`,
+            file: file
+          });
+        }
+      }
+    }
+    
+    // Xử lý song song các file thông thường
+    for (let i = 0; i < normalFiles.length; i += CONCURRENT_UPLOADS) {
+      const batch = normalFiles.slice(i, i + CONCURRENT_UPLOADS);
+      console.log(`Upload batch ${Math.floor(i/CONCURRENT_UPLOADS) + 1}/${Math.ceil(normalFiles.length/CONCURRENT_UPLOADS)}`);
       
       const batchResults = await Promise.all(
         batch.map(file => 
-          uploadToWasabi(drive, file.id, file.name, file.mimeType, parentPath)
+          withTimeout(
+            uploadToWasabi(drive, file.id, file.name, file.mimeType, parentPath),
+            300000 // 5 phút timeout cho file thông thường
+          ).catch(error => {
+            console.error(`Lỗi upload file ${file.name}: ${error.message}`);
+            return {
+              success: false,
+              error: error.message,
+              file: file
+            };
+          })
         )
       );
       
@@ -768,69 +903,102 @@ async function processFiles(
   const successfulUploads = [];
   const failedUploads = [];
   
-  uploadResults.forEach((result, index) => {
-    const file = filesToUpload[index];
+  uploadResults.forEach(result => {
     if (result.success) {
-      successfulUploads.push({ file, result });
+      // Tìm file tương ứng
+      const file = filesToUpload.find(f => f.id === result.file?.id) || 
+                  filesToUpload.find(f => createConsistentKey(f.id, f.name, parentPath) === result.key);
+      
+      if (file) {
+        successfulUploads.push({ file, result });
+      }
     } else {
-      failedUploads.push({ file, error: result.error || "Lỗi không xác định" });
-      failedFiles.push({ ...file, error: result.error || "Lỗi không xác định" });
+      // Đối với các lỗi, thông tin file có thể đã được lưu trong kết quả
+      if (result.file) {
+        failedUploads.push({ 
+          file: result.file, 
+          error: result.error || "Lỗi không xác định" 
+        });
+        failedFiles.push({ 
+          ...result.file, 
+          error: result.error || "Lỗi không xác định" 
+        });
+      }
     }
   });
   
   // 5. Cập nhật database song song cho tất cả các file
   console.log(`Cập nhật database cho ${successfulUploads.length + filesToUpdate.length} file...`);
   
-  const dbOperations = [
-    // File đã upload thành công
-    ...successfulUploads.map(({ file, result }) => {
-      return addFileToDatabase(
-        courseId, chapterId, lessonId,
-        {
-          id: file.id,
-          name: file.name,
-          mimeType: file.mimeType,
-          type: getFileType(file.mimeType),
-          modifiedTime: file.modifiedTime,
-          size: file.size || "0",
-          storage: {
-            provider: "wasabi",
-            key: result.key,
-            size: parseInt(file.size || "0"),
-            uploadTime: new Date().toISOString(),
-          }
-        },
-        parentType, parentPath, subfolderId, subsubfolderId
-      );
-    }),
+  if (successfulUploads.length > 0 || filesToUpdate.length > 0) {
+    // Chuẩn bị dữ liệu cho các file đã upload thành công
+    const successDbOps = successfulUploads.map(({ file, result }) => {
+      try {
+        return addFileToDatabase(
+          courseId, chapterId, lessonId,
+          {
+            id: file.id,
+            name: file.name,
+            mimeType: file.mimeType,
+            type: getFileType(file.mimeType),
+            modifiedTime: file.modifiedTime,
+            size: file.size || "0",
+            storage: {
+              provider: "wasabi",
+              key: result.key,
+              size: parseInt(file.size || "0"),
+              uploadTime: new Date().toISOString(),
+            }
+          },
+          parentType, parentPath, subfolderId, subsubfolderId
+        ).catch(error => {
+          console.error(`Lỗi cập nhật DB cho file ${file.name}: ${error.message}`);
+          return null;
+        });
+      } catch (error) {
+        console.error(`Lỗi chuẩn bị DB cho file ${file.name}: ${error.message}`);
+        return null;
+      }
+    });
     
-    // File đã có trên Wasabi, cần cập nhật DB
-    ...filesToUpdate.map(file => {
-      return addFileToDatabase(
-        courseId, chapterId, lessonId,
-        {
-          id: file.id,
-          name: file.name,
-          mimeType: file.mimeType,
-          type: getFileType(file.mimeType),
-          modifiedTime: file.modifiedTime,
-          size: file.size || "0",
-          storage: {
-            provider: "wasabi",
-            key: fileKeysMap[file.id],
-            size: parseInt(file.size || "0"),
-            uploadTime: new Date().toISOString(),
-          }
-        },
-        parentType, parentPath, subfolderId, subsubfolderId
-      );
-    })
-  ];
-  
-  if (dbOperations.length > 0) {
+    // Chuẩn bị dữ liệu cho các file cần cập nhật
+    const updateDbOps = filesToUpdate.map(file => {
+      try {
+        return addFileToDatabase(
+          courseId, chapterId, lessonId,
+          {
+            id: file.id,
+            name: file.name,
+            mimeType: file.mimeType,
+            type: getFileType(file.mimeType),
+            modifiedTime: file.modifiedTime,
+            size: file.size || "0",
+            storage: {
+              provider: "wasabi",
+              key: fileKeysMap[file.id],
+              size: parseInt(file.size || "0"),
+              uploadTime: new Date().toISOString(),
+            }
+          },
+          parentType, parentPath, subfolderId, subsubfolderId
+        ).catch(error => {
+          console.error(`Lỗi cập nhật DB cho file ${file.name}: ${error.message}`);
+          return null;
+        });
+      } catch (error) {
+        console.error(`Lỗi chuẩn bị DB cho file ${file.name}: ${error.message}`);
+        return null;
+      }
+    });
+    
+    // Kết hợp và thực hiện song song các thao tác DB
     try {
-      await Promise.all(dbOperations);
-      console.log(`Đã cập nhật database thành công cho ${dbOperations.length} file`);
+      const dbResults = await Promise.allSettled([...successDbOps, ...updateDbOps]);
+      
+      const successCount = dbResults.filter(r => r.status === 'fulfilled' && r.value !== null).length;
+      const failCount = dbResults.filter(r => r.status !== 'fulfilled' || r.value === null).length;
+      
+      console.log(`Cập nhật DB: ${successCount} thành công, ${failCount} thất bại`);
     } catch (error) {
       console.error(`Lỗi khi cập nhật database: ${error.message}`);
     }
