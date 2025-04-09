@@ -49,7 +49,7 @@ export async function getOrCreateCourse(name, driveUrl) {
       }
       
       const endTime = Date.now();
-      console.log(`[PERF] getOrCreateCourse: ${endTime - startTime}ms - Lấy khóa học hiện có`);
+      console.log(`[KH] Lấy KH "${name}" - ${endTime - startTime}ms`);
       return course;
     } else {
       // Tạo slug từ tên khóa học
@@ -90,10 +90,10 @@ export async function getOrCreateCourse(name, driveUrl) {
         updatedAt: new Date()
       });
       
-      console.log(`Đã tạo khóa học mới với ID: ${result.insertedId}`);
+      console.log(`Tạo KH "${name}" - ID: ${result.insertedId}`);
       
       const endTime = Date.now();
-      console.log(`[PERF] getOrCreateCourse: ${endTime - startTime}ms - Tạo khóa học mới`);
+      console.log(`[KH] Tạo mới "${name}" - ${endTime - startTime}ms`);
       return {
         id: result.insertedId.toString(),
         ...courseData,
@@ -102,7 +102,7 @@ export async function getOrCreateCourse(name, driveUrl) {
     }
   } catch (error) {
     const endTime = Date.now();
-    console.error(`Lỗi khi lấy hoặc tạo khóa học: ${error.message} (${endTime - startTime}ms)`);
+    console.error(`[Lỗi KH] "${name}": ${error.message} - ${endTime - startTime}ms`);
     throw error;
   }
 }
@@ -139,7 +139,7 @@ export async function getOrCreateChapter(courseId, name) {
       await insertDocument("courseContents", newCourseContent);
       
       const endTime = Date.now();
-      console.log(`[PERF] getOrCreateChapter: ${endTime - startTime}ms - Tạo mới courseContent và chapter`);
+      console.log(`[CH] Tạo mới + chương "${name}" - KH ${courseId} - ${endTime - startTime}ms`);
       return { id: newChapter.id, title: newChapter.title, isExisting: false };
     }
     
@@ -148,7 +148,7 @@ export async function getOrCreateChapter(courseId, name) {
     
     if (existingChapter) {
       const endTime = Date.now();
-      console.log(`[PERF] getOrCreateChapter: ${endTime - startTime}ms - Tìm thấy chapter hiện có`);
+      console.log(`[CH] Tìm thấy chương "${name}" - KH ${courseId} - ${endTime - startTime}ms`);
       return { 
         id: existingChapter.id, 
         title: existingChapter.title, 
@@ -172,11 +172,11 @@ export async function getOrCreateChapter(courseId, name) {
     );
     
     const endTime = Date.now();
-    console.log(`[PERF] getOrCreateChapter: ${endTime - startTime}ms - Tạo chapter mới trong courseContent hiện có`);
+    console.log(`[CH] Tạo chương "${name}" - KH ${courseId} - ${endTime - startTime}ms`);
     return { id: newChapter.id, title: newChapter.title, isExisting: false };
   } catch (error) {
     const endTime = Date.now();
-    console.error(`Lỗi khi tạo chapter: ${error.message} (${endTime - startTime}ms)`);
+    console.error(`[Lỗi CH] "${name}": ${error.message} - ${endTime - startTime}ms`);
     throw error;
   }
 }
@@ -223,7 +223,7 @@ export async function getOrCreateLesson(courseId, chapterId, name) {
     
     if (existingLesson) {
       const endTime = Date.now();
-      console.log(`[PERF] getOrCreateLesson: ${endTime - startTime}ms - Tìm thấy lesson hiện có`);
+      console.log(`[BH] Tìm thấy bài "${name}" - CH "${chapter.title}" - ${endTime - startTime}ms`);
       return {
         id: existingLesson.id,
         title: existingLesson.title,
@@ -251,11 +251,11 @@ export async function getOrCreateLesson(courseId, chapterId, name) {
     );
     
     const endTime = Date.now();
-    console.log(`[PERF] getOrCreateLesson: ${endTime - startTime}ms - Tạo lesson mới`);
+    console.log(`[BH] Tạo bài "${name}" - CH "${chapter.title}" - ${endTime - startTime}ms`);
     return { id: newLesson.id, title: newLesson.title, isExisting: false };
   } catch (error) {
     const endTime = Date.now();
-    console.error(`Lỗi khi tạo lesson: ${error.message} (${endTime - startTime}ms)`);
+    console.error(`[Lỗi BH] "${name}": ${error.message} - ${endTime - startTime}ms`);
     throw error;
   }
 }
@@ -280,208 +280,99 @@ export async function createLesson(courseId, chapterId, name) {
  * @returns {Promise<Object>} - Thông tin thư mục con
  */
 export async function getOrCreateSubfolder(courseId, chapterId, lessonId, folderName) {
-  if (!lessonId) {
-    throw new Error(`lessonId không thể null khi tạo subfolder`);
-  }
-
-  // Tìm courseContent theo courseId
-  const courseContent = await findOneDocument("courseContents", { 
-    courseId: new ObjectId(courseId)
-  });
-  
-  if (!courseContent || !courseContent.chapters) {
-    throw new Error(`Không tìm thấy dữ liệu khóa học với ID ${courseId}`);
-  }
-  
-  // Tìm chapter
-  const chapterIndex = courseContent.chapters.findIndex(ch => ch.id === chapterId);
-  
-  if (chapterIndex === -1) {
-    throw new Error(`Không tìm thấy chapter với ID ${chapterId}`);
-  }
-  
-  // Tìm lesson
-  const lessonIndex = courseContent.chapters[chapterIndex].lessons.findIndex(lesson => lesson.id === lessonId);
-  
-  if (lessonIndex === -1) {
-    throw new Error(`Không tìm thấy lesson với ID ${lessonId}`);
-  }
-  
-  // Lấy thông tin lesson
-  const lesson = courseContent.chapters[chapterIndex].lessons[lessonIndex];
-  
-  // Tìm subfolder trong lesson nếu đã tồn tại
-  const subfolder = lesson.subfolders?.find(sf => sf.name === folderName);
-  
-  if (subfolder) {
-    return subfolder.id;
-  }
-  
-  // Nếu subfolder chưa tồn tại, tạo mới
-  const newSubfolder = {
-    id: new ObjectId().toString(),
-    name: folderName,
-    files: [],
-    createdAt: new Date(),
-    updatedAt: new Date()
-  };
-  
-  // Tạo trường subfolders nếu chưa có
-  if (!lesson.subfolders) {
-    // Nếu lesson không có trường subfolders, cần thêm vào
-    await updateDocument(
-      "courseContents",
-      { 
-        courseId: new ObjectId(courseId),
-        "chapters.id": chapterId,
-        "chapters.lessons.id": lessonId
-      },
-      { 
-        $set: { 
-          [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders`]: [newSubfolder],
-          updatedAt: new Date()
-        }
-      }
-    );
-  } else {
-    // Thêm subfolder mới vào mảng subfolders hiện có
-    await updateDocument(
-      "courseContents",
-      { 
-        courseId: new ObjectId(courseId),
-        "chapters.id": chapterId,
-        "chapters.lessons.id": lessonId
-      },
-      { 
-        $push: { 
-          [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders`]: newSubfolder
-        },
-        $set: {
-          updatedAt: new Date()
-        }
-      }
-    );
-  }
-  
-  return newSubfolder.id;
-}
-
-/**
- * Tìm hoặc tạo mới thư mục con trong một subfolder
- * @param {string} courseId - ID của khóa học
- * @param {string} chapterId - ID của chapter
- * @param {string} lessonId - ID của lesson
- * @param {string} subfolderId - ID của subfolder cha
- * @param {string} name - Tên thư mục con
- * @returns {Promise<string>} - ID của thư mục con
- */
-export async function getOrCreateSubsubfolder(courseId, chapterId, lessonId, subfolderId, name) {
+  const startTime = Date.now();
   try {
     if (!lessonId) {
       throw new Error(`lessonId không thể null khi tạo subfolder`);
     }
 
-    // Kết nối đến MongoDB
-    await connectToDatabase();
-    
-    // Tìm courseContent trong MongoDB
+    // Tìm courseContent theo courseId
     const courseContent = await findOneDocument("courseContents", { 
       courseId: new ObjectId(courseId)
     });
     
-    if (!courseContent) {
-      throw new Error(`Không tìm thấy nội dung khóa học với ID ${courseId}`);
+    if (!courseContent || !courseContent.chapters) {
+      throw new Error(`Không tìm thấy dữ liệu khóa học với ID ${courseId}`);
     }
     
-    // Tìm chapter trong khóa học
-    const chapterIndex = courseContent.chapters.findIndex(c => c.id === chapterId);
+    // Tìm chapter
+    const chapterIndex = courseContent.chapters.findIndex(ch => ch.id === chapterId);
     
     if (chapterIndex === -1) {
       throw new Error(`Không tìm thấy chapter với ID ${chapterId}`);
     }
     
-    // Tìm lesson trong chapter
-    const lessonIndex = courseContent.chapters[chapterIndex].lessons.findIndex(l => l.id === lessonId);
+    // Tìm lesson
+    const lessonIndex = courseContent.chapters[chapterIndex].lessons.findIndex(lesson => lesson.id === lessonId);
     
     if (lessonIndex === -1) {
       throw new Error(`Không tìm thấy lesson với ID ${lessonId}`);
     }
     
+    // Lấy thông tin lesson
     const lesson = courseContent.chapters[chapterIndex].lessons[lessonIndex];
     
-    // Tìm subfolder trong lesson
+    // Tìm subfolder trong lesson nếu đã tồn tại
+    const subfolder = lesson.subfolders?.find(sf => sf.name === folderName);
+    
+    if (subfolder) {
+      const endTime = Date.now();
+      console.log(`[TM] Tìm thấy TM "${folderName}" - BH "${lesson.title}" - ${endTime - startTime}ms`);
+      return subfolder.id;
+    }
+    
+    // Nếu subfolder chưa tồn tại, tạo mới
+    const newSubfolder = {
+      id: new ObjectId().toString(),
+      name: folderName,
+      files: [],
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    // Tạo trường subfolders nếu chưa có
     if (!lesson.subfolders) {
-      lesson.subfolders = [];
-    }
-    
-    const subfolderIndex = lesson.subfolders.findIndex(sf => sf.id === subfolderId);
-    
-    if (subfolderIndex === -1) {
-      throw new Error(`Không tìm thấy subfolder với ID ${subfolderId}`);
-    }
-    
-    const subfolder = lesson.subfolders[subfolderIndex];
-    
-    // Đảm bảo subfolder có mảng subfolders
-    if (!subfolder.subfolders) {
-      subfolder.subfolders = [];
-      
-      // Cập nhật trường subfolders cho subfolder
+      // Nếu lesson không có trường subfolders, cần thêm vào
       await updateDocument(
         "courseContents",
         { 
           courseId: new ObjectId(courseId),
           "chapters.id": chapterId,
-          "chapters.lessons.id": lessonId,
-          "chapters.lessons.subfolders.id": subfolderId
+          "chapters.lessons.id": lessonId
         },
         { 
           $set: { 
-            [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders.${subfolderIndex}.subfolders`]: [],
+            [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders`]: [newSubfolder],
             updatedAt: new Date()
-          } 
+          }
+        }
+      );
+    } else {
+      // Thêm subfolder mới vào mảng subfolders hiện có
+      await updateDocument(
+        "courseContents",
+        { 
+          courseId: new ObjectId(courseId),
+          "chapters.id": chapterId,
+          "chapters.lessons.id": lessonId
+        },
+        { 
+          $push: { 
+            [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders`]: newSubfolder
+          },
+          $set: {
+            updatedAt: new Date()
+          }
         }
       );
     }
     
-    // Tìm subsubfolder trong subfolder nếu đã tồn tại
-    const existingSubsubfolder = subfolder.subfolders.find(ssf => 
-      ssf.name.toLowerCase() === name.toLowerCase()
-    );
-    
-    if (existingSubsubfolder) {
-      return existingSubsubfolder.id;
-    }
-    
-    // Tạo mới subsubfolder
-    const newId = new ObjectId().toString();
-    const newSubsubfolder = {
-      id: newId,
-      name: name,
-      files: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    
-    // Thêm subsubfolder vào subfolder
-    await updateDocument(
-      "courseContents",
-      { 
-        courseId: new ObjectId(courseId),
-        "chapters.id": chapterId,
-        "chapters.lessons.id": lessonId,
-        "chapters.lessons.subfolders.id": subfolderId
-      },
-      { 
-        $push: { [`chapters.${chapterIndex}.lessons.${lessonIndex}.subfolders.${subfolderIndex}.subfolders`]: newSubsubfolder },
-        $set: { updatedAt: new Date() } 
-      }
-    );
-    
-    console.log(`Đã tạo mới subsubfolder "${name}" (ID: ${newId})`);
-    return newId;
+    const endTime = Date.now();
+    console.log(`[TM] Tạo TM "${folderName}" - BH "${lesson.title}" - ${endTime - startTime}ms`);
+    return newSubfolder.id;
   } catch (error) {
-    console.error(`Lỗi khi tạo subsubfolder: ${error.message}`);
+    const endTime = Date.now();
+    console.error(`[Lỗi TM] "${folderName}": ${error.message} - ${endTime - startTime}ms`);
     throw error;
   }
 }
@@ -512,7 +403,7 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
     
     if (!courseContent) {
       const endTime = Date.now();
-      console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - Không tìm thấy courseContent`);
+      console.log(`[KT] KH ${courseId} không tồn tại - File "${fileName}" - ${endTime - startTime}ms`);
       return null;
     }
     
@@ -521,7 +412,7 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
     
     if (chapterIndex === -1) {
       const endTime = Date.now();
-      console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - Không tìm thấy chapter`);
+      console.log(`[KT] CH ${chapterId} không tồn tại - File "${fileName}" - ${endTime - startTime}ms`);
       return null;
     }
     
@@ -530,7 +421,7 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
     
     if (lessonIndex === -1) {
       const endTime = Date.now();
-      console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - Không tìm thấy lesson`);
+      console.log(`[KT] BH ${lessonId} không tồn tại - File "${fileName}" - ${endTime - startTime}ms`);
       return null;
     }
     
@@ -547,7 +438,7 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
         // Kiểm tra xem trường subfolders có tồn tại trong subfolder
         if (!subfolder.subfolders || !Array.isArray(subfolder.subfolders)) {
           const endTime = Date.now();
-          console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - Subfolder không có trường subfolders`);
+          console.log(`[KT] TM "${subfolder.name}" không có TM con - File "${fileName}" - ${endTime - startTime}ms`);
           return null;
         }
         
@@ -555,7 +446,7 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
         if (subsubfolder) {
           if (!subsubfolder.files || !Array.isArray(subsubfolder.files)) {
             const endTime = Date.now();
-            console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - Subsubfolder không có files`);
+            console.log(`[KT] TM con "${subsubfolder.name}" rỗng - File "${fileName}" - ${endTime - startTime}ms`);
             return null;
           }
           
@@ -571,7 +462,7 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
       if (subfolder) {
         if (!subfolder.files || !Array.isArray(subfolder.files)) {
           const endTime = Date.now();
-          console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - Subfolder không có files`);
+          console.log(`[KT] TM "${subfolder.name}" rỗng - File "${fileName}" - ${endTime - startTime}ms`);
           return null;
         }
         
@@ -584,7 +475,7 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
       // Tìm trong lesson
       if (!lesson.files || !Array.isArray(lesson.files)) {
         const endTime = Date.now();
-        console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - Lesson không có files`);
+        console.log(`[KT] BH "${lesson.title}" rỗng - File "${fileName}" - ${endTime - startTime}ms`);
         return null;
       }
       
@@ -595,12 +486,15 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
     }
     
     const endTime = Date.now();
-    const status = existingFile ? "Tìm thấy file" : "Không tìm thấy file";
-    console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - ${status}`);
+    if (existingFile) {
+      console.log(`[KT] Tìm thấy "${fileName}" - ${endTime - startTime}ms`);
+    } else {
+      console.log(`[KT] Không tìm thấy "${fileName}" - ${endTime - startTime}ms`);
+    }
     return existingFile;
   } catch (error) {
     const endTime = Date.now();
-    console.error(`Lỗi khi kiểm tra file đã tồn tại: ${error.message} (${endTime - startTime}ms)`);
+    console.error(`[Lỗi KT] "${fileName}": ${error.message} - ${endTime - startTime}ms`);
     return null;
   }
 }
@@ -664,12 +558,12 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
     const checkStartTime = Date.now();
     const existingFile = await checkExistingFile(courseId, chapterId, lessonId, file.name, subfolderId, subsubfolderId);
     const checkEndTime = Date.now();
-    console.log(`[PERF] addFileToLesson - checkExistingFile: ${checkEndTime - checkStartTime}ms`);
+    console.log(`[File] KT "${file.name}" - ${checkEndTime - checkStartTime}ms`);
     
     // Nếu file đã tồn tại, trả về file đó thay vì thêm mới
     if (existingFile && existingFile.storage && existingFile.storage.provider === 'wasabi') {
       const endTime = Date.now();
-      console.log(`[PERF] addFileToLesson: ${endTime - startTime}ms - File đã tồn tại, trả về file hiện có`);
+      console.log(`[File] "${file.name}" đã tồn tại - ${endTime - startTime}ms`);
       return existingFile;
     }
     
@@ -752,7 +646,7 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
       );
       
       const updateEndTime = Date.now();
-      console.log(`[PERF] addFileToLesson - updateDocument: ${updateEndTime - updateStartTime}ms - Thêm vào subsubfolder`);
+      console.log(`[File] Thêm "${file.name}" vào TM con - BH "${lesson.title}" - ${updateEndTime - updateStartTime}ms`);
     } else if (subfolderId) {
       // Thêm file vào subfolder
       // Tìm subfolder
@@ -764,6 +658,8 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
       if (subfolderIndex === -1) {
         throw new Error(`Không tìm thấy subfolder với ID ${subfolderId}`);
       }
+      
+      const subfolder = lesson.subfolders[subfolderIndex];
       
       // Thêm file vào subfolder
       await updateDocument(
@@ -787,7 +683,7 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
       );
       
       const updateEndTime = Date.now();
-      console.log(`[PERF] addFileToLesson - updateDocument: ${updateEndTime - updateStartTime}ms - Thêm vào subfolder`);
+      console.log(`[File] Thêm "${file.name}" vào TM "${subfolder.name}" - ${updateEndTime - updateStartTime}ms`);
     } else {
       // Thêm file vào lesson
       await updateDocument(
@@ -809,15 +705,15 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
       );
       
       const updateEndTime = Date.now();
-      console.log(`[PERF] addFileToLesson - updateDocument: ${updateEndTime - updateStartTime}ms - Thêm vào lesson`);
+      console.log(`[File] Thêm "${file.name}" vào BH "${lesson.title}" - ${updateEndTime - updateStartTime}ms`);
     }
     
     const endTime = Date.now();
-    console.log(`[PERF] addFileToLesson: ${endTime - startTime}ms - Tổng thời gian`);
+    console.log(`[File] OK "${file.name}" - ${endTime - startTime}ms`);
     return fileData;
   } catch (error) {
     const endTime = Date.now();
-    console.error(`Lỗi khi thêm file ${file?.name} vào lesson: ${error.message} (${endTime - startTime}ms)`);
+    console.error(`[Lỗi File] "${file?.name}": ${error.message} - ${endTime - startTime}ms`);
     throw error;
   }
 }
@@ -834,7 +730,7 @@ export async function synchronizeDeletedItems(courseId) {
     const dbStartTime = Date.now();
     await connectToDatabase();
     const dbEndTime = Date.now();
-    console.log(`[PERF] synchronizeDeletedItems - connectToDatabase: ${dbEndTime - dbStartTime}ms`);
+    console.log(`[Dọn] Kết nối DB - ${dbEndTime - dbStartTime}ms`);
     
     // Lấy dữ liệu từ collection courseContents
     const findStartTime = Date.now();
@@ -842,11 +738,11 @@ export async function synchronizeDeletedItems(courseId) {
       courseId: new ObjectId(courseId) 
     });
     const findEndTime = Date.now();
-    console.log(`[PERF] synchronizeDeletedItems - findOneDocument: ${findEndTime - findStartTime}ms`);
+    console.log(`[Dọn] Lấy KH ${courseId} - ${findEndTime - findStartTime}ms`);
     
     if (!courseContent) {
       const endTime = Date.now();
-      console.log(`[PERF] synchronizeDeletedItems: ${endTime - startTime}ms - Không tìm thấy nội dung khóa học`);
+      console.log(`[Dọn] KH ${courseId} không tồn tại - ${endTime - startTime}ms`);
       return { changed: false };
     }
     
@@ -877,7 +773,8 @@ export async function synchronizeDeletedItems(courseId) {
                       type: 'lessonFile',
                       chapterId: chapter.id,
                       lessonId: lesson.id,
-                      fileId: file.id
+                      fileId: file.id,
+                      fileName: file.name
                     });
                   }
                 }
@@ -898,7 +795,9 @@ export async function synchronizeDeletedItems(courseId) {
                           chapterId: chapter.id,
                           lessonId: lesson.id,
                           subfolderId: subfolder.id,
-                          fileId: file.id
+                          subfolderName: subfolder.name,
+                          fileId: file.id,
+                          fileName: file.name
                         });
                       }
                     }
@@ -919,8 +818,11 @@ export async function synchronizeDeletedItems(courseId) {
                               chapterId: chapter.id,
                               lessonId: lesson.id,
                               subfolderId: subfolder.id,
+                              subfolderName: subfolder.name,
                               subsubfolderId: subsubfolder.id,
-                              fileId: file.id
+                              subsubfolderName: subsubfolder.name,
+                              fileId: file.id,
+                              fileName: file.name
                             });
                           }
                         }
@@ -950,8 +852,11 @@ export async function synchronizeDeletedItems(courseId) {
                     filesToDeleteFromDB.push({
                       type: 'lectureFile',
                       sectionId: section.id,
+                      sectionName: section.title,
                       lectureId: lecture.id,
-                      fileId: file.id
+                      lectureName: lecture.title,
+                      fileId: file.id,
+                      fileName: file.name
                     });
                   }
                 }
@@ -962,7 +867,7 @@ export async function synchronizeDeletedItems(courseId) {
       }
     }
     const scanEndTime = Date.now();
-    console.log(`[PERF] synchronizeDeletedItems - scan: ${scanEndTime - scanStartTime}ms - Tìm thấy ${keysToDelete.length} file`);
+    console.log(`[Dọn] Quét dữ liệu - Tìm ${keysToDelete.length} file - ${scanEndTime - scanStartTime}ms`);
     
     // Nếu không tìm thấy file cần xóa
     if (keysToDelete.length === 0) {
@@ -974,7 +879,10 @@ export async function synchronizeDeletedItems(courseId) {
         
         if (typeof obj === 'object') {
           if (obj.storage && obj.storage.provider === 'wasabi' && obj.storage.key) {
-            allStorageKeys.push(obj.storage.key);
+            allStorageKeys.push({
+              key: obj.storage.key,
+              name: obj.name || 'Không có tên file'
+            });
           }
           
           Object.keys(obj).forEach(key => {
@@ -989,13 +897,16 @@ export async function synchronizeDeletedItems(courseId) {
       
       scanForStorageKeys(courseContent);
       const deepScanEndTime = Date.now();
-      console.log(`[PERF] synchronizeDeletedItems - deepScan: ${deepScanEndTime - deepScanStartTime}ms - Tìm thấy ${allStorageKeys.length} key`);
+      console.log(`[Dọn] Quét sâu - Tìm ${allStorageKeys.length} file - ${deepScanEndTime - deepScanStartTime}ms`);
       
       if (allStorageKeys.length > 0) {
-        keysToDelete.push(...allStorageKeys);
+        allStorageKeys.forEach(item => {
+          keysToDelete.push(item.key);
+          console.log(`[Dọn] + File "${item.name}"`);
+        });
       } else {
         const endTime = Date.now();
-        console.log(`[PERF] synchronizeDeletedItems: ${endTime - startTime}ms - Không có file cần xóa`);
+        console.log(`[Dọn] Không có file cần xóa - ${endTime - startTime}ms`);
         return { changed: false };
       }
     }
@@ -1015,17 +926,18 @@ export async function synchronizeDeletedItems(courseId) {
         
         if (result.success) {
           successCount++;
+          console.log(`[Dọn] Xóa OK ${key}`);
         } else {
-          console.error(`Lỗi khi xóa file ${key}: ${result.error || 'Unknown error'}`);
+          console.error(`[Dọn] Lỗi xóa ${key}: ${result.error || 'Lỗi không xác định'}`);
           failedCount++;
         }
       } catch (error) {
-        console.error(`Lỗi khi xóa file ${key}: ${error.message}`);
+        console.error(`[Dọn] Lỗi xóa ${key}: ${error.message}`);
         failedCount++;
       }
     }
     const deleteEndTime = Date.now();
-    console.log(`[PERF] synchronizeDeletedItems - delete: ${deleteEndTime - deleteStartTime}ms - Đã xóa ${successCount}/${keysToDelete.length} file`);
+    console.log(`[Dọn] Xóa ${successCount}/${keysToDelete.length} file - ${deleteEndTime - deleteStartTime}ms`);
     
     // Cập nhật MongoDB - xóa các file đã xóa khỏi cấu trúc dữ liệu
     if (filesToDeleteFromDB.length > 0) {
@@ -1045,6 +957,7 @@ export async function synchronizeDeletedItems(courseId) {
         if (fileToDelete.type === 'lessonFile') {
           const fileIndex = lesson.files.findIndex(f => f.id === fileToDelete.fileId);
           if (fileIndex !== -1) {
+            console.log(`[Dọn] Xóa DB "${fileToDelete.fileName}" - BH`);
             lesson.files.splice(fileIndex, 1);
           }
         } else if (fileToDelete.type === 'subfolderFile') {
@@ -1053,6 +966,7 @@ export async function synchronizeDeletedItems(courseId) {
             const subfolder = lesson.subfolders[subfolderIndex];
             const fileIndex = subfolder.files.findIndex(f => f.id === fileToDelete.fileId);
             if (fileIndex !== -1) {
+              console.log(`[Dọn] Xóa DB "${fileToDelete.fileName}" - TM "${fileToDelete.subfolderName}"`);
               subfolder.files.splice(fileIndex, 1);
             }
           }
@@ -1065,6 +979,7 @@ export async function synchronizeDeletedItems(courseId) {
               const subsubfolder = subfolder.subfolders[subsubfolderIndex];
               const fileIndex = subsubfolder.files.findIndex(f => f.id === fileToDelete.fileId);
               if (fileIndex !== -1) {
+                console.log(`[Dọn] Xóa DB "${fileToDelete.fileName}" - TM con "${fileToDelete.subsubfolderName}"`);
                 subsubfolder.files.splice(fileIndex, 1);
               }
             }
@@ -1079,7 +994,7 @@ export async function synchronizeDeletedItems(courseId) {
         { new: true }
       );
       const updateEndTime = Date.now();
-      console.log(`[PERF] synchronizeDeletedItems - updateDocument: ${updateEndTime - updateStartTime}ms`);
+      console.log(`[Dọn] Cập nhật DB - ${updateEndTime - updateStartTime}ms`);
     }
     
     // Xóa thư mục trống nếu cần
@@ -1105,20 +1020,21 @@ export async function synchronizeDeletedItems(courseId) {
             
             if (result.success) {
               deletedFolders++;
+              console.log(`[Dọn] Xóa thư mục ${folderPath}`);
             }
           } catch (error) {
-            console.log(`Không thể xóa thư mục ${folderPath}: ${error.message}`);
+            console.log(`[Dọn] Lỗi xóa TM ${folderPath}: ${error.message}`);
           }
         }
         const folderDeleteEndTime = Date.now();
-        console.log(`[PERF] synchronizeDeletedItems - folderDelete: ${folderDeleteEndTime - folderDeleteStartTime}ms - Đã xóa ${deletedFolders} thư mục`);
+        console.log(`[Dọn] Xóa ${deletedFolders} thư mục - ${folderDeleteEndTime - folderDeleteStartTime}ms`);
       }
     } catch (error) {
-      console.error(`Lỗi khi xóa thư mục: ${error.message}`);
+      console.error(`[Dọn] Lỗi xóa thư mục: ${error.message}`);
     }
     
     const endTime = Date.now();
-    console.log(`[PERF] synchronizeDeletedItems: ${endTime - startTime}ms - Tổng thời gian`);
+    console.log(`[Dọn] Hoàn thành KH ${courseId} - ${endTime - startTime}ms`);
     return {
       changed: true,
       deletedFilesCount: successCount,
@@ -1126,7 +1042,7 @@ export async function synchronizeDeletedItems(courseId) {
     };
   } catch (error) {
     const endTime = Date.now();
-    console.error(`Lỗi khi đồng bộ hóa các mục đã xóa: ${error.message} (${endTime - startTime}ms)`);
+    console.error(`[Dọn] Lỗi KH ${courseId}: ${error.message} - ${endTime - startTime}ms`);
     return {
       changed: false,
       error: error.message
