@@ -14,6 +14,7 @@ import { getFileType } from './utils';
  * @returns {Promise<Object>} - Thông tin về khóa học
  */
 export async function getOrCreateCourse(name, driveUrl) {
+  const startTime = Date.now();
   try {
     // Sử dụng findDocuments để truy vấn MongoDB trực tiếp
     const existingCourses = await findDocuments("courses", { 
@@ -25,16 +26,12 @@ export async function getOrCreateCourse(name, driveUrl) {
     
     // Nếu tìm thấy khóa học khớp chính xác
     if (course) {
-      console.log(`Đã tìm thấy khóa học khớp chính xác: ${course.title} (ID: ${course._id})`);
-      
       // Định dạng lại ID nếu là ObjectId
       course.id = course._id.toString();
       course.isExisting = true;
       
       // Cập nhật URL Drive nếu cần
       if (!course.driveUrl || course.driveUrl !== driveUrl) {
-        console.log(`Cập nhật URL Drive: ${driveUrl}`);
-        
         // Sử dụng updateDocument trực tiếp
         await updateDocument(
           "courses",
@@ -51,10 +48,10 @@ export async function getOrCreateCourse(name, driveUrl) {
         course.driveUrl = driveUrl;
       }
       
+      const endTime = Date.now();
+      console.log(`[PERF] getOrCreateCourse: ${endTime - startTime}ms - Lấy khóa học hiện có`);
       return course;
     } else {
-      console.log(`Không tìm thấy khóa học khớp chính xác với tên: "${name}". Tạo mới...`);
-      
       // Tạo slug từ tên khóa học
       const slug = name.toLowerCase()
         .replace(/[àáạảãâầấậẩẫăằắặẳẵ]/g, 'a')
@@ -95,6 +92,8 @@ export async function getOrCreateCourse(name, driveUrl) {
       
       console.log(`Đã tạo khóa học mới với ID: ${result.insertedId}`);
       
+      const endTime = Date.now();
+      console.log(`[PERF] getOrCreateCourse: ${endTime - startTime}ms - Tạo khóa học mới`);
       return {
         id: result.insertedId.toString(),
         ...courseData,
@@ -102,7 +101,8 @@ export async function getOrCreateCourse(name, driveUrl) {
       };
     }
   } catch (error) {
-    console.error(`Lỗi khi lấy hoặc tạo khóa học: ${error.message}`);
+    const endTime = Date.now();
+    console.error(`Lỗi khi lấy hoặc tạo khóa học: ${error.message} (${endTime - startTime}ms)`);
     throw error;
   }
 }
@@ -114,57 +114,71 @@ export async function getOrCreateCourse(name, driveUrl) {
  * @returns {Promise<Object>} - Thông tin chapter
  */
 export async function getOrCreateChapter(courseId, name) {
-  // Tìm courseContent theo courseId
-  const courseContent = await findOneDocument("courseContents", { courseId: new ObjectId(courseId) });
-  
-  // Nếu courseContent không tồn tại, tạo mới
-  if (!courseContent) {
+  const startTime = Date.now();
+  try {
+    // Tìm courseContent theo courseId
+    const courseContent = await findOneDocument("courseContents", { courseId: new ObjectId(courseId) });
+    
+    // Nếu courseContent không tồn tại, tạo mới
+    if (!courseContent) {
+      const newChapter = {
+        id: new ObjectId().toString(),
+        title: name,
+        order: 1,
+        totalLessons: 0,
+        lessons: []
+      };
+      
+      const newCourseContent = {
+        courseId: new ObjectId(courseId),
+        chapters: [newChapter],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      
+      await insertDocument("courseContents", newCourseContent);
+      
+      const endTime = Date.now();
+      console.log(`[PERF] getOrCreateChapter: ${endTime - startTime}ms - Tạo mới courseContent và chapter`);
+      return { id: newChapter.id, title: newChapter.title, isExisting: false };
+    }
+    
+    // Tìm chapter trong courseContent nếu đã tồn tại
+    const existingChapter = courseContent.chapters?.find(chapter => chapter.title === name);
+    
+    if (existingChapter) {
+      const endTime = Date.now();
+      console.log(`[PERF] getOrCreateChapter: ${endTime - startTime}ms - Tìm thấy chapter hiện có`);
+      return { 
+        id: existingChapter.id, 
+        title: existingChapter.title, 
+        isExisting: true 
+      };
+    }
+    
+    // Nếu không tìm thấy chapter khớp, tạo mới
     const newChapter = {
       id: new ObjectId().toString(),
       title: name,
-      order: 1,
-      totalLessons: 0,
+      order: (courseContent.chapters?.length || 0) + 1,
       lessons: []
     };
     
-    const newCourseContent = {
-      courseId: new ObjectId(courseId),
-      chapters: [newChapter],
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
+    // Thêm chapter mới vào courseContent
+    await updateDocument(
+      "courseContents",
+      { courseId: new ObjectId(courseId) },
+      { $push: { chapters: newChapter }, $set: { updatedAt: new Date() } }
+    );
     
-    await insertDocument("courseContents", newCourseContent);
+    const endTime = Date.now();
+    console.log(`[PERF] getOrCreateChapter: ${endTime - startTime}ms - Tạo chapter mới trong courseContent hiện có`);
     return { id: newChapter.id, title: newChapter.title, isExisting: false };
+  } catch (error) {
+    const endTime = Date.now();
+    console.error(`Lỗi khi tạo chapter: ${error.message} (${endTime - startTime}ms)`);
+    throw error;
   }
-  
-  // Tìm chapter trong courseContent nếu đã tồn tại
-  const existingChapter = courseContent.chapters?.find(chapter => chapter.title === name);
-  
-  if (existingChapter) {
-    return { 
-      id: existingChapter.id, 
-      title: existingChapter.title, 
-      isExisting: true 
-    };
-  }
-  
-  // Nếu không tìm thấy chapter khớp, tạo mới
-  const newChapter = {
-    id: new ObjectId().toString(),
-    title: name,
-    order: (courseContent.chapters?.length || 0) + 1,
-    lessons: []
-  };
-  
-  // Thêm chapter mới vào courseContent
-  await updateDocument(
-    "courseContents",
-    { courseId: new ObjectId(courseId) },
-    { $push: { chapters: newChapter }, $set: { updatedAt: new Date() } }
-  );
-  
-  return { id: newChapter.id, title: newChapter.title, isExisting: false };
 }
 
 /**
@@ -185,54 +199,65 @@ export async function createChapter(courseId, name) {
  * @returns {Promise<Object>} - Thông tin lesson
  */
 export async function getOrCreateLesson(courseId, chapterId, name) {
-  // Tìm courseContent và chapter
-  const courseContent = await findOneDocument("courseContents", { 
-    courseId: new ObjectId(courseId),
-    "chapters.id": chapterId
-  });
-  
-  if (!courseContent) {
-    throw new Error(`Không tìm thấy chapter với ID ${chapterId} trong khóa học ${courseId}`);
-  }
-  
-  // Tìm chapter
-  const chapter = courseContent.chapters.find(ch => ch.id === chapterId);
-  
-  if (!chapter) {
-    throw new Error(`Không tìm thấy chapter với ID ${chapterId}`);
-  }
-  
-  // Tìm lesson nếu đã tồn tại
-  const existingLesson = chapter.lessons?.find(lesson => lesson.title === name);
-  
-  if (existingLesson) {
-    return {
-      id: existingLesson.id,
-      title: existingLesson.title,
-      isExisting: true
-    };
-  }
-  
-  // Tạo lesson mới
-  const newLesson = {
-    id: new ObjectId().toString(),
-    title: name,
-    order: (chapter.lessons?.length || 0) + 1,
-    files: [],
-    subfolders: []
-  };
-  
-  // Thêm lesson vào chapter
-  await updateDocument(
-    "courseContents",
-    { courseId: new ObjectId(courseId), "chapters.id": chapterId },
-    { 
-      $push: { "chapters.$.lessons": newLesson },
-      $set: { updatedAt: new Date() }
+  const startTime = Date.now();
+  try {
+    // Tìm courseContent và chapter
+    const courseContent = await findOneDocument("courseContents", { 
+      courseId: new ObjectId(courseId),
+      "chapters.id": chapterId
+    });
+    
+    if (!courseContent) {
+      throw new Error(`Không tìm thấy chapter với ID ${chapterId} trong khóa học ${courseId}`);
     }
-  );
-  
-  return { id: newLesson.id, title: newLesson.title, isExisting: false };
+    
+    // Tìm chapter
+    const chapter = courseContent.chapters.find(ch => ch.id === chapterId);
+    
+    if (!chapter) {
+      throw new Error(`Không tìm thấy chapter với ID ${chapterId}`);
+    }
+    
+    // Tìm lesson nếu đã tồn tại
+    const existingLesson = chapter.lessons?.find(lesson => lesson.title === name);
+    
+    if (existingLesson) {
+      const endTime = Date.now();
+      console.log(`[PERF] getOrCreateLesson: ${endTime - startTime}ms - Tìm thấy lesson hiện có`);
+      return {
+        id: existingLesson.id,
+        title: existingLesson.title,
+        isExisting: true
+      };
+    }
+    
+    // Tạo lesson mới
+    const newLesson = {
+      id: new ObjectId().toString(),
+      title: name,
+      order: (chapter.lessons?.length || 0) + 1,
+      files: [],
+      subfolders: []
+    };
+    
+    // Thêm lesson vào chapter
+    await updateDocument(
+      "courseContents",
+      { courseId: new ObjectId(courseId), "chapters.id": chapterId },
+      { 
+        $push: { "chapters.$.lessons": newLesson },
+        $set: { updatedAt: new Date() }
+      }
+    );
+    
+    const endTime = Date.now();
+    console.log(`[PERF] getOrCreateLesson: ${endTime - startTime}ms - Tạo lesson mới`);
+    return { id: newLesson.id, title: newLesson.title, isExisting: false };
+  } catch (error) {
+    const endTime = Date.now();
+    console.error(`Lỗi khi tạo lesson: ${error.message} (${endTime - startTime}ms)`);
+    throw error;
+  }
 }
 
 /**
@@ -352,13 +377,10 @@ export async function getOrCreateSubfolder(courseId, chapterId, lessonId, folder
  */
 export async function getOrCreateSubsubfolder(courseId, chapterId, lessonId, subfolderId, name) {
   try {
-    console.log(`=== Tìm hoặc tạo subsubfolder "${name}" ===`);
-    console.log(`CourseId: ${courseId}`);
-    console.log(`ChapterId: ${chapterId}`);
-    console.log(`LessonId: ${lessonId}`);
-    console.log(`SubfolderId: ${subfolderId}`);
-    console.log(`Name: ${name}`);
-    
+    if (!lessonId) {
+      throw new Error(`lessonId không thể null khi tạo subfolder`);
+    }
+
     // Kết nối đến MongoDB
     await connectToDatabase();
     
@@ -399,7 +421,6 @@ export async function getOrCreateSubsubfolder(courseId, chapterId, lessonId, sub
     }
     
     const subfolder = lesson.subfolders[subfolderIndex];
-    console.log(`Đã tìm thấy subfolder: ${subfolder.name || subfolder.id}`);
     
     // Đảm bảo subfolder có mảng subfolders
     if (!subfolder.subfolders) {
@@ -421,8 +442,6 @@ export async function getOrCreateSubsubfolder(courseId, chapterId, lessonId, sub
           } 
         }
       );
-      
-      console.log(`Đã tạo mảng subfolders cho subfolder ${subfolder.name || subfolder.id}`);
     }
     
     // Tìm subsubfolder trong subfolder nếu đã tồn tại
@@ -431,7 +450,6 @@ export async function getOrCreateSubsubfolder(courseId, chapterId, lessonId, sub
     );
     
     if (existingSubsubfolder) {
-      console.log(`Đã tìm thấy subsubfolder có tên "${name}" (ID: ${existingSubsubfolder.id})`);
       return existingSubsubfolder.id;
     }
     
@@ -479,22 +497,10 @@ export async function getOrCreateSubsubfolder(courseId, chapterId, lessonId, sub
  * @returns {Promise<Object|null>} - Trả về đối tượng file nếu tồn tại, null nếu không
  */
 export async function checkExistingFile(courseId, chapterId, lessonId, fileName, subfolderId = null, subsubfolderId = null) {
+  const startTime = Date.now();
   try {
-    console.log(`==== KIỂM TRA FILE TỒN TẠI ====`);
-    console.log(`CourseId: ${courseId}`);
-    console.log(`ChapterId: ${chapterId}`);
-    console.log(`LessonId: ${lessonId}`);
-    console.log(`FileName: ${fileName}`);
-    console.log(`SubfolderId: ${subfolderId || 'không có'}`);
-    console.log(`SubsubfolderId: ${subsubfolderId || 'không có'}`);
-    
-    // Tạo cache key
-    const cacheKey = `${courseId}:${chapterId}:${lessonId}:${fileName}:${subfolderId || ''}:${subsubfolderId || ''}`;
-    console.log(`Cache key: ${cacheKey}`);
-
     // Chuyển đổi fileName sang chữ thường để so sánh
     const fileNameLower = fileName.toLowerCase();
-    console.log(`Tên file chuyển đổi: ${fileNameLower}`);
     
     // Kết nối đến MongoDB
     await connectToDatabase();
@@ -505,7 +511,8 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
     });
     
     if (!courseContent) {
-      console.log(`Không tìm thấy nội dung khóa học với ID ${courseId}`);
+      const endTime = Date.now();
+      console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - Không tìm thấy courseContent`);
       return null;
     }
     
@@ -513,7 +520,8 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
     const chapterIndex = courseContent.chapters.findIndex(c => c.id === chapterId);
     
     if (chapterIndex === -1) {
-      console.log(`Không tìm thấy chapter với ID ${chapterId}`);
+      const endTime = Date.now();
+      console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - Không tìm thấy chapter`);
       return null;
     }
     
@@ -521,12 +529,12 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
     const lessonIndex = courseContent.chapters[chapterIndex].lessons.findIndex(l => l.id === lessonId);
     
     if (lessonIndex === -1) {
-      console.log(`Không tìm thấy lesson với ID ${lessonId}`);
+      const endTime = Date.now();
+      console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - Không tìm thấy lesson`);
       return null;
     }
     
     const lesson = courseContent.chapters[chapterIndex].lessons[lessonIndex];
-    console.log(`Đã tìm thấy lesson: ${lesson.title || lesson.name || lessonId}`);
     
     // Biến lưu trữ file đã tìm thấy
     let existingFile = null;
@@ -534,139 +542,65 @@ export async function checkExistingFile(courseId, chapterId, lessonId, fileName,
     // Tìm file trong lesson hoặc subfolder
     if (subsubfolderId && subfolderId) {
       // Tìm trong subsubfolder
-      console.log(`Đang tìm file trong subsubfolder...`);
-      
       const subfolder = lesson.subfolders?.find(sf => sf.id === subfolderId);
       if (subfolder) {
-        console.log(`Đã tìm thấy subfolder: ${subfolder.name} (ID: ${subfolder.id})`);
-        
         // Kiểm tra xem trường subfolders có tồn tại trong subfolder
         if (!subfolder.subfolders || !Array.isArray(subfolder.subfolders)) {
-          console.log(`Subfolder không có trường subfolders hoặc không phải array`);
-          console.log(`Cấu trúc subfolder: ${JSON.stringify(subfolder, null, 2).substring(0, 500)}...`);
+          const endTime = Date.now();
+          console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - Subfolder không có trường subfolders`);
           return null;
         }
         
         const subsubfolder = subfolder.subfolders.find(ssf => ssf.id === subsubfolderId);
         if (subsubfolder) {
-          console.log(`Đã tìm thấy subsubfolder: ${subsubfolder.name} (ID: ${subsubfolder.id})`);
-          
           if (!subsubfolder.files || !Array.isArray(subsubfolder.files)) {
-            console.log(`Subsubfolder không có files hoặc không phải array`);
+            const endTime = Date.now();
+            console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - Subsubfolder không có files`);
             return null;
           }
-          
-          console.log(`Subsubfolder có ${subsubfolder.files.length} files`);
           
           // Dùng hàm find với toLowerCase() để tìm không phân biệt chữ hoa/thường
           existingFile = subsubfolder.files.find(f =>
             f.name.toLowerCase() === fileNameLower
           );
-          
-          if (existingFile) {
-            console.log(`Đã tìm thấy file trong subsubfolder: ${existingFile.name}`);
-            
-            if (existingFile.storage && existingFile.storage.provider === 'wasabi') {
-              console.log(`File có lưu trữ Wasabi: ${existingFile.storage.key}`);
-            } else {
-              console.log(`File không có lưu trữ Wasabi hoặc key không hợp lệ`);
-            }
-          } else {
-            console.log(`Không tìm thấy file trong subsubfolder`);
-            // In ra tên các file có trong subsubfolder để debug
-            if (subsubfolder.files.length > 0) {
-              console.log(`Các file trong subsubfolder: ${subsubfolder.files.map(f => f.name).join(', ')}`);
-            }
-          }
-        } else {
-          console.log(`Không tìm thấy subsubfolder với ID ${subsubfolderId}`);
-          console.log(`Có ${subfolder.subfolders.length} subsubfolders trong subfolder`);
-          if (subfolder.subfolders.length > 0) {
-            console.log(`IDs của các subsubfolders: ${subfolder.subfolders.map(ssf => ssf.id).join(', ')}`);
-          }
-        }
-      } else {
-        console.log(`Không tìm thấy subfolder với ID ${subfolderId}`);
-        console.log(`Lesson có ${lesson.subfolders?.length || 0} subfolders`);
-        if (lesson.subfolders && lesson.subfolders.length > 0) {
-          console.log(`IDs của các subfolders: ${lesson.subfolders.map(sf => sf.id).join(', ')}`);
         }
       }
     } else if (subfolderId) {
       // Tìm trong subfolder
-      console.log(`Đang tìm file trong subfolder...`);
-      
       const subfolder = lesson.subfolders?.find(sf => sf.id === subfolderId);
       if (subfolder) {
-        console.log(`Đã tìm thấy subfolder: ${subfolder.name} (ID: ${subfolder.id})`);
-        
         if (!subfolder.files || !Array.isArray(subfolder.files)) {
-          console.log(`Subfolder không có files hoặc không phải array`);
+          const endTime = Date.now();
+          console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - Subfolder không có files`);
           return null;
         }
-        
-        console.log(`Subfolder có ${subfolder.files.length} files`);
         
         // Dùng hàm find với toLowerCase() để tìm không phân biệt chữ hoa/thường
         existingFile = subfolder.files.find(f =>
           f.name.toLowerCase() === fileNameLower
         );
-        
-        if (existingFile) {
-          console.log(`Đã tìm thấy file trong subfolder: ${existingFile.name}`);
-          
-          if (existingFile.storage && existingFile.storage.provider === 'wasabi') {
-            console.log(`File có lưu trữ Wasabi: ${existingFile.storage.key}`);
-          } else {
-            console.log(`File không có lưu trữ Wasabi hoặc key không hợp lệ`);
-          }
-        } else {
-          console.log(`Không tìm thấy file trong subfolder`);
-          // In ra tên các file có trong subfolder để debug
-          if (subfolder.files.length > 0) {
-            console.log(`Các file trong subfolder: ${subfolder.files.map(f => f.name).join(', ')}`);
-          }
-        }
-      } else {
-        console.log(`Không tìm thấy subfolder với ID ${subfolderId}`);
       }
     } else {
       // Tìm trong lesson
-      console.log(`Đang tìm file trong lesson...`);
-      
       if (!lesson.files || !Array.isArray(lesson.files)) {
-        console.log(`Lesson không có files hoặc không phải array`);
+        const endTime = Date.now();
+        console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - Lesson không có files`);
         return null;
       }
-      
-      console.log(`Lesson có ${lesson.files.length} files`);
       
       // Dùng hàm find với toLowerCase() để tìm không phân biệt chữ hoa/thường
       existingFile = lesson.files.find(f =>
         f.name.toLowerCase() === fileNameLower
       );
-      
-      if (existingFile) {
-        console.log(`Đã tìm thấy file trong lesson: ${existingFile.name}`);
-        
-        if (existingFile.storage && existingFile.storage.provider === 'wasabi') {
-          console.log(`File có lưu trữ Wasabi: ${existingFile.storage.key}`);
-        } else {
-          console.log(`File không có lưu trữ Wasabi hoặc key không hợp lệ`);
-        }
-      } else {
-        console.log(`Không tìm thấy file trong lesson`);
-        // In ra tên các file có trong lesson để debug
-        if (lesson.files.length > 0) {
-          console.log(`Các file trong lesson: ${lesson.files.map(f => f.name).join(', ')}`);
-        }
-      }
     }
     
-    console.log(`==== KẾT THÚC KIỂM TRA FILE ====`);
+    const endTime = Date.now();
+    const status = existingFile ? "Tìm thấy file" : "Không tìm thấy file";
+    console.log(`[PERF] checkExistingFile: ${endTime - startTime}ms - ${status}`);
     return existingFile;
   } catch (error) {
-    console.error(`Lỗi khi kiểm tra file đã tồn tại: ${error.message}`);
+    const endTime = Date.now();
+    console.error(`Lỗi khi kiểm tra file đã tồn tại: ${error.message} (${endTime - startTime}ms)`);
     return null;
   }
 }
@@ -688,6 +622,7 @@ export async function checkAndDeleteDuplicateFiles(courseId, chapterId, lessonId
  * @returns {Promise<object>} - Đối tượng file đã thêm
  */
 export async function addFileToLesson(courseId, chapterId, lessonId, file, subfolderId = null, subsubfolderId = null) {
+  const startTime = Date.now();
   try {
     if (!chapterId || !lessonId) {
       throw new Error("chapterId và lessonId không thể null");
@@ -726,11 +661,15 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
     const lesson = courseContent.chapters[chapterIndex].lessons[lessonIndex];
     
     // Kiểm tra xem file đã tồn tại chưa
+    const checkStartTime = Date.now();
     const existingFile = await checkExistingFile(courseId, chapterId, lessonId, file.name, subfolderId, subsubfolderId);
+    const checkEndTime = Date.now();
+    console.log(`[PERF] addFileToLesson - checkExistingFile: ${checkEndTime - checkStartTime}ms`);
     
     // Nếu file đã tồn tại, trả về file đó thay vì thêm mới
     if (existingFile && existingFile.storage && existingFile.storage.provider === 'wasabi') {
-      console.log(`File ${file.name} đã tồn tại, không thêm mới.`);
+      const endTime = Date.now();
+      console.log(`[PERF] addFileToLesson: ${endTime - startTime}ms - File đã tồn tại, trả về file hiện có`);
       return existingFile;
     }
     
@@ -763,6 +702,7 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
       fileData.proxyUrl = `https://drive.google.com/uc?id=${file.id}`;
     }
     
+    const updateStartTime = Date.now();
     // Thêm file vào đúng vị trí (lesson, subfolder hoặc subsubfolder)
     if (subsubfolderId && subfolderId) {
       // Thêm file vào subsubfolder
@@ -811,7 +751,8 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
         }
       );
       
-      console.log(`Đã thêm file ${file.name} vào subsubfolder ID ${subsubfolderId}`);
+      const updateEndTime = Date.now();
+      console.log(`[PERF] addFileToLesson - updateDocument: ${updateEndTime - updateStartTime}ms - Thêm vào subsubfolder`);
     } else if (subfolderId) {
       // Thêm file vào subfolder
       // Tìm subfolder
@@ -845,7 +786,8 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
         }
       );
       
-      console.log(`Đã thêm file ${file.name} vào subfolder ID ${subfolderId}`);
+      const updateEndTime = Date.now();
+      console.log(`[PERF] addFileToLesson - updateDocument: ${updateEndTime - updateStartTime}ms - Thêm vào subfolder`);
     } else {
       // Thêm file vào lesson
       await updateDocument(
@@ -866,12 +808,16 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
         }
       );
       
-      console.log(`Đã thêm file ${file.name} vào lesson ID ${lessonId}`);
+      const updateEndTime = Date.now();
+      console.log(`[PERF] addFileToLesson - updateDocument: ${updateEndTime - updateStartTime}ms - Thêm vào lesson`);
     }
     
+    const endTime = Date.now();
+    console.log(`[PERF] addFileToLesson: ${endTime - startTime}ms - Tổng thời gian`);
     return fileData;
   } catch (error) {
-    console.error(`Lỗi khi thêm file ${file?.name} vào lesson: ${error.message}`);
+    const endTime = Date.now();
+    console.error(`Lỗi khi thêm file ${file?.name} vào lesson: ${error.message} (${endTime - startTime}ms)`);
     throw error;
   }
 }
@@ -882,31 +828,27 @@ export async function addFileToLesson(courseId, chapterId, lessonId, file, subfo
  * @returns {Promise<Object>} - Kết quả đồng bộ 
  */
 export async function synchronizeDeletedItems(courseId) {
+  const startTime = Date.now();
   try {
-    console.log(`==================== ĐỒNG BỘ HÓA CÁC MỤC ĐÃ XÓA ====================`);
-    console.log(`Đang đồng bộ hóa các mục đã xóa cho khóa học ${courseId}`);
-    
     // Kết nối đến MongoDB
+    const dbStartTime = Date.now();
     await connectToDatabase();
+    const dbEndTime = Date.now();
+    console.log(`[PERF] synchronizeDeletedItems - connectToDatabase: ${dbEndTime - dbStartTime}ms`);
     
     // Lấy dữ liệu từ collection courseContents
+    const findStartTime = Date.now();
     const courseContent = await findOneDocument("courseContents", { 
       courseId: new ObjectId(courseId) 
     });
+    const findEndTime = Date.now();
+    console.log(`[PERF] synchronizeDeletedItems - findOneDocument: ${findEndTime - findStartTime}ms`);
     
     if (!courseContent) {
-      console.log(`Không tìm thấy nội dung khóa học với ID ${courseId}`);
+      const endTime = Date.now();
+      console.log(`[PERF] synchronizeDeletedItems: ${endTime - startTime}ms - Không tìm thấy nội dung khóa học`);
       return { changed: false };
     }
-    
-    // In ra cấu trúc chi tiết để debug
-    console.log(`Tìm thấy nội dung khóa học (ID: ${courseContent._id})`);
-    console.log(`Chi tiết dữ liệu: courseId=${courseContent.courseId}, có chapters=${!!courseContent.chapters}, độ dài=${courseContent.chapters?.length || 0}`);
-    console.log(`Kiểm tra đồng bộ: ${JSON.stringify({
-      hasChapters: !!courseContent.chapters,
-      isChaptersArray: Array.isArray(courseContent.chapters),
-      chaptersLength: Array.isArray(courseContent.chapters) ? courseContent.chapters.length : 0
-    })}`);
     
     // Lấy danh sách đã xử lý từ syncState
     const processedChapters = global.syncState?.processedItems?.chapters || new Set();
@@ -914,31 +856,22 @@ export async function synchronizeDeletedItems(courseId) {
     const processedFiles = global.syncState?.processedItems?.files || new Set();
     const processedSubfolders = global.syncState?.processedItems?.subfolders || new Set();
     
-    console.log(`processedFiles có ${processedFiles.size} mục`);
-    
     // Thu thập file cần xóa
     const keysToDelete = [];
     const filesToDeleteFromDB = [];
     
     // Duyệt qua chapters
+    const scanStartTime = Date.now();
     if (courseContent.chapters && Array.isArray(courseContent.chapters)) {
       for (const chapter of courseContent.chapters) {
-        console.log(`Xử lý chapter: ${chapter.name || chapter.title || chapter.id}`);
-        
         // Kiểm tra lessons trong chapter
         if (chapter.lessons && Array.isArray(chapter.lessons)) {
           for (const lesson of chapter.lessons) {
-            console.log(`  Xử lý lesson: ${lesson.name || lesson.title || lesson.id}`);
-            
             // Kiểm tra files trong lesson
             if (lesson.files && Array.isArray(lesson.files)) {
-              console.log(`    Tìm thấy ${lesson.files.length} file trong lesson`);
               for (const file of lesson.files) {
                 if (file.storage && file.storage.provider === 'wasabi' && file.storage.key) {
-                  console.log(`    Kiểm tra file: ${file.name}, id: ${file.id}, đã xử lý: ${processedFiles.has(file.id)}`);
-                  
                   if (!processedFiles.has(file.id)) {
-                    console.log(`    Thêm file để xóa: ${file.name}, key: ${file.storage.key}`);
                     keysToDelete.push(file.storage.key);
                     filesToDeleteFromDB.push({
                       type: 'lessonFile',
@@ -947,29 +880,18 @@ export async function synchronizeDeletedItems(courseId) {
                       fileId: file.id
                     });
                   }
-                } else {
-                  console.log(`    File không có storage hoặc không phải Wasabi: ${file.name}`);
                 }
               }
-            } else {
-              console.log(`    Không tìm thấy files trong lesson hoặc không phải array`);
             }
             
             // Kiểm tra subfolders trong lesson
             if (lesson.subfolders && Array.isArray(lesson.subfolders)) {
-              console.log(`    Tìm thấy ${lesson.subfolders.length} subfolder trong lesson`);
               for (const subfolder of lesson.subfolders) {
-                console.log(`      Xử lý subfolder: ${subfolder.name}, id: ${subfolder.id}`);
-                
                 // Kiểm tra files trong subfolder
                 if (subfolder.files && Array.isArray(subfolder.files)) {
-                  console.log(`        Tìm thấy ${subfolder.files.length} file trong subfolder`);
                   for (const file of subfolder.files) {
                     if (file.storage && file.storage.provider === 'wasabi' && file.storage.key) {
-                      console.log(`        Kiểm tra file: ${file.name}, id: ${file.id}, đã xử lý: ${processedFiles.has(file.id)}`);
-                      
                       if (!processedFiles.has(file.id)) {
-                        console.log(`        Thêm file để xóa từ subfolder: ${file.name}, key: ${file.storage.key}`);
                         keysToDelete.push(file.storage.key);
                         filesToDeleteFromDB.push({
                           type: 'subfolderFile',
@@ -979,31 +901,18 @@ export async function synchronizeDeletedItems(courseId) {
                           fileId: file.id
                         });
                       }
-                    } else {
-                      console.log(`        File không có storage hoặc không phải Wasabi: ${file.name}`);
                     }
                   }
-                } else {
-                  console.log(`        Không tìm thấy files trong subfolder hoặc không phải array`);
                 }
                 
                 // Kiểm tra subsubfolders trong subfolder
                 if (subfolder.subfolders && Array.isArray(subfolder.subfolders)) {
-                  console.log(`        Tìm thấy ${subfolder.subfolders.length} subsubfolder trong subfolder`);
-                  
                   for (const subsubfolder of subfolder.subfolders) {
-                    console.log(`          Xử lý subsubfolder: ${subsubfolder.name}, id: ${subsubfolder.id}`);
-                    
                     // Kiểm tra files trong subsubfolder
                     if (subsubfolder.files && Array.isArray(subsubfolder.files)) {
-                      console.log(`            Tìm thấy ${subsubfolder.files.length} file trong subsubfolder`);
-                      
                       for (const file of subsubfolder.files) {
                         if (file.storage && file.storage.provider === 'wasabi' && file.storage.key) {
-                          console.log(`            Kiểm tra file: ${file.name}, id: ${file.id}, đã xử lý: ${processedFiles.has(file.id)}`);
-                          
                           if (!processedFiles.has(file.id)) {
-                            console.log(`            Thêm file để xóa từ subsubfolder: ${file.name}, key: ${file.storage.key}`);
                             keysToDelete.push(file.storage.key);
                             filesToDeleteFromDB.push({
                               type: 'subsubfolderFile',
@@ -1014,49 +923,29 @@ export async function synchronizeDeletedItems(courseId) {
                               fileId: file.id
                             });
                           }
-                        } else {
-                          console.log(`            File không có storage hoặc không phải Wasabi: ${file.name}`);
                         }
                       }
-                    } else {
-                      console.log(`            Không tìm thấy files trong subsubfolder hoặc không phải array`);
                     }
                   }
-                } else {
-                  console.log(`        Không tìm thấy subsubfolders trong subfolder hoặc không phải array`);
                 }
               }
-            } else {
-              console.log(`    Không tìm thấy subfolders trong lesson hoặc không phải array`);
             }
           }
-        } else {
-          console.log(`  Không tìm thấy lessons trong chapter hoặc không phải array`);
         }
       }
-    } else {
-      console.log(`Không tìm thấy chapters trong nội dung khóa học hoặc không phải array`);
     }
     
     // Kiểm tra thêm trường sections (cấu trúc cũ có thể sử dụng)
     if (courseContent.sections && Array.isArray(courseContent.sections)) {
-      console.log(`Kiểm tra bổ sung: Tìm thấy cấu trúc sections (${courseContent.sections.length} mục)`);
       for (const section of courseContent.sections) {
-        console.log(`Xử lý section: ${section.name || section.title || section.id}`);
         // Xử lý tương tự như chapters
         if (section.lectures && Array.isArray(section.lectures)) {
           for (const lecture of section.lectures) {
-            console.log(`  Xử lý lecture: ${lecture.name || lecture.title || lecture.id}`);
-            
             // Kiểm tra files trong lecture
             if (lecture.files && Array.isArray(lecture.files)) {
-              console.log(`    Tìm thấy ${lecture.files.length} file trong lecture`);
               for (const file of lecture.files) {
                 if (file.storage && file.storage.provider === 'wasabi' && file.storage.key) {
-                  console.log(`    Kiểm tra file: ${file.name}, id: ${file.id}, đã xử lý: ${processedFiles.has(file.id)}`);
-                  
                   if (!processedFiles.has(file.id)) {
-                    console.log(`    Thêm file để xóa: ${file.name}, key: ${file.storage.key}`);
                     keysToDelete.push(file.storage.key);
                     filesToDeleteFromDB.push({
                       type: 'lectureFile',
@@ -1065,8 +954,6 @@ export async function synchronizeDeletedItems(courseId) {
                       fileId: file.id
                     });
                   }
-                } else {
-                  console.log(`    File không có storage hoặc không phải Wasabi: ${file.name}`);
                 }
               }
             }
@@ -1074,26 +961,20 @@ export async function synchronizeDeletedItems(courseId) {
         }
       }
     }
+    const scanEndTime = Date.now();
+    console.log(`[PERF] synchronizeDeletedItems - scan: ${scanEndTime - scanStartTime}ms - Tìm thấy ${keysToDelete.length} file`);
     
-    console.log(`Tìm thấy ${keysToDelete.length} file cần xóa từ Wasabi`);
-    
+    // Nếu không tìm thấy file cần xóa
     if (keysToDelete.length === 0) {
-      console.log("Không có file cần xóa");
-      
       // Kiểm tra toàn bộ dữ liệu để tìm khóa Wasabi
+      const deepScanStartTime = Date.now();
       let allStorageKeys = [];
       const scanForStorageKeys = (obj) => {
         if (!obj) return;
         
         if (typeof obj === 'object') {
           if (obj.storage && obj.storage.provider === 'wasabi' && obj.storage.key) {
-            console.log(`Tìm thấy key trực tiếp: ${obj.storage.key}`);
             allStorageKeys.push(obj.storage.key);
-          }
-          
-          // Kiểm tra nếu là subsubfolders
-          if (obj.subfolders && Array.isArray(obj.subfolders)) {
-            console.log(`Quét đệ quy: Tìm thấy ${obj.subfolders.length} subsubfolders`);
           }
           
           Object.keys(obj).forEach(key => {
@@ -1107,12 +988,14 @@ export async function synchronizeDeletedItems(courseId) {
       };
       
       scanForStorageKeys(courseContent);
-      console.log(`Quét đệ quy toàn bộ cấu trúc dữ liệu: Tìm thấy ${allStorageKeys.length} key`);
+      const deepScanEndTime = Date.now();
+      console.log(`[PERF] synchronizeDeletedItems - deepScan: ${deepScanEndTime - deepScanStartTime}ms - Tìm thấy ${allStorageKeys.length} key`);
       
       if (allStorageKeys.length > 0) {
         keysToDelete.push(...allStorageKeys);
-        console.log(`Đã thêm ${allStorageKeys.length} key vào danh sách xóa từ quét đệ quy`);
       } else {
+        const endTime = Date.now();
+        console.log(`[PERF] synchronizeDeletedItems: ${endTime - startTime}ms - Không có file cần xóa`);
         return { changed: false };
       }
     }
@@ -1121,11 +1004,9 @@ export async function synchronizeDeletedItems(courseId) {
     let successCount = 0;
     let failedCount = 0;
     
-    console.log(`Bắt đầu xóa ${keysToDelete.length} file từ Wasabi`);
-    
+    const deleteStartTime = Date.now();
     for (const key of keysToDelete) {
       try {
-        console.log(`Đang xóa file: ${key}`);
         const response = await fetch(`/api/storage/delete?key=${encodeURIComponent(key)}`, {
           method: 'DELETE'
         });
@@ -1133,7 +1014,6 @@ export async function synchronizeDeletedItems(courseId) {
         const result = await response.json();
         
         if (result.success) {
-          console.log(`Đã xóa file: ${key}`);
           successCount++;
         } else {
           console.error(`Lỗi khi xóa file ${key}: ${result.error || 'Unknown error'}`);
@@ -1144,9 +1024,12 @@ export async function synchronizeDeletedItems(courseId) {
         failedCount++;
       }
     }
+    const deleteEndTime = Date.now();
+    console.log(`[PERF] synchronizeDeletedItems - delete: ${deleteEndTime - deleteStartTime}ms - Đã xóa ${successCount}/${keysToDelete.length} file`);
     
     // Cập nhật MongoDB - xóa các file đã xóa khỏi cấu trúc dữ liệu
     if (filesToDeleteFromDB.length > 0) {
+      const updateStartTime = Date.now();
       const updatedChapters = JSON.parse(JSON.stringify(courseContent.chapters));
       
       for (const fileToDelete of filesToDeleteFromDB) {
@@ -1163,7 +1046,6 @@ export async function synchronizeDeletedItems(courseId) {
           const fileIndex = lesson.files.findIndex(f => f.id === fileToDelete.fileId);
           if (fileIndex !== -1) {
             lesson.files.splice(fileIndex, 1);
-            console.log(`Đã xóa file ID ${fileToDelete.fileId} khỏi lesson ${lesson.title || lesson.id}`);
           }
         } else if (fileToDelete.type === 'subfolderFile') {
           const subfolderIndex = lesson.subfolders.findIndex(s => s.id === fileToDelete.subfolderId);
@@ -1172,7 +1054,6 @@ export async function synchronizeDeletedItems(courseId) {
             const fileIndex = subfolder.files.findIndex(f => f.id === fileToDelete.fileId);
             if (fileIndex !== -1) {
               subfolder.files.splice(fileIndex, 1);
-              console.log(`Đã xóa file ID ${fileToDelete.fileId} khỏi subfolder ${subfolder.name}`);
             }
           }
         } else if (fileToDelete.type === 'subsubfolderFile') {
@@ -1185,7 +1066,6 @@ export async function synchronizeDeletedItems(courseId) {
               const fileIndex = subsubfolder.files.findIndex(f => f.id === fileToDelete.fileId);
               if (fileIndex !== -1) {
                 subsubfolder.files.splice(fileIndex, 1);
-                console.log(`Đã xóa file ID ${fileToDelete.fileId} khỏi subsubfolder ${subsubfolder.name}`);
               }
             }
           }
@@ -1198,15 +1078,14 @@ export async function synchronizeDeletedItems(courseId) {
         { $set: { chapters: updatedChapters, updatedAt: new Date().toISOString() } },
         { new: true }
       );
-      
-      console.log(`Đã cập nhật database sau khi xóa ${successCount} file`);
+      const updateEndTime = Date.now();
+      console.log(`[PERF] synchronizeDeletedItems - updateDocument: ${updateEndTime - updateStartTime}ms`);
     }
     
     // Xóa thư mục trống nếu cần
     try {
       if (successCount > 0) {
-        console.log(`Đang thử xóa thư mục trống trên Wasabi cho khóa học ${courseId}`);
-        
+        const folderDeleteStartTime = Date.now();
         // Các đường dẫn thư mục có thể có
         const folderPaths = [
           `courses/${courseId}/`,
@@ -1218,8 +1097,6 @@ export async function synchronizeDeletedItems(courseId) {
         // Gọi API để xóa các thư mục
         for (const folderPath of folderPaths) {
           try {
-            console.log(`Thử xóa thư mục: ${folderPath}`);
-            
             const response = await fetch(`/api/storage/delete?key=${encodeURIComponent(folderPath)}`, {
               method: 'DELETE'
             });
@@ -1227,34 +1104,33 @@ export async function synchronizeDeletedItems(courseId) {
             const result = await response.json();
             
             if (result.success) {
-              console.log(`Đã xóa thư mục ${folderPath}`);
               deletedFolders++;
-            } else {
-              console.log(`Thư mục ${folderPath} không tồn tại hoặc không thể xóa`);
             }
           } catch (error) {
             console.log(`Không thể xóa thư mục ${folderPath}: ${error.message}`);
           }
         }
-        
-        console.log(`Đã xóa ${deletedFolders} thư mục trống`);
+        const folderDeleteEndTime = Date.now();
+        console.log(`[PERF] synchronizeDeletedItems - folderDelete: ${folderDeleteEndTime - folderDeleteStartTime}ms - Đã xóa ${deletedFolders} thư mục`);
       }
     } catch (error) {
       console.error(`Lỗi khi xóa thư mục: ${error.message}`);
     }
     
-    console.log(`==================== KẾT THÚC ĐỒNG BỘ HÓA ====================`);
+    const endTime = Date.now();
+    console.log(`[PERF] synchronizeDeletedItems: ${endTime - startTime}ms - Tổng thời gian`);
     return {
       changed: true,
       deletedFilesCount: successCount,
       failedDeletionsCount: failedCount
     };
   } catch (error) {
-    console.error(`Lỗi khi đồng bộ hóa các mục đã xóa: ${error.message}`);
-  return {
+    const endTime = Date.now();
+    console.error(`Lỗi khi đồng bộ hóa các mục đã xóa: ${error.message} (${endTime - startTime}ms)`);
+    return {
       changed: false,
       error: error.message
-  };
+    };
   }
 }
 

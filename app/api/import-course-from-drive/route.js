@@ -174,6 +174,36 @@ function createConsistentKey(fileId, fileName, folderPath = "") {
   }
 }
 
+// Hàm tiện ích để đo và log thời gian thực thi cho Wasabi
+const logWasabiExecutionTime = async (operation, wasabiOperation) => {
+  const startTime = Date.now();
+  try {
+    const result = await wasabiOperation();
+    const responseTime = Date.now() - startTime;
+    console.log(`[WASABI] ${operation} hoàn thành trong ${responseTime}ms`);
+    return result;
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    console.error(`[WASABI ERROR] ${operation} thất bại sau ${responseTime}ms:`, error.message);
+    throw error;
+  }
+};
+
+// Hàm tiện ích để đo và log thời gian thực thi cho Google Drive
+const logDriveExecutionTime = async (operation, driveOperation) => {
+  const startTime = Date.now();
+  try {
+    const result = await driveOperation();
+    const responseTime = Date.now() - startTime;
+    console.log(`[DRIVE] ${operation} hoàn thành trong ${responseTime}ms`);
+    return result;
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    console.error(`[DRIVE ERROR] ${operation} thất bại sau ${responseTime}ms:`, error.message);
+    throw error;
+  }
+};
+
 // Hàm upload file từ Google Drive lên Wasabi
 async function uploadToWasabi(
   drive,
@@ -225,18 +255,22 @@ async function uploadToWasabi(
     let totalBytes = 0;
 
     // Sử dụng retryWithNewToken để đảm bảo token không hết hạn khi tải file lớn
-    const fileStream = await drive.files.get(
-      {
-        fileId: fileId,
-        alt: "media",
-      },
-      { responseType: "stream" }
-    );
+    const fileStream = await logDriveExecutionTime(`getFileStream fileId=${fileId}`, async () => {
+      return drive.files.get(
+        {
+          fileId: fileId,
+          alt: "media",
+        },
+        { responseType: "stream" }
+      );
+    });
 
     // Lấy thông tin file để biết kích thước
-    const fileInfo = await drive.files.get({
-      fileId: fileId,
-      fields: "size,name",
+    const fileInfo = await logDriveExecutionTime(`getFileInfo fileId=${fileId}`, async () => {
+      return drive.files.get({
+        fileId: fileId,
+        fields: "size,name",
+      });
     });
 
     totalBytes = parseInt(fileInfo.data.size, 10) || 0;
@@ -294,6 +328,8 @@ async function uploadToWasabi(
     // Tính tốc độ tải (MB/s)
     const downloadSpeed =
       downloadDuration > 0 ? (fileSizeInMB / downloadDuration).toFixed(2) : 0;
+      
+    console.log(`Tải xuống ${fileName}: ${fileSizeInMB.toFixed(2)} MB trong ${downloadDuration.toFixed(2)}s (${downloadSpeed} MB/s)`);
 
     // Đọc file để upload lên Wasabi
     let fileBuffer;
@@ -330,15 +366,19 @@ async function uploadToWasabi(
     });
 
     try {
-      await s3Client.send(command);
+      await logWasabiExecutionTime(`uploadFile key=${key}`, async () => {
+        await s3Client.send(command);
+      });
 
       // Xác minh file đã được tải lên thành công
       try {
-        const checkCommand = new HeadObjectCommand({
-          Bucket: BUCKET_NAME,
-          Key: key,
+        await logWasabiExecutionTime(`verifyUpload key=${key}`, async () => {
+          const checkCommand = new HeadObjectCommand({
+            Bucket: BUCKET_NAME,
+            Key: key,
+          });
+          await s3Client.send(checkCommand);
         });
-        const headResponse = await s3Client.send(checkCommand);
       } catch (verifyErr) {
         console.warn(
           `Không thể xác minh file sau khi upload: ${key}`,
@@ -368,6 +408,8 @@ async function uploadToWasabi(
     // Tính tốc độ upload (MB/s)
     const uploadSpeed =
       uploadDuration > 0 ? (fileSizeInMB / uploadDuration).toFixed(2) : 0;
+      
+    console.log(`Upload lên Wasabi ${fileName}: ${fileSizeInMB.toFixed(2)} MB trong ${uploadDuration.toFixed(2)}s (${uploadSpeed} MB/s)`);
 
     // Xóa file tạm
     try {
@@ -443,77 +485,79 @@ async function downloadFileFromDrive(drive, fileId) {
   try {
     console.log(`Đang tải file từ Google Drive với ID: ${fileId}`);
     
-    // Tạo thư mục tạm nếu chưa tồn tại
-    const tempDir = path.join(os.tmpdir(), "hocmai-temp");
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-    
-    // Lấy thông tin file để biết tên và kích thước
-    const fileInfo = await drive.files.get({
-      fileId: fileId,
-      fields: "name,size,mimeType"
-    });
-    
-    const fileName = fileInfo.data.name || `file-${fileId}`;
-    const sanitizedFileName = sanitizeFileName(fileName);
-    const tempFilePath = path.join(tempDir, sanitizedFileName);
-    
-    // Biến theo dõi tốc độ tải
-    const downloadStartTime = Date.now();
-    let downloadedBytes = 0;
-    const totalBytes = parseInt(fileInfo.data.size, 10) || 0;
-    const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
-    
-    console.log(`Bắt đầu tải file: ${fileName} (${totalMB} MB)`);
-    
-    // Tải file từ Drive
-    const response = await drive.files.get(
-      {
+    return await logDriveExecutionTime(`downloadFile fileId=${fileId}`, async () => {
+      // Tạo thư mục tạm nếu chưa tồn tại
+      const tempDir = path.join(os.tmpdir(), "hocmai-temp");
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      
+      // Lấy thông tin file để biết tên và kích thước
+      const fileInfo = await drive.files.get({
         fileId: fileId,
-        alt: "media"
-      },
-      { responseType: "stream" }
-    );
-    
-    // Lưu file vào thư mục tạm
-    const writer = fs.createWriteStream(tempFilePath);
-    
-    // Xử lý stream
-    await new Promise((resolve, reject) => {
-      response.data
-        .on("data", chunk => {
-          downloadedBytes += chunk.length;
-        })
-        .on("end", () => {
-          console.log(`Tải file hoàn tất: ${fileName}`);
-          resolve();
-        })
-        .on("error", err => {
-          reject(err);
-        })
-        .pipe(writer);
+        fields: "name,size,mimeType"
+      });
+      
+      const fileName = fileInfo.data.name || `file-${fileId}`;
+      const sanitizedFileName = sanitizeFileName(fileName);
+      const tempFilePath = path.join(tempDir, sanitizedFileName);
+      
+      // Biến theo dõi tốc độ tải
+      const downloadStartTime = Date.now();
+      let downloadedBytes = 0;
+      const totalBytes = parseInt(fileInfo.data.size, 10) || 0;
+      const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
+      
+      console.log(`Bắt đầu tải file: ${fileName} (${totalMB} MB)`);
+      
+      // Tải file từ Drive
+      const response = await drive.files.get(
+        {
+          fileId: fileId,
+          alt: "media"
+        },
+        { responseType: "stream" }
+      );
+      
+      // Lưu file vào thư mục tạm
+      const writer = fs.createWriteStream(tempFilePath);
+      
+      // Xử lý stream
+      await new Promise((resolve, reject) => {
+        response.data
+          .on("data", chunk => {
+            downloadedBytes += chunk.length;
+          })
+          .on("end", () => {
+            console.log(`Tải file hoàn tất: ${fileName}`);
+            resolve();
+          })
+          .on("error", err => {
+            reject(err);
+          })
+          .pipe(writer);
+      });
+      
+      // Tính tốc độ tải
+      const downloadEndTime = Date.now();
+      const downloadDuration = (downloadEndTime - downloadStartTime) / 1000; // chuyển sang giây
+      const downloadSpeed = (totalMB / downloadDuration).toFixed(2);
+      
+      console.log(`Đã tải xong file ${fileName} (${totalMB} MB)`);
+      console.log(`Thời gian tải: ${downloadDuration.toFixed(2)}s | Tốc độ: ${downloadSpeed} MB/s`);
+      
+      // Đọc file vào buffer để upload lên Wasabi
+      const fileBuffer = fs.readFileSync(tempFilePath);
+      
+      return {
+        success: true,
+        data: fileBuffer,
+        fileName: fileName,
+        mimeType: fileInfo.data.mimeType,
+        size: totalBytes,
+        downloadSpeed: downloadSpeed
+      };
     });
-    
-    // Tính tốc độ tải
-    const downloadEndTime = Date.now();
-    const downloadDuration = (downloadEndTime - downloadStartTime) / 1000; // chuyển sang giây
-    const downloadSpeed = (totalMB / downloadDuration).toFixed(2);
-    
-    console.log(`Đã tải xong file ${fileName} (${totalMB} MB)`);
-    console.log(`Thời gian tải: ${downloadDuration.toFixed(2)}s | Tốc độ: ${downloadSpeed} MB/s`);
-    
-    // Đọc file vào buffer để upload lên Wasabi
-    const fileBuffer = fs.readFileSync(tempFilePath);
-    
-    return {
-      success: true,
-      data: fileBuffer,
-      fileName: fileName,
-      mimeType: fileInfo.data.mimeType,
-      size: totalBytes,
-      downloadSpeed: downloadSpeed
-    };
   } catch (error) {
     console.error(`Lỗi khi tải file từ Google Drive: ${error.message}`);
     return {
@@ -913,7 +957,11 @@ async function processFolder(
       currentPath = courseName;
     }
 
-    const files = await listFolderContents(drive, folderId);
+    const files = await logDriveExecutionTime(
+      `listFolderContents folderId=${folderId}`, 
+      () => listFolderContents(drive, folderId)
+    );
+    
     const folders = files.filter(
       (f) => f.mimeType === "application/vnd.google-apps.folder"
     );
@@ -1058,50 +1106,38 @@ async function deleteFromWasabi(key, retryCount = 0) {
   try {
     console.log(`Đang xóa file từ Wasabi với key: ${key}`);
 
-    const command = new DeleteObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: key,
-    });
-
-    await s3Client.send(command);
-    console.log(`Đã xóa file từ Wasabi thành công: ${key}`);
-    return true;
-  } catch (error) {
-    console.error(`Lỗi khi xóa file từ Wasabi (${key}):`, error);
-    
-    // Thử lại nếu chưa vượt quá số lần thử
-    if (retryCount < MAX_RETRIES) {
-      console.log(`Thử xóa lại lần ${retryCount + 1}/${MAX_RETRIES}...`);
-      // Đợi 500ms trước khi thử lại
-      await new Promise(resolve => setTimeout(resolve, 500));
-      return deleteFromWasabi(key, retryCount + 1);
-    }
-    
-    // Nếu đã vượt quá số lần thử, kiểm tra xem file có tồn tại không
-    try {
-      const checkCommand = new HeadObjectCommand({
+    return await logWasabiExecutionTime(`deleteFile key=${key.substring(0, 30)}...`, async () => {
+      const command = new DeleteObjectCommand({
         Bucket: BUCKET_NAME,
         Key: key,
       });
+
+      await s3Client.send(command);
+      console.log(`Đã xóa file từ Wasabi thành công: ${key}`);
+      return true;
+    }).catch(async (error) => {
+      console.error(`Lỗi khi xóa file từ Wasabi (${key}):`, error);
       
+      // Thử lại nếu chưa vượt quá số lần thử
+      if (retryCount < MAX_RETRIES) {
+        console.log(`Thử xóa lại lần ${retryCount + 1}/${MAX_RETRIES}...`);
+        // Đợi 500ms trước khi thử lại
+        await new Promise(resolve => setTimeout(resolve, 500));
+        return deleteFromWasabi(key, retryCount + 1);
+      }
+      
+      // Nếu đã vượt quá số lần thử, kiểm tra xem file có tồn tại không
       try {
-        await s3Client.send(checkCommand);
-        console.warn(`File vẫn tồn tại trên Wasabi sau ${MAX_RETRIES + 1} lần thử xóa: ${key}`);
-        // File vẫn tồn tại
-        return false;
-      } catch (err) {
-        // Nếu lỗi NotFound thì có nghĩa là file đã bị xóa hoặc không tồn tại
-        if (err.name === 'NotFound' || err.Code === 'NotFound' || err.name === 'NoSuchKey') {
-          console.log(`File không còn tồn tại trên Wasabi: ${key} (có thể đã bị xóa trước đó)`);
-          return true;
-        }
-        console.warn(`Không thể kiểm tra tồn tại của file: ${key} - ${err.message}`);
+        const exists = await checkWasabiFile(key);
+        return !exists;
+      } catch (checkError) {
+        console.error(`Lỗi khi kiểm tra file sau khi xóa thất bại: ${checkError.message}`);
         return false;
       }
-    } catch (checkError) {
-      console.error(`Lỗi khi kiểm tra file sau khi xóa thất bại: ${checkError.message}`);
-      return false;
-    }
+    });
+  } catch (error) {
+    console.error(`Lỗi khi xóa file từ Wasabi (${key}):`, error);
+    return false;
   }
 }
 
@@ -1118,17 +1154,19 @@ async function checkWasabiFile(key) {
       Key: key,
     });
 
-    try {
-      await s3Client.send(command);
-      return true;
-    } catch (error) {
-      if (error.name === 'NotFound' || error.Code === 'NotFound' || error.name === 'NoSuchKey') {
-        return false;
+    return await logWasabiExecutionTime(`checkFile key=${key.substring(0, 30)}...`, async () => {
+      try {
+        await s3Client.send(command);
+        return true;
+      } catch (error) {
+        if (error.name === 'NotFound' || error.Code === 'NotFound' || error.name === 'NoSuchKey') {
+          return false;
+        }
+        // Nếu lỗi khác không phải NotFound, coi như file có thể tồn tại
+        console.warn(`Lỗi khi kiểm tra file trên Wasabi: ${error.message}`);
+        return true;
       }
-      // Nếu lỗi khác không phải NotFound, coi như file có thể tồn tại
-      console.warn(`Lỗi khi kiểm tra file trên Wasabi: ${error.message}`);
-      return true;
-    }
+    });
   } catch (error) {
     console.error(`Lỗi khi kiểm tra file tồn tại trên Wasabi (${key}):`, error);
     // Trong trường hợp lỗi, trả về true để tránh tải lại file không cần thiết
@@ -1265,7 +1303,10 @@ export async function POST(request) {
     const drive = await initializeDriveClient();
 
     try {
-      const folderInfo = await getFolderInfo(drive, folderId);
+      const folderInfo = await logDriveExecutionTime(
+        `getFolderInfo folderId=${folderId}`, 
+        () => getFolderInfo(drive, folderId)
+      );
 
       if (!folderInfo || !folderInfo.name) {
         return NextResponse.json(
@@ -1354,6 +1395,13 @@ export async function POST(request) {
           globalStats.totalUploadTime > 0
             ? (globalStats.totalSize / globalStats.totalUploadTime).toFixed(2)
             : 0;
+          
+        console.log(`===== Thống kê tổng =====`);
+        console.log(`- Số file xử lý: ${globalStats.totalProcessedFiles}`);
+        console.log(`- Tổng dung lượng: ${globalStats.totalSize.toFixed(2)} MB`);
+        console.log(`- Tốc độ tải trung bình: ${globalStats.avgDownloadSpeed} MB/s`);
+        console.log(`- Tốc độ upload trung bình: ${globalStats.avgUploadSpeed} MB/s`);
+        console.log(`- Thời gian thực hiện: ${totalTime.toFixed(2)}s`);
       }
       
       return NextResponse.json({
