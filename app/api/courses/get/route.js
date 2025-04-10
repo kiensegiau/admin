@@ -10,6 +10,14 @@ export async function GET() {
     // Lấy tất cả khóa học từ MongoDB
     const coursesData = await findDocuments("courses");
     
+    // Log thông tin chi tiết để debug
+    coursesData.slice(0, 5).forEach((course, index) => {
+      console.log(`Khóa học ${index + 1} - Tiêu đề: "${course.title}"`);
+      console.log(` - subject: ${course.subject} (type: ${typeof course.subject})`);
+      console.log(` - grade: ${course.grade} (type: ${typeof course.grade})`);
+      console.log(` - Các trường có trong document:`, Object.keys(course));
+    });
+    
     // Định dạng kết quả trả về giống như API trước đây
     const courses = coursesData.map(course => {
       return {

@@ -192,19 +192,158 @@ export default function CoursesPage() {
 
       // Kiểm tra dữ liệu nhận được
       console.log("Dữ liệu khóa học từ API:", data.data?.length || 0, "khóa học");
+      
+      // Kiểm tra subject từ API
+      if (data.data && data.data.length > 0) {
+        const subjectsFromAPI = {};
+        data.data.forEach(course => {
+          if (course.subject) {
+            subjectsFromAPI[course.subject] = (subjectsFromAPI[course.subject] || 0) + 1;
+          }
+        });
+        console.log("Các giá trị subject từ API:", subjectsFromAPI);
+      }
 
+      // Hàm chuẩn hóa giá trị subject
+      const standardizeSubject = (subjectValue, title) => {
+        // --- DEBUGGING ---
+        // console.log(`Đang chuẩn hóa subject cho: ${title}, giá trị ban đầu: ${subjectValue}`);
+        
+        // Kiểm tra giá trị subject từ database trước
+        if (subjectValue && subjectValue !== "other") {
+          // Kiểm tra xem giá trị có trong danh sách giá trị chuẩn không
+          const isStandardValue = SUBJECTS.some(subject => subject.value === subjectValue);
+          if (isStandardValue) {
+            // console.log(`- Phát hiện giá trị chuẩn: ${subjectValue}`);
+            return subjectValue;
+          }
+          
+          // Chuyển sang chữ thường để so sánh với giá trị chuẩn
+          const lowerCaseValue = subjectValue.toLowerCase();
+          
+          // Kiểm tra xem có khớp với label của SUBJECTS không
+          const subjectByLabel = SUBJECTS.find(subject => 
+            subject.label.toLowerCase() === lowerCaseValue || 
+            subject.label.toLowerCase().includes(lowerCaseValue)
+          );
+          if (subjectByLabel) {
+            // console.log(`- Phát hiện giá trị từ label: ${subjectByLabel.value}`);
+            return subjectByLabel.value;
+          }
+        }
+        
+        // Nếu subject không có giá trị, là "other", hoặc không tìm thấy giá trị chuẩn, tìm trong tiêu đề
+        if (title) {
+          const lowerCaseTitle = title.toLowerCase();
+          
+          // 1. Kiểm tra các môn cụ thể trước
+          if (lowerCaseTitle.includes("toán") || lowerCaseTitle.includes("toan ")) {
+            // console.log(`- Phát hiện Toán học từ tiêu đề`);
+            return "math";
+          }
+          if (lowerCaseTitle.includes("vật lý") || lowerCaseTitle.includes("lý ") || lowerCaseTitle.includes("ly ")) {
+            // console.log(`- Phát hiện Vật lý từ tiêu đề`);
+            return "physics";
+          }
+          if (lowerCaseTitle.includes("hóa") || lowerCaseTitle.includes("hoa ")) {
+            // console.log(`- Phát hiện Hóa học từ tiêu đề`);
+            return "chemistry";
+          }
+          if (lowerCaseTitle.includes("sinh") || lowerCaseTitle.includes("sinh ")) {
+            // console.log(`- Phát hiện Sinh học từ tiêu đề`);
+            return "biology";
+          }
+          if (lowerCaseTitle.includes("văn") || lowerCaseTitle.includes("ngữ văn") || lowerCaseTitle.includes("van ")) {
+            // console.log(`- Phát hiện Ngữ văn từ tiêu đề`);
+            return "literature";
+          }
+          
+          // 2. Tiếng nước ngoài
+          if (lowerCaseTitle.includes("tiếng anh") || lowerCaseTitle.includes("tieng anh")) {
+            // console.log(`- Phát hiện Tiếng Anh từ tiêu đề`);
+            return "english";
+          }
+          if (lowerCaseTitle.includes("ielts") || lowerCaseTitle.includes("toefl") || lowerCaseTitle.includes("toeic")) {
+            // console.log(`- Phát hiện Chứng chỉ tiếng Anh từ tiêu đề`);
+            return "english_cert";
+          }
+          if (lowerCaseTitle.includes("tiếng nhật") || lowerCaseTitle.includes("tieng nhat") || lowerCaseTitle.includes("n1") || 
+              lowerCaseTitle.includes("n2") || lowerCaseTitle.includes("n3") || lowerCaseTitle.includes("n4") || 
+              lowerCaseTitle.includes("n5") || lowerCaseTitle.includes("riki")) {
+            // console.log(`- Phát hiện Tiếng Nhật từ tiêu đề`);
+            return "japanese";
+          }
+          if (lowerCaseTitle.includes("tiếng hàn") || lowerCaseTitle.includes("tieng han")) {
+            // console.log(`- Phát hiện Tiếng Hàn từ tiêu đề`);
+            return "korean";
+          }
+          if (lowerCaseTitle.includes("tiếng trung") || lowerCaseTitle.includes("tieng trung")) {
+            // console.log(`- Phát hiện Tiếng Trung từ tiêu đề`);
+            return "chinese";
+          }
+          
+          // 3. Các môn xã hội và đánh giá năng lực
+          if (lowerCaseTitle.includes("lịch sử") || lowerCaseTitle.includes("sử ") || lowerCaseTitle.includes("lich su")) {
+            // console.log(`- Phát hiện Lịch sử từ tiêu đề`);
+            return "history";
+          }
+          if (lowerCaseTitle.includes("địa lý") || lowerCaseTitle.includes("dia ly") || lowerCaseTitle.includes("địa ")) {
+            // console.log(`- Phát hiện Địa lý từ tiêu đề`);
+            return "geography";
+          }
+          if (lowerCaseTitle.includes("tin học") || lowerCaseTitle.includes("tin ")) {
+            // console.log(`- Phát hiện Tin học từ tiêu đề`);
+            return "informatics";
+          }
+          if (lowerCaseTitle.includes("đánh giá năng lực") || lowerCaseTitle.includes("đgnl") || 
+              lowerCaseTitle.includes("tư duy") || lowerCaseTitle.includes("tu duy") || 
+              lowerCaseTitle.includes("tsa") || lowerCaseTitle.includes("hsa") || 
+              lowerCaseTitle.includes("đgt")) {
+            // console.log(`- Phát hiện Đánh giá năng lực từ tiêu đề`);
+            return "assessment";
+          }
+          if (lowerCaseTitle.includes("eleo")) {
+            // console.log(`- Phát hiện ELEO từ tiêu đề`);
+            return "eleo";
+          }
+          
+          // Bây giờ thử với các từ ngắn hơn (rủi ro cao hơn)
+          if (lowerCaseTitle.includes("anh ")) {
+            // console.log(`- Phát hiện Tiếng Anh từ tiêu đề (từ khóa ngắn)`);
+            return "english";
+          }
+        }
+        
+        // Giá trị mặc định nếu không tìm thấy
+        // console.log(`- Không phát hiện môn học, sử dụng giá trị mặc định: other`);
+        return "other";
+      };
+      
       // Đảm bảo tất cả các trường đều có giá trị mặc định và xử lý lỗi encoding
       const formattedCourses = data.data.map((course) => {
+        // Chuẩn hóa tiêu đề trước để dùng cho việc nhận dạng môn học
+        const cleanedTitle = fixVietnameseEncoding(course.title) || "Khóa học không tên";
+        
+        // Nhận dạng môn học
+        const originalSubject = course.subject || "other";
+        const detectedSubject = standardizeSubject(originalSubject, cleanedTitle);
+        
+        // Log quá trình nhận dạng
+        if (detectedSubject !== originalSubject) {
+          console.log(`Nhận dạng môn học: "${cleanedTitle}" -> ${detectedSubject} (gốc: ${originalSubject})`);
+        }
+        
         // Kiểm tra và chuẩn hóa các trường dữ liệu
         const formattedCourse = {
           ...course,
-          title: fixVietnameseEncoding(course.title) || "Khóa học không tên",
+          title: cleanedTitle,
           price: typeof course.price === 'number' ? course.price : 0,
           discountPrice: typeof course.discountPrice === 'number' ? course.discountPrice : 0,
           teacher: fixVietnameseEncoding(course.teacher) || "",
-          // Nhận dạng môn học từ tiêu đề nếu subject là "other"
-          subject: detectSubjectFromTitle(course.title, course.subject),
-          grade: detectGradeFromTitle(course.title, course.grade),
+          // Lưu lại giá trị subject gốc và giá trị đã nhận dạng
+          _originalSubject: originalSubject,
+          subject: detectedSubject,
+          grade: course.grade || "other",
           chaptersCount: typeof course.chaptersCount === 'number' ? course.chaptersCount : 0,
           lessonsCount: typeof course.lessonsCount === 'number' ? course.lessonsCount : 0,
           status: course.status || "draft",
@@ -250,125 +389,6 @@ export default function CoursesPage() {
     }
   };
 
-  // Hàm nhận dạng môn học từ tiêu đề khóa học
-  const detectSubjectFromTitle = (title, existingSubject) => {
-    if (!title) return existingSubject || "other";
-    
-    const normalizedTitle = title.toLowerCase();
-    
-    // Các từ khóa để nhận dạng môn học
-    const keywords = {
-      "toán": "math",
-      "toan": "math",
-      "toá": "math",
-      "vật lý": "physics",
-      "vat ly": "physics",
-      "lí": "physics",
-      "ly": "physics",
-      "hóa": "chemistry", 
-      "hoa": "chemistry",
-      "sinh": "biology",
-      "sinh học": "biology",
-      "văn": "literature",
-      "van": "literature",
-      "ngữ văn": "literature",
-      "tiếng anh": "english",
-      "tieng anh": "english",
-      "anh": "english",
-      "english": "english",
-      "ielts": "english_cert",
-      "toefl": "english_cert",
-      "toeic": "english_cert",
-      "tiếng nhật": "japanese",
-      "nhật": "japanese",
-      "nhat": "japanese",
-      "tiếng trung": "chinese",
-      "trung": "chinese",
-      "tiếng hàn": "korean",
-      "hàn": "korean",
-      "han": "korean",
-      "lịch sử": "history",
-      "lich su": "history",
-      "sử": "history",
-      "su": "history",
-      "địa": "geography",
-      "dia": "geography",
-      "địa lý": "geography",
-      "tin": "informatics",
-      "tin học": "informatics",
-      "đánh giá năng lực": "assessment",
-      "danh gia nang luc": "assessment",
-      "đgnl": "assessment",
-      "năng lực": "assessment",
-      "nang luc": "assessment",
-      "tư duy": "assessment",
-      "tu duy": "assessment",
-      "tsa": "assessment",
-      "eleo": "eleo"
-    };
-    
-    // Kiểm tra từng từ khóa
-    for (const [keyword, subject] of Object.entries(keywords)) {
-      if (normalizedTitle.includes(keyword)) {
-        return subject;
-      }
-    }
-    
-    // Trả về giá trị mặc định nếu không phát hiện
-    return existingSubject || "other";
-  };
-
-  // Hàm nhận dạng lớp từ tiêu đề khóa học
-  const detectGradeFromTitle = (title, existingGrade) => {
-    if (!title) return existingGrade || "other";
-    
-    const normalizedTitle = title.toLowerCase();
-    
-    // Các từ khóa để nhận dạng lớp
-    const gradeKeywords = {
-      "lớp 6": "grade6",
-      "lop 6": "grade6",
-      "2k11": "grade6",
-      "2011": "grade6",
-      "lớp 7": "grade7",
-      "lop 7": "grade7",
-      "2k10": "grade7",
-      "2010": "grade7",
-      "lớp 8": "grade8",
-      "lop 8": "grade8",
-      "2k9": "grade8",
-      "2009": "grade8",
-      "lớp 9": "grade9",
-      "lop 9": "grade9",
-      "2k8": "grade9",
-      "2008": "grade9",
-      "lớp 10": "grade10",
-      "lop 10": "grade10",
-      "2k7": "grade10",
-      "2007": "grade10",
-      "lớp 11": "grade11",
-      "lop 11": "grade11",
-      "2k6": "grade11",
-      "2006": "grade11",
-      "lớp 12": "grade12",
-      "lop 12": "grade12",
-      "2k5": "grade12",
-      "2005": "grade12",
-      "đại học": "other",
-      "dai hoc": "other"
-    };
-    
-    // Kiểm tra từng từ khóa
-    for (const [keyword, grade] of Object.entries(gradeKeywords)) {
-      if (normalizedTitle.includes(keyword)) {
-        return grade;
-      }
-    }
-    
-    // Trả về giá trị mặc định nếu không phát hiện
-    return existingGrade || "other";
-  };
-
   // Hàm định dạng giá
   const formatPrice = (price) => {
     if (!price && price !== 0) return "0";
@@ -377,10 +397,8 @@ export default function CoursesPage() {
   
   const applyFiltersAndSort = () => {
     // Ghi log cho debugging
-    console.log("Bắt đầu applyFiltersAndSort");
+    console.log("Bắt đầu áp dụng bộ lọc và sắp xếp");
     console.log("- Số khóa học gốc:", courses.length);
-    console.log("- Filters hiện tại:", JSON.stringify(filters));
-    console.log("- Tìm kiếm:", searchText);
     
     let result = [...courses];
     let filterApplied = false;
@@ -404,25 +422,14 @@ export default function CoursesPage() {
       filterApplied = true;
       const before = result.length;
       
-      // Debug: hiển thị chi tiết các giá trị subject trong dữ liệu
-      console.log("- Debug subject values trước khi lọc:");
-      const subjectCounts = {};
-      result.forEach(course => {
-        if (!subjectCounts[course.subject || "undefined"]) {
-          subjectCounts[course.subject || "undefined"] = 0;
-        }
-        subjectCounts[course.subject || "undefined"]++;
-      });
-      console.log(subjectCounts);
+      // Thông tin về các môn học đang được lọc
+      console.log("- Đang lọc theo các môn:", filters.subject.map(subjectValue => {
+        const subject = SUBJECTS.find(s => s.value === subjectValue);
+        return subject ? subject.label : subjectValue;
+      }).join(', '));
       
-      result = result.filter(course => {
-        const hasMatchingSubject = course.subject && filters.subject.includes(course.subject);
-        if (!hasMatchingSubject && course.subject) {
-          console.log(`- Course không khớp: title=${course.title}, subject=${course.subject}, filter=${filters.subject}`);
-        }
-        return hasMatchingSubject;
-      });
-      console.log(`- Sau khi lọc theo môn học (${filters.subject.join(',')}):`, result.length, `(trước: ${before})`);
+      result = result.filter(course => course.subject && filters.subject.includes(course.subject));
+      console.log(`- Sau khi lọc theo môn học:`, result.length, `(trước: ${before})`);
     }
     
     // Áp dụng lọc theo lớp
@@ -430,33 +437,16 @@ export default function CoursesPage() {
       filterApplied = true;
       const before = result.length;
       
-      // Debug: hiển thị chi tiết các giá trị grade trong dữ liệu
-      console.log("- Debug grade values trước khi lọc:");
-      const gradeCounts = {};
-      result.forEach(course => {
-        if (!gradeCounts[course.grade || "undefined"]) {
-          gradeCounts[course.grade || "undefined"] = 0;
-        }
-        gradeCounts[course.grade || "undefined"]++;
-      });
-      console.log(gradeCounts);
-      
-      result = result.filter(course => {
-        const hasMatchingGrade = course.grade && filters.grade.includes(course.grade);
-        return hasMatchingGrade;
-      });
-      console.log(`- Sau khi lọc theo lớp (${filters.grade.join(',')}):`, result.length, `(trước: ${before})`);
+      result = result.filter(course => course.grade && filters.grade.includes(course.grade));
+      console.log(`- Sau khi lọc theo lớp:`, result.length, `(trước: ${before})`);
     }
     
     // Áp dụng lọc theo giáo viên
     if (filters.teacher && filters.teacher.length > 0) {
       filterApplied = true;
       const before = result.length;
-      result = result.filter(course => {
-        const hasMatchingTeacher = course.teacher && filters.teacher.includes(course.teacher);
-        return hasMatchingTeacher;
-      });
-      console.log(`- Sau khi lọc theo giáo viên (${filters.teacher.join(',')}):`, result.length, `(trước: ${before})`);
+      result = result.filter(course => course.teacher && filters.teacher.includes(course.teacher));
+      console.log(`- Sau khi lọc theo giáo viên:`, result.length, `(trước: ${before})`);
     }
     
     // Áp dụng lọc theo khoảng giá
@@ -2143,20 +2133,15 @@ export default function CoursesPage() {
             >
               Tất cả môn
             </Tag.CheckableTag>
-            {/* Hiển thị các bộ lọc dựa trên giá trị thực tế */}
-            {Object.keys(
-              courses.reduce((acc, course) => {
-                if (course.subject) acc[course.subject] = true;
-                return acc;
-              }, {})
-            ).map(subject => (
+            {/* Sử dụng danh sách SUBJECTS cố định thay vì dựa vào dữ liệu khóa học */}
+            {SUBJECTS.map(subject => (
               <Tag.CheckableTag
-                key={subject}
-                checked={filters.subject.includes(subject)}
-                onChange={checked => handleSubjectChange(subject, checked)}
+                key={subject.value}
+                checked={filters.subject.includes(subject.value)}
+                onChange={checked => handleSubjectChange(subject.value, checked)}
                 style={{ border: '1px solid #d9d9d9', padding: '4px 8px' }}
               >
-                {formatSubject(subject)}
+                {subject.label}
               </Tag.CheckableTag>
             ))}
             <Button 
