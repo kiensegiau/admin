@@ -1363,63 +1363,8 @@ export default function CoursesPage() {
               okButtonProps: { style: { display: "none" } },
             });
 
-            // Xử lý tuần tự từng khóa học
-            for (let i = 0; i < selectedCourses.length; i++) {
-              const course = selectedCourses[i];
-
-              // Cập nhật tiến trình
-              const currentProgress = {
-                current: i + 1,
-                total: selectedCourses.length,
-                currentCourse: course,
-                results: batchSyncProgress.results,
-              };
-
-              setBatchSyncProgress(currentProgress);
-
-              // Cập nhật modal với tiến trình hiện tại
-              const progressPercent = Math.round(
-                (currentProgress.current / currentProgress.total) * 100
-              );
-
-              syncModalInstance.update({
-                title: "Đang đồng bộ khóa học đã chọn",
-                content: (
-                  <div>
-                    <p>
-                      Đang đồng bộ khóa học {currentProgress.current} /{" "}
-                      {currentProgress.total}
-                    </p>
-                    <p>
-                      <strong>Đang xử lý:</strong> {course.title}
-                    </p>
-                    <Progress percent={progressPercent} status="active" />
-                    {currentProgress.results.length > 0 && (
-                      <div style={{ marginTop: 16 }}>
-                        <h4>Kết quả ({currentProgress.results.length}):</h4>
-                        <ul style={{ maxHeight: 200, overflow: "auto" }}>
-                          {currentProgress.results.map((result, index) => (
-                            <li key={index} style={{ marginBottom: 8 }}>
-                              {result.title}:
-                              {result.success ? (
-                                <Tag color="success" style={{ marginLeft: 8 }}>
-                                  Thành công
-                                </Tag>
-                              ) : (
-                                <Tag color="error" style={{ marginLeft: 8 }}>
-                                  Lỗi
-                                </Tag>
-                              )}
-                              <div>{result.message}</div>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                ),
-              });
-
+            // Hàm xử lý đồng bộ một khóa học
+            const syncCourse = async (course, index) => {
               try {
                 // Gọi API đồng bộ
                 const response = await fetch("/api/import-course-from-drive", {
@@ -1448,52 +1393,6 @@ export default function CoursesPage() {
                       : data.error || "Lỗi không xác định"),
                 };
 
-                const updatedResults = [
-                  ...batchSyncProgress.results,
-                  newResult,
-                ];
-
-                setBatchSyncProgress((prev) => ({
-                  ...prev,
-                  results: updatedResults,
-                }));
-
-                // Cập nhật lại modal với kết quả mới
-                syncModalInstance.update({
-                  content: (
-                    <div>
-                      <p>
-                        Đang đồng bộ khóa học {currentProgress.current} /{" "}
-                        {currentProgress.total}
-                      </p>
-                      <p>
-                        <strong>Đã xử lý:</strong> {course.title}
-                      </p>
-                      <Progress percent={progressPercent} status="active" />
-                      <div style={{ marginTop: 16 }}>
-                        <h4>Kết quả ({updatedResults.length}):</h4>
-                        <ul style={{ maxHeight: 200, overflow: "auto" }}>
-                          {updatedResults.map((result, index) => (
-                            <li key={index} style={{ marginBottom: 8 }}>
-                              {result.title}:
-                              {result.success ? (
-                                <Tag color="success" style={{ marginLeft: 8 }}>
-                                  Thành công
-                                </Tag>
-                              ) : (
-                                <Tag color="error" style={{ marginLeft: 8 }}>
-                                  Lỗi
-                                </Tag>
-                              )}
-                              <div>{result.message}</div>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  ),
-                });
-
                 if (!response.ok || !data.success) {
                   console.error(
                     `Lỗi khi đồng bộ khóa học ${course.title}:`,
@@ -1501,50 +1400,54 @@ export default function CoursesPage() {
                   );
                 }
 
-                // Đợi 1 giây giữa các lần đồng bộ
-                if (i < selectedCourses.length - 1) {
-                  await new Promise((resolve) => setTimeout(resolve, 1000));
-                }
+                return newResult;
               } catch (courseError) {
                 console.error(
                   `Lỗi khi đồng bộ khóa học ${course.title}:`,
                   courseError
                 );
 
-                // Lưu kết quả lỗi
-                const newErrorResult = {
+                // Trả về kết quả lỗi
+                return {
                   courseId: course.id,
                   title: course.title,
                   success: false,
                   message: courseError.message || "Lỗi không xác định",
                 };
+              }
+            };
 
-                const updatedResults = [
-                  ...batchSyncProgress.results,
-                  newErrorResult,
-                ];
+            // Xử lý song song, mỗi lần 3 khóa học
+            const batchSize = 3;
+            let completedCount = 0;
+            const results = [];
 
-                setBatchSyncProgress((prev) => ({
-                  ...prev,
-                  results: updatedResults,
-                }));
-
-                // Cập nhật modal với thông tin lỗi
-                syncModalInstance.update({
-                  content: (
-                    <div>
-                      <p>
-                        Đang đồng bộ khóa học {currentProgress.current} /{" "}
-                        {currentProgress.total}
-                      </p>
-                      <p>
-                        <strong>Lỗi xử lý:</strong> {course.title}
-                      </p>
-                      <Progress percent={progressPercent} status="active" />
+            for (let i = 0; i < selectedCourses.length; i += batchSize) {
+              // Lấy batch hiện tại (tối đa 3 khóa học)
+              const currentBatch = selectedCourses.slice(i, i + batchSize);
+              
+              // Hiển thị thông tin các khóa học đang được xử lý
+              const currentBatchTitles = currentBatch.map(course => course.title).join(", ");
+              const progressPercent = Math.round(
+                (completedCount / selectedCourses.length) * 100
+              );
+              
+              syncModalInstance.update({
+                title: "Đang đồng bộ khóa học đã chọn",
+                content: (
+                  <div>
+                    <p>
+                      Đã xử lý: {completedCount} / {selectedCourses.length}
+                    </p>
+                    <p>
+                      <strong>Đang xử lý song song:</strong> {currentBatchTitles}
+                    </p>
+                    <Progress percent={progressPercent} status="active" />
+                    {results.length > 0 && (
                       <div style={{ marginTop: 16 }}>
-                        <h4>Kết quả ({updatedResults.length}):</h4>
+                        <h4>Kết quả ({results.length}):</h4>
                         <ul style={{ maxHeight: 200, overflow: "auto" }}>
-                          {updatedResults.map((result, index) => (
+                          {results.map((result, index) => (
                             <li key={index} style={{ marginBottom: 8 }}>
                               {result.title}:
                               {result.success ? (
@@ -1561,24 +1464,90 @@ export default function CoursesPage() {
                           ))}
                         </ul>
                       </div>
-                    </div>
-                  ),
-                });
+                    )}
+                  </div>
+                ),
+              });
+
+              // Xử lý song song các khóa học trong batch hiện tại
+              const batchPromises = currentBatch.map((course, batchIndex) => 
+                syncCourse(course, i + batchIndex)
+              );
+              
+              // Đợi tất cả các khóa học trong batch hiện tại hoàn thành
+              const batchResults = await Promise.all(batchPromises);
+              
+              // Cập nhật kết quả và số lượng đã hoàn thành
+              results.push(...batchResults);
+              completedCount += currentBatch.length;
+              
+              // Cập nhật trạng thái
+              setBatchSyncProgress((prev) => ({
+                ...prev,
+                current: completedCount,
+                results: results,
+              }));
+              
+              // Cập nhật giao diện với kết quả mới
+              const updatedProgressPercent = Math.round(
+                (completedCount / selectedCourses.length) * 100
+              );
+              
+              syncModalInstance.update({
+                title: "Đang đồng bộ khóa học đã chọn",
+                content: (
+                  <div>
+                    <p>
+                      Đã xử lý: {completedCount} / {selectedCourses.length}
+                    </p>
+                    <p>
+                      <strong>Đã xử lý batch:</strong> {currentBatchTitles}
+                    </p>
+                    <Progress percent={updatedProgressPercent} status="active" />
+                    {results.length > 0 && (
+                      <div style={{ marginTop: 16 }}>
+                        <h4>Kết quả ({results.length}):</h4>
+                        <ul style={{ maxHeight: 200, overflow: "auto" }}>
+                          {results.map((result, index) => (
+                            <li key={index} style={{ marginBottom: 8 }}>
+                              {result.title}:
+                              {result.success ? (
+                                <Tag color="success" style={{ marginLeft: 8 }}>
+                                  Thành công
+                                </Tag>
+                              ) : (
+                                <Tag color="error" style={{ marginLeft: 8 }}>
+                                  Lỗi
+                                </Tag>
+                              )}
+                              <div>{result.message}</div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ),
+              });
+              
+              // Đợi một chút giữa các batch để tránh quá tải
+              if (i + batchSize < selectedCourses.length) {
+                await new Promise((resolve) => setTimeout(resolve, 1000));
               }
             }
 
             // Hoàn thành, cập nhật modal để có nút đóng
-            const successCount = batchSyncProgress.results.filter(
+            const successCount = results.filter(
               (r) => r.success
             ).length;
-            const failCount = batchSyncProgress.results.length - successCount;
+            const failCount = results.length - successCount;
 
             syncModalInstance.update({
               title: "Hoàn thành đồng bộ khóa học đã chọn",
               content: (
                 <div>
                   <p>
-                    Đã hoàn thành đồng bộ {batchSyncProgress.total} khóa học
+                    Đã hoàn thành đồng bộ {selectedCourses.length} khóa học
                   </p>
                   <div>
                     <Tag color="success">Thành công: {successCount}</Tag>
@@ -1591,7 +1560,7 @@ export default function CoursesPage() {
                   <div style={{ marginTop: 16 }}>
                     <h4>Kết quả chi tiết:</h4>
                     <ul style={{ maxHeight: 200, overflow: "auto" }}>
-                      {batchSyncProgress.results.map((result, index) => (
+                      {results.map((result, index) => (
                         <li key={index} style={{ marginBottom: 8 }}>
                           {result.title}:
                           {result.success ? (
