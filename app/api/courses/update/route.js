@@ -5,7 +5,12 @@ import { ObjectId, updateDocument } from "@/lib/db";
 
 export async function POST(request) {   
   try {     
-    const { courseId, price, teacher, subject, grade } = await request.json();      
+    const requestData = await request.json();
+    const { courseId, price, teacher, subject, grade } = requestData;
+    
+    console.log("Dữ liệu API nhận được:", JSON.stringify(requestData, null, 2));
+    console.log("Grade:", grade, "Kiểu:", typeof grade);
+    console.log("Subject:", subject, "Kiểu:", typeof subject);
     
     if (!courseId) {       
       return NextResponse.json(         
@@ -30,15 +35,17 @@ export async function POST(request) {
       courseData.$set.teacher = teacher;
     }
     
-    if (subject !== undefined) {
+    if (subject !== undefined && subject !== null) {
       courseData.$set.subject = subject;
+      console.log("Lưu subject:", subject);
     }
     
-    if (grade !== undefined) {
+    if (grade !== undefined && grade !== null) {
       courseData.$set.grade = grade;
+      console.log("Lưu grade:", grade);
     }
     
-    console.log("Dữ liệu cập nhật:", courseData);
+    console.log("Dữ liệu cập nhật:", JSON.stringify(courseData, null, 2));
     
     // Cập nhật khóa học trong MongoDB
     const result = await updateDocument(
@@ -46,6 +53,8 @@ export async function POST(request) {
       { _id: new ObjectId(courseId) },
       courseData
     );
+    
+    console.log("Kết quả MongoDB:", result);
     
     if (result.modifiedCount === 0) {
       return NextResponse.json(

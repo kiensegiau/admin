@@ -700,6 +700,8 @@ export default function CoursesPage() {
 
       const values = await form.validateFields();
       setLoading(true);
+      
+      console.log("Giá trị form:", values); // Thêm log để kiểm tra giá trị form
 
       // Tạo dữ liệu cập nhật dựa trên trường đang sửa
       const updateData = {
@@ -712,9 +714,13 @@ export default function CoursesPage() {
       } else if (editField === 'teacher') {
         updateData.teacher = values.teacher || "";
       } else if (editField === 'subject') {
-        updateData.subject = values.subject || "other";
+        updateData.subject = values.subject;
+        console.log("Subject gửi đi:", values.subject, "Kiểu:", typeof values.subject);
       } else if (editField === 'grade') {
-        updateData.grade = values.grade || "other";
+        // Kiểm tra chắc chắn về giá trị của grade
+        console.log("Grade từ form:", values.grade, "Kiểu:", typeof values.grade);
+        updateData.grade = values.grade;
+        // Loại bỏ || "other" để tránh ghi đè giá trị hợp lệ
       }
 
       console.log("Dữ liệu gửi đi:", updateData);

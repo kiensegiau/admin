@@ -20,6 +20,10 @@ export async function GET() {
     
     // Định dạng kết quả trả về giống như API trước đây
     const courses = coursesData.map(course => {
+      // Đảm bảo không ghi đè giá trị subject và grade nếu đã có trong DB
+      const hasSubject = course.subject !== undefined && course.subject !== null;
+      const hasGrade = course.grade !== undefined && course.grade !== null;
+      
       return {
         id: course._id.toString(),
         title: course.title || "",
@@ -29,8 +33,8 @@ export async function GET() {
         discountPrice: course.discountPrice || 0,
         status: course.status || "draft",
         teacher: course.teacher || "",
-        subject: course.subject || "other",
-        grade: course.grade || "other",
+        subject: hasSubject ? course.subject : "other",
+        grade: hasGrade ? course.grade : "other",
         driveUrl: course.driveUrl || null,
         createdAt: course.createdAt,
         updatedAt: course.updatedAt
