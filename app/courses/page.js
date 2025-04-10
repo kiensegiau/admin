@@ -183,25 +183,28 @@ export default function CoursesPage() {
       setLoading(true);
       setDataLoaded(false);
       
-      const response = await fetch("/api/courses");
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Không thể tải danh sách khóa học");
-      }
-
-      // Kiểm tra dữ liệu nhận được
-      console.log("Dữ liệu khóa học từ API:", data.data?.length || 0, "khóa học");
+      // Lấy dữ liệu khóa học từ API
+      console.log("Đang tải danh sách khóa học từ API...");
+      const response = await fetch("/api/courses/get", {
+        cache: "no-store",
+      });
       
-      // Kiểm tra subject từ API
-      if (data.data && data.data.length > 0) {
-        const subjectsFromAPI = {};
-        data.data.forEach(course => {
-          if (course.subject) {
-            subjectsFromAPI[course.subject] = (subjectsFromAPI[course.subject] || 0) + 1;
-          }
-        });
-        console.log("Các giá trị subject từ API:", subjectsFromAPI);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log("Tải dữ liệu thành công:", data.courses?.length || 0, "khóa học");
+      
+      // Debug ngẫu nhiên một vài khóa học để xem cấu trúc
+      if (data.courses && data.courses.length > 0) {
+        const randomIndex = Math.floor(Math.random() * data.courses.length);
+        console.log("Mẫu khóa học:", data.courses[randomIndex]);
+      }
+      
+      if (!data.courses || !Array.isArray(data.courses)) {
+        console.error("Dữ liệu không hợp lệ:", data);
+        throw new Error("Dữ liệu API không hợp lệ");
       }
 
       // Hàm chuẩn hóa giá trị subject
@@ -320,13 +323,18 @@ export default function CoursesPage() {
       };
       
       // Đảm bảo tất cả các trường đều có giá trị mặc định và xử lý lỗi encoding
-      const formattedCourses = data.data.map((course) => {
+      const formattedCourses = data.courses.map((course) => {
         // Chuẩn hóa tiêu đề trước để dùng cho việc nhận dạng môn học
         const cleanedTitle = fixVietnameseEncoding(course.title) || "Khóa học không tên";
         
-        // Nhận dạng môn học
-        const originalSubject = course.subject || "other";
-        const detectedSubject = standardizeSubject(originalSubject, cleanedTitle);
+        // *** THAY ĐỔI QUAN TRỌNG: Chỉ nhận dạng subject nếu không có trong DB hoặc là "other" ***
+        let detectedSubject = course.subject || "other";
+        const originalSubject = detectedSubject;
+        
+        // Chỉ áp dụng nhận dạng nếu giá trị là "other"
+        if (detectedSubject === "other") {
+          detectedSubject = standardizeSubject(detectedSubject, cleanedTitle);
+        }
         
         // Log quá trình nhận dạng
         if (detectedSubject !== originalSubject) {
@@ -340,10 +348,10 @@ export default function CoursesPage() {
           price: typeof course.price === 'number' ? course.price : 0,
           discountPrice: typeof course.discountPrice === 'number' ? course.discountPrice : 0,
           teacher: fixVietnameseEncoding(course.teacher) || "",
-          // Lưu lại giá trị subject gốc và giá trị đã nhận dạng
+          // *** THAY ĐỔI QUAN TRỌNG: Giữ nguyên giá trị subject và grade từ DB ***
           _originalSubject: originalSubject,
           subject: detectedSubject,
-          grade: course.grade || "other",
+          grade: course.grade, // GIỮ NGUYÊN GIÁ TRỊ grade TỪ DB, KHÔNG THAY ĐỔI
           chaptersCount: typeof course.chaptersCount === 'number' ? course.chaptersCount : 0,
           lessonsCount: typeof course.lessonsCount === 'number' ? course.lessonsCount : 0,
           status: course.status || "draft",
