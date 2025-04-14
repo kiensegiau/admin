@@ -270,14 +270,14 @@ const UserList = forwardRef(({ searchQuery }, ref) => {
         throw new Error("Không thể kiểm tra VIP hết hạn");
       }
       const data = await response.json();
-      if (data.updated && data.updated > 0) {
-        // Nếu có VIP hết hạn, cập nhật lại danh sách
+      if (data.deleted && data.deleted > 0) {
+        // Nếu có tài khoản VIP hết hạn đã bị xóa, cập nhật lại danh sách
         fetchUsers();
-        message.info({
+        message.warning({
           content: (
             <div style={{ display: 'flex', alignItems: 'center' }}>
-              <ClockCircleOutlined style={{ color: '#faad14', marginRight: 8 }} />
-              <span>Đã cập nhật {data.updated} tài khoản VIP hết hạn</span>
+              <DeleteOutlined style={{ color: '#ff4d4f', marginRight: 8 }} />
+              <span>Đã xóa {data.deleted} tài khoản hết hạn VIP</span>
             </div>
           ),
           icon: null
@@ -300,24 +300,40 @@ const UserList = forwardRef(({ searchQuery }, ref) => {
 
   const handleToggleVip = async () => {
     try {
+      // Log để debug
+      console.log("Thông tin người dùng được chọn:", {
+        id: selectedUser.id,
+        _id: selectedUser._id,
+        uid: selectedUser.uid,
+        firebaseId: selectedUser.firebaseId,
+        email: selectedUser.email
+      });
+      
+      // Chọn ID phù hợp
+      let userId = selectedUser.uid || selectedUser.firebaseId || selectedUser._id || selectedUser.id;
+      
+      console.log("Đang sử dụng ID:", userId);
+      
       const response = await fetch("/api/users/toggle-vip", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          userId: selectedUser.id,
+          userId: userId,
           isVip: isVip,
           duration: isVip ? vipDuration : null,
         }),
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Không thể thay đổi trạng thái VIP");
+        const errorData = await response.json();
+        console.error("Lỗi API:", errorData);
+        throw new Error(errorData.error || "Không thể thay đổi trạng thái VIP");
       }
 
-      const { isVip: updatedIsVip, vipExpiresAt } = await response.json();
+      const data = await response.json();
+      const { isVip: updatedIsVip, vipExpiresAt } = data;
 
       // Cập nhật danh sách users với trạng thái VIP mới
       const updatedUsers = users.map((user) =>
@@ -356,7 +372,19 @@ const UserList = forwardRef(({ searchQuery }, ref) => {
       setShowVipModal(false);
     } catch (error) {
       console.error("Lỗi khi thay đổi trạng thái VIP:", error);
-      message.error(error.message);
+      
+      // Hiển thị thông báo lỗi chi tiết hơn
+      message.error({
+        content: (
+          <div>
+            <div>Lỗi: {error.message}</div>
+            <div style={{fontSize: '12px', marginTop: '5px', color: '#999'}}>
+              Người dùng: {selectedUser.fullName} (ID: {selectedUser.uid || selectedUser.id})
+            </div>
+          </div>
+        ),
+        duration: 5
+      });
     }
   };
 

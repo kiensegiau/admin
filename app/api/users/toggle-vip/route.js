@@ -72,7 +72,7 @@ export async function POST(request) {
     
     // Log thời gian bắt đầu
     const currentTime = dateTimeHelper.getCurrentTime();
-    dateTimeHelper.logTimeInfo('Bắt đầu xử lý', currentTime);
+    dateTimeHelper.logTimeInfo('Bắt đầu xử lý', currentTime, { userId });
 
     // Kiểm tra đầu vào
     if (!userId) {
@@ -109,17 +109,71 @@ export async function POST(request) {
       });
     }
 
-    // Tìm thông tin người dùng
-    const user = await findOneDocument("users", { 
-      _id: new ObjectId(userId) 
-    });
-
+    // Tìm thông tin người dùng (hỗ trợ nhiều loại ID)
+    let user;
+    
+    // Log để debug
+    console.log("Đang tìm người dùng với ID:", userId);
+    
+    // Thử với ObjectId MongoDB
+    if (/^[0-9a-fA-F]{24}$/.test(userId)) {
+      console.log("Tìm theo MongoDB ObjectId");
+      user = await findOneDocument("users", { _id: new ObjectId(userId) });
+    }
+    
+    // Nếu không tìm thấy, thử với firebaseId
     if (!user) {
+      console.log("Tìm theo firebaseId");
+      user = await findOneDocument("users", { firebaseId: userId });
+    }
+    
+    // Nếu không tìm thấy, thử với uid
+    if (!user) {
+      console.log("Tìm theo uid");
+      user = await findOneDocument("users", { uid: userId });
+    }
+    
+    // Nếu không tìm thấy, thử với id thông thường
+    if (!user) {
+      console.log("Tìm theo id thông thường");
+      user = await findOneDocument("users", { id: userId });
+    }
+    
+    // Nếu vẫn không tìm thấy, thử lọc các ký tự không hợp lệ và tìm lại
+    if (!user) {
+      const cleanId = userId.replace(/[^a-zA-Z0-9]/g, '');
+      if (cleanId !== userId) {
+        console.log("Tìm với ID đã làm sạch:", cleanId);
+        user = await findOneDocument("users", { 
+          $or: [
+            { firebaseId: cleanId },
+            { uid: cleanId },
+            { id: cleanId }
+          ]
+        });
+      }
+    }
+    
+    // Cuối cùng, kiểm tra lại
+    if (!user) {
+      console.error("Không tìm thấy người dùng với ID:", userId);
+      
+      // Lấy danh sách các ID có thể để debug
+      const allUsers = await findDocuments("users", {}, { projection: { _id: 1, firebaseId: 1, uid: 1, id: 1, email: 1 } });
+      console.log("Danh sách ID trong DB:", allUsers.slice(0, 5)); // Chỉ hiển thị 5 người đầu để tránh log quá dài
+      
       return NextResponse.json(
-        { error: "Không tìm thấy thông tin người dùng" },
+        { error: "Không tìm thấy thông tin người dùng với ID " + userId },
         { status: 404 }
       );
     }
+    
+    console.log("Đã tìm thấy người dùng:", {
+      _id: user._id,
+      email: user.email,
+      firebaseId: user.firebaseId,
+      uid: user.uid
+    });
 
     // Cập nhật trạng thái VIP cho người dùng
     const updateFields = {
@@ -137,7 +191,7 @@ export async function POST(request) {
     
     await updateDocument(
       "users",
-      { _id: new ObjectId(userId) },
+      { _id: user._id },
       {
         $set: updateFields
       }
@@ -145,7 +199,7 @@ export async function POST(request) {
 
     // Lưu lịch sử thay đổi trạng thái VIP
     await insertDocument("userActivityLogs", {
-      userId: new ObjectId(userId),
+      userId: user._id,
       // Bỏ trường actionBy vì không có session
       // actionBy: new ObjectId(session.user.id),
       action: isVip ? "enable_vip" : "disable_vip",

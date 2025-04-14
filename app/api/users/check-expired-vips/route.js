@@ -1,7 +1,8 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { findDocuments, updateDocuments } from "@/lib/db";
+import { findDocuments, updateDocuments, deleteDocument } from "@/lib/db";
+import { auth } from "@/lib/firebase-admin";
 
 // Hàm tiện ích xử lý thời gian
 const dateTimeHelper = {
@@ -99,41 +100,65 @@ export async function GET() {
     // Thêm buffer 5 phút để tránh lỗi múi giờ
     const bufferTime = dateTimeHelper.subtractBufferTime(now, 5);
     
-    // Cập nhật trạng thái VIP cho những người dùng đã hết hạn
-    const updateResult = await updateDocuments(
-      "users",
-      {
-        isVip: true,
-        vipExpiresAt: { $lt: bufferTime } // Thêm buffer 5 phút
-      },
-      {
-        $set: {
-          isVip: false,
-          vipExpiresAt: null,
-          updatedAt: now
-        }
-      }
-    );
-    
     // Lấy danh sách IDs của người dùng đã hết hạn
     const expiredUserIds = expiredVipUsers.map(user => user._id);
     
-    dateTimeHelper.logTimeInfo('Đã cập nhật', now, { 
-      updatedCount: updateResult.modifiedCount,
-      expiredUserIds: expiredUserIds.map(id => id.toString())
+    // Xóa người dùng khỏi Firebase Auth và MongoDB
+    let deletedCount = 0;
+    const errors = [];
+    
+    for (const user of expiredVipUsers) {
+      try {
+        // Nếu có firebaseId, xóa tài khoản Firebase Auth
+        if (user.firebaseId) {
+          try {
+            await auth.deleteUser(user.firebaseId);
+            dateTimeHelper.logTimeInfo('Đã xóa Firebase Auth', now, { 
+              userId: user._id.toString(),
+              firebaseId: user.firebaseId
+            });
+          } catch (firebaseError) {
+            console.error(`Lỗi khi xóa Firebase Auth cho user ${user._id}:`, firebaseError);
+            errors.push({
+              userId: user._id.toString(),
+              error: `Firebase: ${firebaseError.message}`
+            });
+          }
+        }
+        
+        // Xóa người dùng từ MongoDB
+        await deleteDocument("users", { _id: user._id });
+        deletedCount++;
+        dateTimeHelper.logTimeInfo('Đã xóa người dùng', now, { 
+          userId: user._id.toString(),
+          name: user.fullName
+        });
+      } catch (error) {
+        console.error(`Lỗi khi xóa người dùng ${user._id}:`, error);
+        errors.push({
+          userId: user._id.toString(),
+          error: error.message
+        });
+      }
+    }
+    
+    dateTimeHelper.logTimeInfo('Hoàn thành xóa', now, { 
+      deletedCount,
+      errorsCount: errors.length
     });
     
     return NextResponse.json({
-      message: `Đã cập nhật ${updateResult.modifiedCount} tài khoản VIP hết hạn`,
-      updated: updateResult.modifiedCount,
+      message: `Đã xóa ${deletedCount} tài khoản VIP hết hạn`,
+      deleted: deletedCount,
       expiredUserIds: expiredUserIds.map(id => id.toString()),
+      errors: errors.length > 0 ? errors : null,
       serverTime: now.toISOString(),
       serverTimeZone: "UTC+7 (Vietnam)"
     });
   } catch (error) {
-    console.error("Lỗi khi kiểm tra VIP hết hạn:", error);
+    console.error("Lỗi khi kiểm tra và xóa tài khoản VIP hết hạn:", error);
     return NextResponse.json(
-      { error: "Không thể cập nhật tài khoản VIP hết hạn: " + error.message },
+      { error: "Không thể xóa tài khoản VIP hết hạn: " + error.message },
       { status: 500 }
     );
   }
