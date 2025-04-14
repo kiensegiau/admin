@@ -1,8 +1,9 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { findDocuments, updateDocuments, deleteDocument } from "@/lib/db";
+import { findDocuments, updateDocuments, deleteDocument, findOneDocument } from "@/lib/db";
 import { auth } from "@/lib/firebase-admin";
+import { ObjectId } from 'mongodb';
 
 // Hàm tiện ích xử lý thời gian
 const dateTimeHelper = {
@@ -109,34 +110,157 @@ export async function GET() {
     
     for (const user of expiredVipUsers) {
       try {
-        // Nếu có firebaseId, xóa tài khoản Firebase Auth
-        if (user.firebaseId) {
+        // Kiểm tra và xóa tài khoản Firebase Auth
+        let firebaseDeleted = false;
+        
+        // Ưu tiên xóa bằng email (đảm bảo nhất)
+        if (user.email) {
           try {
+            console.log(`Đang tìm và xóa tài khoản Firebase Auth với email: ${user.email}`);
+            const firebaseUser = await auth.getUserByEmail(user.email);
+            if (firebaseUser && firebaseUser.uid) {
+              await auth.deleteUser(firebaseUser.uid);
+              firebaseDeleted = true;
+              dateTimeHelper.logTimeInfo('Đã xóa Firebase Auth với email', now, { 
+                userId: user._id.toString(),
+                email: user.email,
+                firebaseUid: firebaseUser.uid
+              });
+            }
+          } catch (firebaseError) {
+            console.error(`Lỗi khi xóa Firebase Auth với email ${user.email}:`, firebaseError);
+            // Nếu lỗi user-not-found, tiếp tục với các phương pháp khác
+            if (firebaseError.code !== 'auth/user-not-found') {
+              errors.push({
+                userId: user._id.toString(),
+                error: `Firebase (email): ${firebaseError.message}`,
+                code: firebaseError.code
+              });
+            }
+          }
+        }
+        
+        // Nếu chưa xóa được và có firebaseId, thử xóa bằng firebaseId
+        if (!firebaseDeleted && user.firebaseId) {
+          try {
+            console.log(`Đang xóa tài khoản Firebase Auth với firebaseId: ${user.firebaseId}`);
             await auth.deleteUser(user.firebaseId);
-            dateTimeHelper.logTimeInfo('Đã xóa Firebase Auth', now, { 
+            firebaseDeleted = true;
+            dateTimeHelper.logTimeInfo('Đã xóa Firebase Auth với firebaseId', now, { 
               userId: user._id.toString(),
               firebaseId: user.firebaseId
             });
           } catch (firebaseError) {
-            console.error(`Lỗi khi xóa Firebase Auth cho user ${user._id}:`, firebaseError);
-            errors.push({
+            console.error(`Lỗi khi xóa Firebase Auth với firebaseId ${user.firebaseId}:`, firebaseError);
+            
+            // Nếu lỗi không tìm thấy người dùng, tiếp tục với cách khác
+            if (firebaseError.code !== 'auth/user-not-found') {
+              errors.push({
+                userId: user._id.toString(),
+                error: `Firebase (firebaseId): ${firebaseError.message}`,
+                code: firebaseError.code
+              });
+            }
+          }
+        }
+        
+        // Nếu chưa xóa được và có uid, thử xóa bằng uid
+        if (!firebaseDeleted && user.uid) {
+          try {
+            console.log(`Đang xóa tài khoản Firebase Auth với uid: ${user.uid}`);
+            await auth.deleteUser(user.uid);
+            firebaseDeleted = true;
+            dateTimeHelper.logTimeInfo('Đã xóa Firebase Auth với uid', now, { 
               userId: user._id.toString(),
-              error: `Firebase: ${firebaseError.message}`
+              uid: user.uid
             });
+          } catch (firebaseError) {
+            console.error(`Lỗi khi xóa Firebase Auth với uid ${user.uid}:`, firebaseError);
+            
+            if (firebaseError.code !== 'auth/user-not-found') {
+              errors.push({
+                userId: user._id.toString(),
+                error: `Firebase (uid): ${firebaseError.message}`,
+                code: firebaseError.code
+              });
+            }
           }
         }
         
         // Xóa người dùng từ MongoDB
-        await deleteDocument("users", { _id: user._id });
-        deletedCount++;
-        dateTimeHelper.logTimeInfo('Đã xóa người dùng', now, { 
-          userId: user._id.toString(),
-          name: user.fullName
-        });
+        try {
+          // Nếu có email, xóa theo email (đảm bảo nhất)
+          if (user.email) {
+            await deleteDocument("users", { email: user.email });
+            deletedCount++;
+            dateTimeHelper.logTimeInfo('Đã xóa người dùng bằng email', now, { 
+              email: user.email,
+              name: user.fullName
+            });
+          } 
+          // Nếu không có email, xóa theo _id
+          else if (user._id) {
+            await deleteDocument("users", { _id: user._id });
+            deletedCount++;
+            dateTimeHelper.logTimeInfo('Đã xóa người dùng bằng _id', now, { 
+              userId: user._id ? user._id.toString() : 'unknown',
+              name: user.fullName
+            });
+          }
+          // Thử theo id thông thường
+          else if (user.id) {
+            await deleteDocument("users", { id: user.id });
+            deletedCount++;
+            dateTimeHelper.logTimeInfo('Đã xóa người dùng bằng id', now, { 
+              id: user.id,
+              name: user.fullName
+            });
+          } else {
+            throw new Error("Không tìm thấy định danh phù hợp để xóa người dùng");
+          }
+        } catch (mongoError) {
+          console.error(`Lỗi khi xóa MongoDB cho user:`, mongoError);
+          
+          // Thử xóa bằng các cách khác nếu cách đầu tiên thất bại
+          try {
+            let deleteSuccess = false;
+            
+            // Nếu cách ưu tiên không phải là email, thử xóa bằng email
+            if (user.email && !user.email.includes('deleted_')) {
+              await deleteDocument("users", { email: user.email });
+              deleteSuccess = true;
+              dateTimeHelper.logTimeInfo('Đã xóa người dùng bằng email (phương án B)', now, { email: user.email });
+            } 
+            // Nếu không thành công và có id
+            else if (user.id) {
+              await deleteDocument("users", { id: user.id });
+              deleteSuccess = true;
+              dateTimeHelper.logTimeInfo('Đã xóa người dùng bằng id (phương án B)', now, { id: user.id });
+            }
+            // Nếu không thành công với id, thử _id
+            else if (user._id) {
+              await deleteDocument("users", { _id: user._id });
+              deleteSuccess = true;
+              dateTimeHelper.logTimeInfo('Đã xóa người dùng bằng _id (phương án B)', now, { _id: user._id.toString() });
+            }
+            
+            if (deleteSuccess) {
+              if (!deletedCount) deletedCount++;
+            } else {
+              throw new Error("Không tìm thấy dữ liệu thay thế để xóa");
+            }
+          } catch (retryError) {
+            console.error("Lỗi khi xóa lại:", retryError);
+            errors.push({
+              userId: user._id ? user._id.toString() : 'unknown',
+              error: `MongoDB: ${mongoError.message}, Retry: ${retryError.message}`
+            });
+          }
+        }
       } catch (error) {
-        console.error(`Lỗi khi xóa người dùng ${user._id}:`, error);
+        console.error(`Lỗi khi xóa người dùng:`, error);
         errors.push({
-          userId: user._id.toString(),
+          userId: user._id ? user._id.toString() : 'unknown',
           error: error.message
         });
       }
@@ -159,6 +283,241 @@ export async function GET() {
     console.error("Lỗi khi kiểm tra và xóa tài khoản VIP hết hạn:", error);
     return NextResponse.json(
       { error: "Không thể xóa tài khoản VIP hết hạn: " + error.message },
+      { status: 500 }
+    );
+  }
+}
+
+// Thêm endpoint POST để xóa thủ công một người dùng
+export async function POST(request) {
+  try {
+    const { userId, email, firebaseId, uid } = await request.json();
+    
+    // Kiểm tra có ít nhất một thông tin để tìm người dùng
+    if (!userId && !email && !firebaseId && !uid) {
+      return NextResponse.json(
+        { error: "Cần cung cấp ít nhất một thông tin để xóa người dùng (userId, email, firebaseId, uid)" },
+        { status: 400 }
+      );
+    }
+    
+    // Lấy thời gian hiện tại theo múi giờ Việt Nam
+    const now = dateTimeHelper.getCurrentTime();
+    dateTimeHelper.logTimeInfo('Bắt đầu xóa thủ công', now, { userId, email, firebaseId, uid });
+    
+    // Tìm người dùng trong MongoDB
+    let query = {};
+    if (userId) {
+      if (/^[0-9a-fA-F]{24}$/.test(userId)) {
+        // Nếu là chuỗi hex 24 ký tự hợp lệ, tạo ObjectId
+        try {
+          query._id = new ObjectId(userId);
+        } catch (error) {
+          console.error("Lỗi chuyển đổi ObjectId:", error);
+          // Nếu có lỗi, sử dụng id thông thường
+          query.id = userId;
+        }
+      } else {
+        // Không phải ObjectId, tìm theo các trường khác
+        query = {
+          $or: [
+            { id: userId },
+            { uid: userId },
+            { firebaseId: userId }
+          ]
+        };
+      }
+    } else if (firebaseId) {
+      query.firebaseId = firebaseId;
+    } else if (uid) {
+      query.uid = uid;
+    } else if (email) {
+      query.email = email;
+    }
+    
+    console.log("Truy vấn tìm kiếm:", JSON.stringify(query));
+    const user = await findOneDocument("users", query);
+    
+    if (!user) {
+      return NextResponse.json(
+        { error: "Không tìm thấy người dùng với thông tin đã cung cấp" },
+        { status: 404 }
+      );
+    }
+    
+    console.log("Đã tìm thấy người dùng:", {
+      _id: user._id?.toString(),
+      id: user.id,
+      email: user.email,
+      firebaseId: user.firebaseId,
+      uid: user.uid
+    });
+    
+    // Xóa người dùng khỏi Firebase Auth
+    let firebaseDeleted = false;
+    const errors = [];
+    let deletedCount = 0;
+    
+    // Ưu tiên xóa bằng email (đảm bảo nhất)
+    if (user.email) {
+      try {
+        console.log(`Đang tìm và xóa tài khoản Firebase Auth với email: ${user.email}`);
+        const firebaseUser = await auth.getUserByEmail(user.email);
+        if (firebaseUser && firebaseUser.uid) {
+          await auth.deleteUser(firebaseUser.uid);
+          firebaseDeleted = true;
+          dateTimeHelper.logTimeInfo('Đã xóa Firebase Auth với email', now, { 
+            userId: user._id.toString(),
+            email: user.email,
+            firebaseUid: firebaseUser.uid
+          });
+        }
+      } catch (firebaseError) {
+        console.error(`Lỗi khi xóa Firebase Auth với email ${user.email}:`, firebaseError);
+        // Nếu lỗi user-not-found, tiếp tục với các phương pháp khác
+        if (firebaseError.code !== 'auth/user-not-found') {
+          errors.push({
+            userId: user._id.toString(),
+            error: `Firebase (email): ${firebaseError.message}`,
+            code: firebaseError.code
+          });
+        }
+      }
+    }
+    
+    // Nếu chưa xóa được và có firebaseId, thử xóa bằng firebaseId
+    if (!firebaseDeleted && user.firebaseId) {
+      try {
+        console.log(`Đang xóa tài khoản Firebase Auth với firebaseId: ${user.firebaseId}`);
+        await auth.deleteUser(user.firebaseId);
+        firebaseDeleted = true;
+        dateTimeHelper.logTimeInfo('Đã xóa Firebase Auth với firebaseId', now, { 
+          userId: user._id.toString(),
+          firebaseId: user.firebaseId
+        });
+      } catch (firebaseError) {
+        console.error(`Lỗi khi xóa Firebase Auth với firebaseId ${user.firebaseId}:`, firebaseError);
+        
+        // Nếu lỗi không tìm thấy người dùng, tiếp tục với cách khác
+        if (firebaseError.code !== 'auth/user-not-found') {
+          errors.push({
+            userId: user._id.toString(),
+            error: `Firebase (firebaseId): ${firebaseError.message}`,
+            code: firebaseError.code
+          });
+        }
+      }
+    }
+    
+    // Nếu chưa xóa được và có uid, thử xóa bằng uid
+    if (!firebaseDeleted && user.uid) {
+      try {
+        console.log(`Đang xóa tài khoản Firebase Auth với uid: ${user.uid}`);
+        await auth.deleteUser(user.uid);
+        firebaseDeleted = true;
+        dateTimeHelper.logTimeInfo('Đã xóa Firebase Auth với uid', now, { 
+          userId: user._id.toString(),
+          uid: user.uid
+        });
+      } catch (firebaseError) {
+        console.error(`Lỗi khi xóa Firebase Auth với uid ${user.uid}:`, firebaseError);
+        
+        if (firebaseError.code !== 'auth/user-not-found') {
+          errors.push({
+            error: `Firebase (uid): ${firebaseError.message}`,
+            code: firebaseError.code
+          });
+        }
+      }
+    }
+    
+    // Xóa người dùng từ MongoDB
+    try {
+      // Nếu có email, xóa theo email (đảm bảo nhất)
+      if (user.email) {
+        await deleteDocument("users", { email: user.email });
+        deletedCount++;
+        dateTimeHelper.logTimeInfo('Đã xóa người dùng bằng email', now, { 
+          email: user.email,
+          name: user.fullName
+        });
+      } 
+      // Nếu không có email, xóa theo _id
+      else if (user._id) {
+        await deleteDocument("users", { _id: user._id });
+        deletedCount++;
+        dateTimeHelper.logTimeInfo('Đã xóa người dùng bằng _id', now, { 
+          userId: user._id ? user._id.toString() : 'unknown',
+          name: user.fullName
+        });
+      }
+      // Thử theo id thông thường
+      else if (user.id) {
+        await deleteDocument("users", { id: user.id });
+        deletedCount++;
+        dateTimeHelper.logTimeInfo('Đã xóa người dùng bằng id', now, { 
+          id: user.id,
+          name: user.fullName
+        });
+      } else {
+        throw new Error("Không tìm thấy định danh phù hợp để xóa người dùng");
+      }
+    } catch (mongoError) {
+      console.error(`Lỗi khi xóa MongoDB cho user:`, mongoError);
+      
+      // Thử xóa bằng các cách khác nếu cách đầu tiên thất bại
+      try {
+        let deleteSuccess = false;
+        
+        // Nếu cách ưu tiên không phải là email, thử xóa bằng email
+        if (user.email && !user.email.includes('deleted_')) {
+          await deleteDocument("users", { email: user.email });
+          deleteSuccess = true;
+          dateTimeHelper.logTimeInfo('Đã xóa người dùng bằng email (phương án B)', now, { email: user.email });
+        } 
+        // Nếu không thành công và có id
+        else if (user.id) {
+          await deleteDocument("users", { id: user.id });
+          deleteSuccess = true;
+          dateTimeHelper.logTimeInfo('Đã xóa người dùng bằng id (phương án B)', now, { id: user.id });
+        }
+        // Nếu không thành công với id, thử _id
+        else if (user._id) {
+          await deleteDocument("users", { _id: user._id });
+          deleteSuccess = true;
+          dateTimeHelper.logTimeInfo('Đã xóa người dùng bằng _id (phương án B)', now, { _id: user._id.toString() });
+        }
+        
+        if (deleteSuccess) {
+          if (!deletedCount) deletedCount++;
+        } else {
+          throw new Error("Không tìm thấy dữ liệu thay thế để xóa");
+        }
+      } catch (retryError) {
+        console.error("Lỗi khi xóa lại:", retryError);
+        errors.push({
+          userId: user._id ? user._id.toString() : 'unknown',
+          error: `MongoDB: ${mongoError.message}, Retry: ${retryError.message}`
+        });
+      }
+    }
+    
+    return NextResponse.json({
+      success: true,
+      message: "Đã xóa người dùng thành công",
+      user: {
+        _id: user._id.toString(),
+        name: user.fullName,
+        email: user.email,
+      },
+      firebaseDeleted,
+      errors: errors.length > 0 ? errors : null,
+    });
+    
+  } catch (error) {
+    console.error("Lỗi khi xóa người dùng thủ công:", error);
+    return NextResponse.json(
+      { error: "Không thể xóa người dùng: " + error.message },
       { status: 500 }
     );
   }

@@ -200,6 +200,52 @@ const UserList = forwardRef(({ searchQuery }, ref) => {
       cancelText: "Hủy",
       onOk: async () => {
         try {
+          // Tìm thông tin người dùng để lấy email
+          const user = users.find(u => u.id === userId);
+          
+          if (user && user.email) {
+            // Ưu tiên xóa qua API mới (xóa cả Firebase Auth và MongoDB)
+            try {
+              const response = await fetch("/api/users/check-expired-vips", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ email: user.email }),
+              });
+              
+              if (response.ok) {
+                const result = await response.json();
+                console.log("Kết quả xóa:", result);
+                
+                // Nếu xóa thành công với API mới
+                if (result.success) {
+                  // Cập nhật giao diện
+                  const updatedUsers = users.filter((user) => user.id !== userId);
+                  setUsers(updatedUsers);
+                  setFilteredUsers(updatedUsers);
+                  
+                  message.success({
+                    content: (
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <DeleteOutlined style={{ color: '#ff4d4f', marginRight: 8 }} />
+                        <span>Đã xóa <strong>{user.fullName}</strong> khỏi cả Firebase Auth và MongoDB</span>
+                      </div>
+                    ),
+                    icon: null
+                  });
+                  return;
+                }
+              }
+              
+              // Nếu API mới thất bại, thử API cũ
+              console.log("API mới thất bại, thử API cũ");
+            } catch (apiError) {
+              console.error("Lỗi khi gọi API xóa người dùng:", apiError);
+            }
+          }
+          
+          // Phương pháp xóa cũ (chỉ xóa MongoDB)
           const response = await fetch("/api/users/delete", {
             method: "DELETE",
             headers: {
