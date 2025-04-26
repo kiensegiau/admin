@@ -273,13 +273,27 @@ const UserList = forwardRef(({ searchQuery }, ref) => {
 
   const handleDeposit = async () => {
     try {
+      // Log để debug
+      console.log("Thông tin người dùng được chọn (nạp tiền):", {
+        id: selectedUser.id,
+        _id: selectedUser._id,
+        uid: selectedUser.uid,
+        firebaseId: selectedUser.firebaseId,
+        email: selectedUser.email
+      });
+      
+      // Chọn ID phù hợp
+      let userId = selectedUser.uid || selectedUser.firebaseId || selectedUser._id || selectedUser.id;
+      
+      console.log("Đang nạp tiền dùng ID:", userId);
+      
       const response = await fetch("/api/users/deposit", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          userId: selectedUser.id,
+          userId: userId,
           amount: depositAmount,
         }),
       });
@@ -304,7 +318,17 @@ const UserList = forwardRef(({ searchQuery }, ref) => {
       setDepositAmount(0);
     } catch (error) {
       console.error("Lỗi khi nạp tiền:", error);
-      message.error(error.message);
+      message.error({
+        content: (
+          <div>
+            <div>Lỗi: {error.message}</div>
+            <div style={{fontSize: '12px', marginTop: '5px', color: '#999'}}>
+              Người dùng: {selectedUser.fullName} (ID: {selectedUser.uid || selectedUser.id})
+            </div>
+          </div>
+        ),
+        duration: 5
+      });
     }
   };
 
